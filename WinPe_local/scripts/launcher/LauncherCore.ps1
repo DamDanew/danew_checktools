@@ -1,6 +1,11 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+$offlineEnginePath = Join-Path (Split-Path -Parent $PSScriptRoot) 'offline\OfflineLogsEngine.ps1'
+if (Test-Path -Path $offlineEnginePath) {
+    . $offlineEnginePath
+}
+
 function Resolve-DanewLauncherPath {
     param(
         [Parameter(Mandatory = $true)]
@@ -998,6 +1003,10 @@ function Invoke-DanewLauncherAction {
             'start-diagnostic' {
                 $diag = Invoke-DanewOneClickDiagnostic -RootPath $RootPath -Config $Config -RuntimeSystemDrive $RuntimeSystemDrive -CurrentLocationPath $CurrentLocationPath -ProgressCallback $ProgressCallback
                 $result = [pscustomobject]@{ action = $Action; output = $diag }
+            }
+            'analyze-offline-logs' {
+                $offline = Invoke-DanewOfflineLogsAnalysis -RootPath $RootPath -Config $Config
+                $result = [pscustomobject]@{ action = $Action; output = $offline }
             }
             'create-usb-media' {
                 $usbReport = Invoke-DanewCreateUsbMedia -RootPath $RootPath -Config $Config

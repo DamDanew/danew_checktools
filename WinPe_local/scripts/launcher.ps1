@@ -4,7 +4,7 @@ param(
     [string]$ConfigPath,
     [switch]$FallbackToCli,
     [switch]$ForceGuiInitFailure,
-    [ValidateSet('Interactive', 'scan-winpe', 'capability-analysis', 'generate-report', 'open-reports-folder', 'export-diagnostic-package', 'prepare-startnet', 'start-diagnostic', 'create-usb-media', 'real-winpe-validation', 'exit')]
+    [ValidateSet('Interactive', 'scan-winpe', 'capability-analysis', 'generate-report', 'open-reports-folder', 'export-diagnostic-package', 'prepare-startnet', 'start-diagnostic', 'analyze-offline-logs', 'create-usb-media', 'real-winpe-validation', 'exit')]
     [string]$CliFallbackCommand = 'Interactive'
 )
 
@@ -108,6 +108,17 @@ function Invoke-GuiAction {
             [System.Windows.Forms.MessageBox]::Show($message, 'Danew Launcher') | Out-Null
         }
         elseif ($Action -eq 'refresh-status') {
+            [void](Update-DanewStatusPanel)
+        }
+        elseif ($Action -eq 'analyze-offline-logs') {
+            $offline = $res.output
+            $summary = $offline.summary
+            $message = 'Offline logs analysis complete.' + [Environment]::NewLine +
+                'Overall: ' + [string]$offline.overall_status + [Environment]::NewLine +
+                'Events: ' + [string]$summary.total_events + [Environment]::NewLine +
+                'Missing required logs: ' + [string]$summary.missing_required_logs + [Environment]::NewLine +
+                'Summary report: ' + [string]$offline.artifacts.evtx_summary
+            [System.Windows.Forms.MessageBox]::Show($message, 'Danew Launcher') | Out-Null
             [void](Update-DanewStatusPanel)
         }
         elseif ($Action -ne 'exit') {
@@ -316,6 +327,7 @@ $buttonDefinitions = @(
     @{ label = 'Scan WinPE'; action = 'scan-winpe' },
     @{ label = 'Run Capability Analysis'; action = 'capability-analysis' },
     @{ label = 'Generate Report'; action = 'generate-report' },
+    @{ label = 'Analyze Offline Windows Logs'; action = 'analyze-offline-logs' },
     @{ label = 'Open Reports Folder'; action = 'open-reports-folder' },
     @{ label = 'Export Diagnostic Package'; action = 'export-diagnostic-package' },
     @{ label = 'Create Bootable USB'; action = 'create-usb-media' },

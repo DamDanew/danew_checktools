@@ -4,7 +4,7 @@ param(
     [string]$ConfigPath,
     [switch]$Json,
     [string]$RuntimeSystemDrive,
-    [ValidateSet('Interactive', 'scan-winpe', 'capability-analysis', 'generate-report', 'open-reports-folder', 'export-diagnostic-package', 'prepare-startnet', 'start-diagnostic', 'create-usb-media', 'real-winpe-validation', 'pre-real-boot-check', 'refresh-status', 'show-status', 'view-last-report', 'exit')]
+    [ValidateSet('Interactive', 'scan-winpe', 'capability-analysis', 'generate-report', 'open-reports-folder', 'export-diagnostic-package', 'prepare-startnet', 'start-diagnostic', 'analyze-offline-logs', 'create-usb-media', 'real-winpe-validation', 'pre-real-boot-check', 'refresh-status', 'show-status', 'view-last-report', 'exit')]
     [string]$Command = 'Interactive'
 )
 
@@ -209,6 +209,31 @@ function Invoke-DanewCliDiagnosticCommand {
     Write-Host ('HTML report: ' + $result.output.artifacts.report_html_path)
 }
 
+function Invoke-DanewCliOfflineLogsCommand {
+    $result = Invoke-DanewLauncherAction -Action 'analyze-offline-logs' -RootPath $RootPath -Config $config
+
+    if ($Json) {
+        $result.output | ConvertTo-Json -Depth 40
+        return
+    }
+
+    $payload = $result.output
+    Write-Host ''
+    Write-Host 'Offline Windows Logs Analysis Summary'
+    Write-Host ('Overall: ' + [string]$payload.overall_status)
+    Write-Host ('Discovered logs: ' + [string]$payload.summary.total_discovered_logs)
+    Write-Host ('Events: ' + [string]$payload.summary.total_events)
+    Write-Host ('Missing required logs: ' + [string]$payload.summary.missing_required_logs)
+    Write-Host ('Parse issues: ' + [string]$payload.summary.parse_issue_count)
+    Write-Host ('offline-windows-analysis.json: ' + [string]$payload.artifacts.offline_windows_analysis)
+    Write-Host ('evtx-discovery.json: ' + [string]$payload.artifacts.evtx_discovery)
+    Write-Host ('evtx-events.json: ' + [string]$payload.artifacts.evtx_events_json)
+    Write-Host ('evtx-events.csv: ' + [string]$payload.artifacts.evtx_events_csv)
+    Write-Host ('evtx-summary.json: ' + [string]$payload.artifacts.evtx_summary)
+    Write-Host ('timeline-raw.json: ' + [string]$payload.artifacts.timeline_raw_json)
+    Write-Host ('timeline-raw.html: ' + [string]$payload.artifacts.timeline_raw_html)
+}
+
 if ($Command -ne 'Interactive') {
     if ($Command -eq 'real-winpe-validation') {
         $validationScript = Join-Path $PSScriptRoot 'Invoke-DanewRealWinPEValidation.ps1'
@@ -234,6 +259,12 @@ if ($Command -ne 'Interactive') {
     if ($Command -eq 'start-diagnostic') {
         Invoke-DanewCliDiagnosticCommand
         Write-DanewLauncherActionLog -Config $config -Action 'cli-launcher' -Status 'ok' -Message 'CLI command completed: start-diagnostic'
+        exit 0
+    }
+
+    if ($Command -eq 'analyze-offline-logs') {
+        Invoke-DanewCliOfflineLogsCommand
+        Write-DanewLauncherActionLog -Config $config -Action 'cli-launcher' -Status 'ok' -Message 'CLI command completed: analyze-offline-logs'
         exit 0
     }
 
@@ -266,10 +297,11 @@ while ($true) {
     Write-Host '7. Open Reports Folder'
     Write-Host '8. Export Diagnostic Package'
     Write-Host '9. Start Diagnostic'
-    Write-Host '10. Create Bootable USB'
-    Write-Host '11. Exit'
+    Write-Host '10. Analyze Offline Windows Logs'
+    Write-Host '11. Create Bootable USB'
+    Write-Host '12. Exit'
 
-    $choice = Read-Host 'Select action (1-11)'
+    $choice = Read-Host 'Select action (1-12)'
     switch ($choice) {
         '1' { Invoke-DanewCliStatusCommand -ActionName 'refresh-status' }
         '2' { Invoke-DanewCliStatusCommand -ActionName 'show-status' }
@@ -280,8 +312,9 @@ while ($true) {
         '7' { Invoke-DanewCliAction -ActionName 'open-reports-folder' }
         '8' { Invoke-DanewCliAction -ActionName 'export-diagnostic-package' }
         '9' { Invoke-DanewCliDiagnosticCommand }
-        '10' { Invoke-DanewCliAction -ActionName 'create-usb-media' }
-        '11' {
+        '10' { Invoke-DanewCliOfflineLogsCommand }
+        '11' { Invoke-DanewCliAction -ActionName 'create-usb-media' }
+        '12' {
             Invoke-DanewCliAction -ActionName 'exit'
             break
         }
