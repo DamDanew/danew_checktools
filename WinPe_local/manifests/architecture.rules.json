@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "pe_machine_map": {
+    "0x014c": "x86",
+    "0x8664": "x64",
+    "0xAA64": "arm64"
+  },
+  "evidence_order": [
+    "dism_wim_info",
+    "kernel_pe_machine",
+    "efi_bootloader",
+    "syswow64_presence",
+    "offline_registry"
+  ],
+  "compatible_machines": {
+    "x86": ["0x014c"],
+    "x64": ["0x8664", "0x014c"],
+    "arm64": ["0xAA64"]
+  }
+}

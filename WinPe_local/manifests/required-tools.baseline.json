@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "tools": [
+    "cmd.exe",
+    "powershell.exe",
+    "wpeinit.exe",
+    "wpeutil.exe",
+    "dism.exe",
+    "reg.exe",
+    "diskpart.exe",
+    "bcdedit.exe",
+    "wevtutil.exe",
+    "eventvwr.exe",
+    "pnputil.exe",
+    "net.exe",
+    "ipconfig.exe",
+    "notepad.exe",
+    "robocopy.exe"
+  ]
+}

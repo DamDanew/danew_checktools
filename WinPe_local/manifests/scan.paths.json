@@ -1,0 +1,13 @@
+{
+  "version": "1.0.0",
+  "paths": [
+    "Windows/System32",
+    "Windows/System32/drivers",
+    "Windows/System32/DriverStore",
+    "Windows/System32/WindowsPowerShell",
+    "Windows/SysWOW64",
+    "Program Files",
+    "Program Files (x86)",
+    "Windows/WinSxS"
+  ]
+}

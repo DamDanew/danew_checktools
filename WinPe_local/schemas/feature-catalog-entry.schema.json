@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "danew/feature-catalog-entry.schema.json",
+  "title": "FeatureCatalogEntry",
+  "type": "object",
+  "required": ["id", "name", "domain", "detection", "score_weight"],
+  "properties": {
+    "id": { "type": "string" },
+    "name": { "type": "string" },
+    "domain": {
+      "type": "string",
+      "enum": ["system_recovery", "networking", "disk_recovery", "gui", "crash_analysis"]
+    },
+    "detection": {
+      "type": "object",
+      "properties": {
+        "allOfFiles": { "type": "array", "items": { "type": "string" } },
+        "anyOfFiles": { "type": "array", "items": { "type": "string" } },
+        "anyOfTools": { "type": "array", "items": { "type": "string" } },
+        "anyOfRuntimes": { "type": "array", "items": { "type": "string" } },
+        "anyOfDriverCategories": { "type": "array", "items": { "type": "string" } },
+        "allOfDriverCategories": { "type": "array", "items": { "type": "string" } },
+        "requiresRegistryKey": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "score_weight": { "type": "integer", "minimum": 1, "maximum": 100 },
+    "required_profiles": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": false
+}

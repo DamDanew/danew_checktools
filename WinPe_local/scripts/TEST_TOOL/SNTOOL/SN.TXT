@@ -1,0 +1,9 @@
++---------------------------------------------------------------------------+
+|                     AMIDEWIN Utility (Aptio)    v5.14                     |
+|      Copyright (C)2014 American Megatrends Inc. All Rights Reserved.      |
++---------------------------------------------------------------------------+
+
+Initializing the SMBIOS interface.  Please wait a moment......
+          Name              R/W  Status  Information
+--------------------------  ---  ------  ----------------------------------
+(/SS)System Serial number    R    Done   "123456789"

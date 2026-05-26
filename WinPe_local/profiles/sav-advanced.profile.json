@@ -1,0 +1,36 @@
+{
+  "id": "sav-advanced",
+  "name": "Profile 2 - SAV Advanced",
+  "description": "Default SAV profile with SMART, EVTX advanced, HTML reporting, hardware inventory",
+  "targets": ["sav", "diagnostic_default"],
+  "required_features": [
+    "f-core-shell",
+    "f-powershell",
+    "f-network-stack",
+    "f-storage-stack",
+    "f-evtx-advanced",
+    "f-smart-monitor",
+    "f-driver-nvme",
+    "f-driver-intel-rst",
+    "f-driver-lan",
+    "f-driver-wifi",
+    "f-driver-usb3",
+    "f-driver-chipset"
+  ],
+  "required_tools": [
+    "cmd.exe",
+    "powershell.exe",
+    "wpeinit.exe",
+    "wpeutil.exe",
+    "dism.exe",
+    "diskpart.exe",
+    "reg.exe",
+    "wevtutil.exe",
+    "pnputil.exe",
+    "net.exe",
+    "ipconfig.exe",
+    "robocopy.exe"
+  ],
+  "recommended_tools": ["smartctl", "EvtxECmd", "notepad.exe", "eventvwr.exe"],
+  "optional_tools": ["forensic_parser_portable", "backup_tool_portable"]
+}

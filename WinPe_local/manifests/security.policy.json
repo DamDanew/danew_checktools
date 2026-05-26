@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "strict_mode": true,
+  "require_sha256_for_downloaded": true,
+  "require_signature_for_critical": true,
+  "require_signature_for_portable": false,
+  "allow_unsigned_builtin": false,
+  "trusted_vendors": [
+    "Microsoft",
+    "Intel",
+    "Realtek",
+    "Broadcom",
+    "smartmontools",
+    "EricZimmerman"
+  ],
+  "blocked_vendors": []
+}

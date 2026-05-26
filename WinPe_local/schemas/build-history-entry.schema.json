@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "danew/build-history-entry.schema.json",
+  "title": "BuildHistoryEntry",
+  "type": "object",
+  "required": ["build_id", "timestamp", "profile", "architecture", "items", "estimated_size_mb"],
+  "properties": {
+    "build_id": { "type": "string" },
+    "timestamp": { "type": "string" },
+    "profile": { "type": "string" },
+    "architecture": { "type": "string" },
+    "items": { "type": "array", "items": { "type": "string" } },
+    "estimated_size_mb": { "type": "number" },
+    "output_sha256": { "type": "string" },
+    "notes": { "type": "string" }
+  },
+  "additionalProperties": false
+}

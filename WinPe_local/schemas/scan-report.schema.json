@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "danew/scan-report.schema.json",
+  "title": "ScanReport",
+  "type": "object",
+  "required": ["scan_id", "timestamp", "input", "architecture", "inventory", "score", "recommendations"],
+  "properties": {
+    "scan_id": { "type": "string" },
+    "timestamp": { "type": "string" },
+    "input": {
+      "type": "object",
+      "required": ["path", "input_type"],
+      "properties": {
+        "path": { "type": "string" },
+        "input_type": { "type": "string", "enum": ["workdir", "mounted_wim", "usb_mirror"] }
+      },
+      "additionalProperties": false
+    },
+    "architecture": { "type": "string", "enum": ["x86", "x64", "arm64", "unknown"] },
+    "architecture_details": {
+      "type": "object",
+      "properties": {
+        "detected": { "type": "string" },
+        "evidence": { "type": "array", "items": { "type": "string" } },
+        "wim_metadata": { "type": "object" },
+        "registry_metadata": { "type": "object" }
+      },
+      "additionalProperties": true
+    },
+    "inventory": {
+      "type": "object",
+      "properties": {
+        "files_scanned": { "type": "integer" },
+        "tools_detected": { "type": "array", "items": { "type": "string" } },
+        "drivers_detected": { "type": "array", "items": { "type": "string" } },
+        "runtimes_detected": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+    "driver_analysis": {
+      "type": "object",
+      "properties": {
+        "inf_count": { "type": "integer" },
+        "sys_count": { "type": "integer" },
+        "classes_detected": { "type": "array", "items": { "type": "string" } },
+        "categories_present": { "type": "array", "items": { "type": "string" } },
+        "categories_missing": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+    "pe_validation": {
+      "type": "object",
+      "properties": {
+        "checked": { "type": "integer" },
+        "compatible": { "type": "integer" },
+        "incompatible": { "type": "integer" },
+        "unknown": { "type": "integer" },
+        "details": { "type": "array", "items": { "type": "object" } }
+      },
+      "additionalProperties": true
+    },
+    "security_validation": {
+      "type": "object",
+      "properties": {
+        "strict_mode": { "type": "boolean" },
+        "checked": { "type": "integer" },
+        "passed": { "type": "integer" },
+        "failed": { "type": "integer" },
+        "violations": { "type": "array", "items": { "type": "object" } }
+      },
+      "additionalProperties": true
+    },
+    "feature_status": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "domain": { "type": "string" },
+          "present": { "type": "boolean" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "score": {
+      "type": "object",
+      "required": ["global"],
+      "properties": {
+        "system_recovery": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "networking": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "disk_recovery": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "gui": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "crash_analysis": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "global": { "type": "integer", "minimum": 0, "maximum": 100 }
+      },
+      "additionalProperties": false
+    },
+    "recommendations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["feature", "status", "priority", "recommendation"],
+        "properties": {
+          "feature": { "type": "string" },
+          "status": { "type": "string" },
+          "present": { "type": "array", "items": { "type": "string" } },
+          "missing": { "type": "array", "items": { "type": "string" } },
+          "recommendation": { "type": "string" },
+          "priority": { "type": "string", "enum": ["critical", "recommended", "optional", "expert"] },
+          "size_impact_mb": { "type": "number" },
+          "ram_impact_mb": { "type": "number" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

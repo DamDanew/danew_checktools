@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "danew/security-policy.schema.json",
+  "title": "SecurityPolicy",
+  "type": "object",
+  "required": ["version", "strict_mode", "trusted_vendors"],
+  "properties": {
+    "version": { "type": "string" },
+    "strict_mode": { "type": "boolean" },
+    "require_sha256_for_downloaded": { "type": "boolean" },
+    "require_signature_for_critical": { "type": "boolean" },
+    "require_signature_for_portable": { "type": "boolean" },
+    "allow_unsigned_builtin": { "type": "boolean" },
+    "trusted_vendors": { "type": "array", "items": { "type": "string" } },
+    "blocked_vendors": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,50 @@
+{
+  "id": "oem-expert",
+  "name": "Profile 3 - OEM Expert",
+  "description": "Full OEM environment with advanced recovery, forensic and diagnostics",
+  "targets": ["oem", "expert_lab", "factory_support"],
+  "required_features": [
+    "f-core-shell",
+    "f-powershell",
+    "f-network-stack",
+    "f-storage-stack",
+    "f-evtx-advanced",
+    "f-smart-monitor",
+    "f-gui-basic",
+    "f-driver-nvme",
+    "f-driver-intel-rst",
+    "f-driver-lan",
+    "f-driver-wifi",
+    "f-driver-usb3",
+    "f-driver-chipset"
+  ],
+  "required_tools": [
+    "cmd.exe",
+    "powershell.exe",
+    "wpeinit.exe",
+    "wpeutil.exe",
+    "dism.exe",
+    "diskpart.exe",
+    "reg.exe",
+    "wevtutil.exe",
+    "pnputil.exe",
+    "net.exe",
+    "ipconfig.exe",
+    "robocopy.exe",
+    "bcdedit.exe"
+  ],
+  "recommended_tools": [
+    "smartctl",
+    "EvtxECmd",
+    "eventvwr.exe",
+    "firmware_toolkit_portable",
+    "partition_toolkit_portable",
+    "thermal_monitor_portable",
+    "benchmark_suite_portable"
+  ],
+  "optional_tools": [
+    "forensic_suite_portable",
+    "memory_dump_parser",
+    "bsod_debug_bundle"
+  ]
+}

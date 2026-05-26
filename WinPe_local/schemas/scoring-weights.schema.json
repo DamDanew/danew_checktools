@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "danew/scoring-weights.schema.json",
+  "title": "ScoringWeights",
+  "type": "object",
+  "required": ["version", "profiles"],
+  "properties": {
+    "version": { "type": "string" },
+    "profiles": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["domain_weights"],
+        "properties": {
+          "domain_weights": {
+            "type": "object",
+            "required": ["system_recovery", "networking", "disk_recovery", "gui", "crash_analysis"],
+            "properties": {
+              "system_recovery": { "type": "number" },
+              "networking": { "type": "number" },
+              "disk_recovery": { "type": "number" },
+              "gui": { "type": "number" },
+              "crash_analysis": { "type": "number" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

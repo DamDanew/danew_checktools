@@ -1,0 +1,12 @@
+2018/05/01 20:50:44.700	[Info] - START	ExtDisplay - Inputs: en-US "TestVideo.mp4"
+2018/05/01 20:50:46.758	[Info] - Video path: TestVideo.mp4
+2018/05/01 20:50:53.485	[Info] - PASS	ExtDisplay
+2018/05/01 20:50:53.485	[Info] - FINISH	ExtDisplay
+2018/05/01 20:51:31.814	[Info] - START	ExtDisplay - Inputs: zh-CN "TestVideo.mp4"
+2018/05/01 20:51:33.763	[Info] - Video path: TestVideo.mp4
+2018/05/01 20:51:38.042	[Info] - PASS	ExtDisplay
+2018/05/01 20:51:38.042	[Info] - FINISH	ExtDisplay
+2018/05/01 20:52:43.450	[Info] - START	ExtDisplay - Inputs: zh-CN "TestVideo.mp4"
+2018/05/01 20:52:45.419	[Info] - Video path: TestVideo.mp4
+2018/05/01 20:52:49.141	[Info] - PASS	ExtDisplay
+2018/05/01 20:52:49.141	[Info] - FINISH	ExtDisplay

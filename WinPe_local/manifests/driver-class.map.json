@@ -1,0 +1,59 @@
+{
+  "version": "1.0.0",
+  "categories": [
+    {
+      "id": "nvme",
+      "name": "NVMe Storage",
+      "required_profiles": ["minimal", "sav-advanced", "oem-expert"],
+      "class_names": ["SCSIAdapter", "HDC"],
+      "provider_patterns": ["stornvme", "samsung", "kioxia", "wd", "micron"],
+      "inf_name_patterns": ["*nvme*.inf", "*stornvme*.inf"],
+      "sys_name_patterns": ["stornvme.sys", "*nvme*.sys"]
+    },
+    {
+      "id": "intel-rst",
+      "name": "Intel RST",
+      "required_profiles": ["sav-advanced", "oem-expert"],
+      "class_names": ["SCSIAdapter", "HDC"],
+      "provider_patterns": ["intel"],
+      "inf_name_patterns": ["*iaStor*.inf", "*rst*.inf"],
+      "sys_name_patterns": ["iaStor*.sys"]
+    },
+    {
+      "id": "lan",
+      "name": "LAN",
+      "required_profiles": ["minimal", "sav-advanced", "oem-expert"],
+      "class_names": ["Net"],
+      "provider_patterns": ["intel", "realtek", "broadcom", "marvell"],
+      "inf_name_patterns": ["*e1*.inf", "*rt*.inf", "*net*.inf"],
+      "sys_name_patterns": ["e1*.sys", "rt*.sys", "net*.sys"]
+    },
+    {
+      "id": "wifi",
+      "name": "Wi-Fi",
+      "required_profiles": ["sav-advanced", "oem-expert"],
+      "class_names": ["Net"],
+      "provider_patterns": ["intel", "qualcomm", "mediatek", "realtek", "broadcom"],
+      "inf_name_patterns": ["*wifi*.inf", "*wlan*.inf", "*netwtw*.inf"],
+      "sys_name_patterns": ["netwtw*.sys", "rtwlane*.sys", "qcamain*.sys"]
+    },
+    {
+      "id": "usb3",
+      "name": "USB 3.x",
+      "required_profiles": ["minimal", "sav-advanced", "oem-expert"],
+      "class_names": ["USB"],
+      "provider_patterns": ["intel", "amd", "renesas", "asmedia", "microsoft"],
+      "inf_name_patterns": ["*usb*.inf", "*xhci*.inf"],
+      "sys_name_patterns": ["usbxhci.sys", "iusb3xhc.sys", "amdusb3.sys"]
+    },
+    {
+      "id": "chipset",
+      "name": "Chipset",
+      "required_profiles": ["sav-advanced", "oem-expert"],
+      "class_names": ["System"],
+      "provider_patterns": ["intel", "amd"],
+      "inf_name_patterns": ["*chipset*.inf", "*system*.inf", "*pch*.inf"],
+      "sys_name_patterns": ["pci.sys", "acpi.sys"]
+    }
+  ]
+}

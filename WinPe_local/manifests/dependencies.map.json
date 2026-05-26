@@ -1,0 +1,22 @@
+{
+  "version": "1.0.0",
+  "dependencies": {
+    "net_runtime": ["f-powershell"],
+    "netfx_or_pwsh_runtime": ["f-powershell"],
+    "advanced_evtx_analysis": ["f-evtx-advanced", "EvtxECmd"],
+    "smart_disk_health": ["f-smart-monitor", "smartctl"],
+    "driver_injection": ["pnputil.exe", "dism.exe"]
+  },
+  "constraints": [
+    {
+      "id": "c-arch-x64-tools",
+      "description": "x64-only tools must not be recommended on x86 image",
+      "rule": "if image.arch == x86 then exclude tools.architecture contains x64 only"
+    },
+    {
+      "id": "c-signature-required",
+      "description": "Critical downloadable tools must be hash-verified",
+      "rule": "if tool.priority == critical and tool.download_url != '' then tool.sha256 must not be empty"
+    }
+  ]
+}

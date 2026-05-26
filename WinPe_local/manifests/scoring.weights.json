@@ -1,0 +1,32 @@
+{
+  "version": "1.0.0",
+  "profiles": {
+    "minimal": {
+      "domain_weights": {
+        "system_recovery": 30,
+        "networking": 25,
+        "disk_recovery": 30,
+        "gui": 5,
+        "crash_analysis": 10
+      }
+    },
+    "sav-advanced": {
+      "domain_weights": {
+        "system_recovery": 25,
+        "networking": 20,
+        "disk_recovery": 25,
+        "gui": 10,
+        "crash_analysis": 20
+      }
+    },
+    "oem-expert": {
+      "domain_weights": {
+        "system_recovery": 20,
+        "networking": 20,
+        "disk_recovery": 20,
+        "gui": 15,
+        "crash_analysis": 25
+      }
+    }
+  }
+}

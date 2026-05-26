@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "danew/driver-class-map.schema.json",
+  "title": "DriverClassMap",
+  "type": "object",
+  "required": ["version", "categories"],
+  "properties": {
+    "version": { "type": "string" },
+    "categories": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "required_profiles"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "required_profiles": { "type": "array", "items": { "type": "string" } },
+          "class_names": { "type": "array", "items": { "type": "string" } },
+          "provider_patterns": { "type": "array", "items": { "type": "string" } },
+          "inf_name_patterns": { "type": "array", "items": { "type": "string" } },
+          "sys_name_patterns": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

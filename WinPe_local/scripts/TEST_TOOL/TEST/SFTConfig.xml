@@ -1,0 +1,405 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<SystemFunctionalTest>
+  <!--<Language Name="en-US" />-->
+  <Language Name="zh-CN" />
+
+  <!-- [AutoTest Scenario Configuration] :
+                The following tag "AutoTest" is provided to configure autotest scenario.
+                Currently only one attribute is available:
+                "StopAtFail" : to enable(true) abort auto sequnce if any test item fails, 
+                               or disable(false, default value) to allow going thru all test items.
+    -->
+
+  <AutoTest StopAtFail="True" />
+
+	<Phase Name="WB">
+    <TestMenu>
+      <MenuItem Name="SystemInfo">
+        <!--
+        <BIOS_VERSION>Dell Inc. A08, 10/28/2015</BIOS_VERSION>
+        <DISK_SIZE>238GB</DISK_SIZE>
+        <MEMORY_SIZE>16GB</MEMORY_SIZE>
+        <CPU_TYPE>Intel(R) Core(TM) i7-5600U CPU @ 2.60GHz</CPU_TYPE>
+        <DISK_SIZE_TOLERANCE_PERCENTAGE>1</DISK_SIZE_TOLERANCE_PERCENTAGE>
+        -->
+      </MenuItem>
+      <MenuItem Name="Brightness"/>
+      <MenuItem Name="Display">
+        <ColorTest Color="#FFFFFF" >White</ColorTest>
+        <ColorTest Color="#8F8F8F" >Gray</ColorTest>
+        <ColorTest Color="#000000" >Black</ColorTest>
+        <ColorTest Color="#FF0000" >Red</ColorTest>
+        <ColorTest Color="#00FF00" >Green</ColorTest>
+        <ColorTest Color="#0000FF" >Blue</ColorTest>
+        <ColorTest Color="#FFFF00" >Yellow</ColorTest>
+        <ColorTest Color="#00FFFF" >Cyan</ColorTest>
+        <ColorTest Color="#FF00FF" >Magenta</ColorTest>
+      </MenuItem>
+	  <MenuItem Name="Speaker">
+        <Property AudioOutSource="TestAudio.mp3" />
+      </MenuItem>
+      <MenuItem Name="Headset">
+        <Property AudioOutSource="TestAudio.mp3" />
+      </MenuItem>
+      <!--MenuItem Name="FrontCamera">
+        <BackColor Color="#646464"></BackColor>
+        <CameraDevice>USB</CameraDevice>
+      </MenuItem-->
+      <!--MenuItem Name="FrontCameraRec">
+        <BackColor Color="#646464"></BackColor>
+        <CameraDevice>USB</CameraDevice>
+      </MenuItem-->
+      <!--MenuItem Name="RearCamera">
+        <BackColor Color="#646464"></BackColor>
+        <CameraDevice>USB</CameraDevice>
+      </MenuItem-->
+      <!--MenuItem Name="RearCameraRec">
+        <BackColor Color="#646464"></BackColor>
+        <CameraDevice>USB</CameraDevice>
+      </MenuItem-->
+	  <!--MenuItem Name="Accelerometer"/-->
+	   <MenuItem Name="Touch">
+        <Property MultiPointCount="5" />
+        <Property MultiDrawCount="3" />
+      </MenuItem>
+	  <!--MenuItem Name="Keypad">    
+        <Property RepeatCount="3" />
+        <Button>LWin</Button>
+        <Button>VolumeUp</Button>
+        <Button>VolumeDown</Button>
+      </MenuItem-->
+	  <MenuItem Name="RemovableDevice">
+        <!--
+        <MappedDrive>F</MappedDrive>
+        -->
+      </MenuItem>
+	  <MenuItem Name="WiFi">
+        <!--
+        <ConnectionName> </ConnectionName>
+        <AvailableName>MSFTCORP</AvailableName>
+        <AvailableName>MSFTOPEN</AvailableName>
+        <Threshold SignalQuality="50" />
+        -->
+      </MenuItem>
+      <MenuItem Name="Bluetooth">
+        <!--[Note: need exactly 2 inputs. ex:"Scaned BT lists" "BT scanning time(second)"]-->
+        <!--
+        <ScanTime>6</ScanTime>
+        <AvailableName>Windows phone</AvailableName>
+        -->
+      </MenuItem>
+	  <MenuItem Name="Battery">
+        <!--
+        <Threshold MinCapacity="80" />
+        -->
+      </MenuItem>
+	  <MenuItem Name="ExtDisplay">
+        <Filename>TestVideo.mp4</Filename>
+      </MenuItem>
+      <MenuItem Name="Touchpad"/>
+	  <!--MenuItem Name="Keyboard">
+        <Key Name="Alt_R" />
+        <Key Name="Apps" />
+        <Key Name="Ctrl_R" />
+        <Key Name="Shift_R" />
+        <Key Name="Home" />
+        <Key Name="End" />
+        <Key Name="Delete" />
+        <Key Name="PageUp" />
+        <Key Name="Next" />
+      </MenuItem-->
+    </TestMenu>
+  </Phase>
+  
+    <Phase Name="Other">
+    <TestMenu>
+	  <MenuItem Name="SIM"/>
+	  <MenuItem Name="Touchpad"/>
+      <!--MenuItem Name="Keyboard">
+        <Key Name="Alt_R" />
+        <Key Name="Apps" />
+        <Key Name="Ctrl_R" />
+        <Key Name="Shift_R" />
+        <Key Name="Home" />
+        <Key Name="End" />
+        <Key Name="Delete" />
+        <Key Name="PageUp" />
+        <Key Name="Next" />
+      </MenuItem-->
+	  <MenuItem Name="GPS">
+        <!-- "AllowMaxPosFixTime" is the seconds counted since application start, this timeout has higher priority than "AutoFailTimeout" -->
+        <!-- "LocationMatch" defines the location to match when a fixed position is available from location service,
+				 the valid value for "LocationMatch" could be "Any" or "<Latitude>,<Longitude>" (for example: "25.012345,121.123456")
+			  -->
+        <!-- "Tolerance" defines the error tolerance in meter. This value must be reasonable for the test environment, 
+				 default value is 100m if not set, and this value will be ignored if "LocationMatch" is set to "Any"
+			  -->
+        <!--
+        <Threshold AllowedMaxPosFixTime="30" LocationMatch="25.012345,121.123456" Tolerance="100" />
+        -->
+      </MenuItem>
+      <MenuItem Name="Pen"/>   
+	  <MenuItem Name="Gyrometer"/>
+      <MenuItem Name="Light"/>
+      <MenuItem Name="Compass"/>
+	  <MenuItem Name="Accelerometer"/>
+    </TestMenu>
+  </Phase>
+  
+  
+  <Phase Name="Default">
+    <TestMenu>
+      <MenuItem Name="SystemInfo">
+        <!--
+        <BIOS_VERSION>Dell Inc. A08, 10/28/2015</BIOS_VERSION>
+        <DISK_SIZE>238GB</DISK_SIZE>
+        <MEMORY_SIZE>16GB</MEMORY_SIZE>
+        <CPU_TYPE>Intel(R) Core(TM) i7-5600U CPU @ 2.60GHz</CPU_TYPE>
+        <DISK_SIZE_TOLERANCE_PERCENTAGE>1</DISK_SIZE_TOLERANCE_PERCENTAGE>
+        -->
+      </MenuItem>
+      <MenuItem Name="Battery">
+        <!--
+        <Threshold MinCapacity="80" />
+        -->
+      </MenuItem>
+      <MenuItem Name="Brightness"/>
+      <MenuItem Name="Display">
+        <ColorTest Color="#FFFFFF" >White</ColorTest>
+        <ColorTest Color="#8F8F8F" >Gray</ColorTest>
+        <ColorTest Color="#000000" >Black</ColorTest>
+        <ColorTest Color="#FF0000" >Red</ColorTest>
+        <ColorTest Color="#00FF00" >Green</ColorTest>
+        <ColorTest Color="#0000FF" >Blue</ColorTest>
+        <ColorTest Color="#FFFF00" >Yellow</ColorTest>
+        <ColorTest Color="#00FFFF" >Cyan</ColorTest>
+        <ColorTest Color="#FF00FF" >Magenta</ColorTest>
+      </MenuItem>
+      <MenuItem Name="ExtDisplay">
+        <Filename>TestVideo.mp4</Filename>
+      </MenuItem>
+      <MenuItem Name="FrontCamera">
+        <BackColor Color="#646464"></BackColor>
+        <CameraDevice></CameraDevice>
+      </MenuItem>
+      <MenuItem Name="FrontCameraRec">
+        <BackColor Color="#646464"></BackColor>
+        <CameraDevice></CameraDevice>
+      </MenuItem>
+      <MenuItem Name="RearCamera">
+        <BackColor Color="#646464"></BackColor>
+        <CameraDevice></CameraDevice>
+      </MenuItem>
+      <MenuItem Name="RearCameraRec">
+        <BackColor Color="#646464"></BackColor>
+        <CameraDevice></CameraDevice>
+      </MenuItem>
+      <MenuItem Name="Accelerometer"/>
+      <MenuItem Name="Gyrometer"/>
+      <MenuItem Name="Light"/>
+      <MenuItem Name="Compass"/>
+	  
+      <MenuItem Name="GPS">
+        <!-- "AllowMaxPosFixTime" is the seconds counted since application start, this timeout has higher priority than "AutoFailTimeout" -->
+        <!-- "LocationMatch" defines the location to match when a fixed position is available from location service,
+				 the valid value for "LocationMatch" could be "Any" or "<Latitude>,<Longitude>" (for example: "25.012345,121.123456")
+			  -->
+        <!-- "Tolerance" defines the error tolerance in meter. This value must be reasonable for the test environment, 
+				 default value is 100m if not set, and this value will be ignored if "LocationMatch" is set to "Any"
+			  -->
+        <!--
+        <Threshold AllowedMaxPosFixTime="30" LocationMatch="25.012345,121.123456" Tolerance="100" />
+        -->
+      </MenuItem>
+      <MenuItem Name="Pen"/>
+      <MenuItem Name="Touch">
+        <Property MultiPointCount="5" />
+        <Property MultiDrawCount="3" />
+      </MenuItem>
+      <MenuItem Name="Touchpad"/>
+      <MenuItem Name="Keyboard">
+        <Key Name="Alt_R" />
+        <Key Name="Apps" />
+        <Key Name="Ctrl_R" />
+        <Key Name="Shift_R" />
+        <Key Name="Home" />
+        <Key Name="End" />
+        <Key Name="Delete" />
+        <Key Name="PageUp" />
+        <Key Name="Next" />
+      </MenuItem>
+      <MenuItem Name="RemovableDevice">
+        <!--
+        <MappedDrive>F</MappedDrive>
+        -->
+      </MenuItem>
+      <MenuItem Name="WiFi">
+        <!--
+        <ConnectionName> </ConnectionName>
+        <AvailableName>MSFTCORP</AvailableName>
+        <AvailableName>MSFTOPEN</AvailableName>
+        <Threshold SignalQuality="50" />
+        -->
+      </MenuItem>
+      <MenuItem Name="Bluetooth">
+        <!--[Note: need exactly 2 inputs. ex:"Scaned BT lists" "BT scanning time(second)"]-->
+        <!--
+        <ScanTime>6</ScanTime>
+        <AvailableName>Windows phone</AvailableName>
+        -->
+      </MenuItem>
+      <MenuItem Name="SIM"/>
+      <MenuItem Name="Speaker">
+        <Property AudioOutSource="TestAudio.wav" />
+      </MenuItem>
+      <MenuItem Name="Headset">
+        <Property AudioOutSource="TestAudio.wav" />
+      </MenuItem>
+      <MenuItem Name="Keypad">    
+        <Property RepeatCount="3" />
+        <Button>LWin</Button>
+        <Button>VolumeUp</Button>
+        <Button>VolumeDown</Button>
+      </MenuItem>
+      <MenuItem Name="LAN">
+        <IPAddress>www.msn.com</IPAddress>
+      </MenuItem>
+      <MenuItem Name="Biometric">
+      </MenuItem>
+    </TestMenu>
+  </Phase>
+
+  <Phase Name="Default-1">
+    <TestMenu>
+      <MenuItem Name="IRCamera">
+        <IRRefImage>IRRefImage.png</IRRefImage>
+        <IRSubImage>IRSubImage.png</IRSubImage>
+      </MenuItem>
+      <MenuItem Name="SerialPort">
+        <BaudRate>9600</BaudRate>
+        <ComPort>COM1</ComPort>
+        <ComPort>COM2</ComPort>
+        <ComPort>COM3</ComPort>
+      </MenuItem>
+      <MenuItem Name="Upload">
+	<Uri></Uri>
+      </MenuItem>
+    </TestMenu>
+  </Phase>
+  
+  <Phase Name="Sensors">
+    <TestMenu>
+      <MenuItem Name="Accelerometer"/>
+      <MenuItem Name="Gyrometer"/>
+      <MenuItem Name="Light"/>
+      <MenuItem Name="Compass"/>
+      <MenuItem Name="GPS">
+        <!--
+        <Threshold AllowedMaxPosFixTime="30" LocationMatch="25.012345,121.123456" Tolerance="100" />
+        -->
+      </MenuItem>
+    </TestMenu>
+  </Phase>
+
+  <!--"The phase will demonstrate how to set parameters and which test item can support auto pass"-->
+  <Phase Name="AutoPassDemo">
+    <TestMenu>
+      <MenuItem Name="SystemInfo">
+        <BIOS_VERSION>Dell Inc. A08, 10/28/2015</BIOS_VERSION>
+        <DISK_SIZE>238GB</DISK_SIZE>
+        <MEMORY_SIZE>16GB</MEMORY_SIZE>
+        <CPU_TYPE>Intel(R) Core(TM) i7-5600U CPU @ 2.60GHz</CPU_TYPE>
+        <DISK_SIZE_TOLERANCE_PERCENTAGE>1</DISK_SIZE_TOLERANCE_PERCENTAGE>
+      </MenuItem>
+      <MenuItem Name="Battery">
+        <Threshold MinCapacity="80" />
+      </MenuItem>
+      <MenuItem Name="GPS">
+        <!-- "AllowMaxPosFixTime" is the seconds counted since application start, this timeout has higher priority than "AutoFailTimeout" -->
+        <!-- "LocationMatch" defines the location to match when a fixed position is available from location service,
+				 the valid value for "LocationMatch" could be "Any" or "<Latitude>,<Longitude>" (for example: "25.012345,121.123456")
+			  -->
+        <!-- "Tolerance" defines the error tolerance in meter. This value must be reasonable for the test environment, 
+				 default value is 100m if not set, and this value will be ignored if "LocationMatch" is set to "Any"
+			  -->
+        <Threshold AllowedMaxPosFixTime="30" LocationMatch="25.012345,121.123456" Tolerance="100" />
+      </MenuItem>
+      <MenuItem Name="RemovableDevice">
+        <!-- "MappedDrive" defines the drive letter to match when insert remove device" -->
+        <MappedDrive>F</MappedDrive>
+      </MenuItem>
+      <MenuItem Name="WiFi">
+        <ConnectionName> </ConnectionName>
+        <AvailableName>MSFTCORP</AvailableName>
+        <AvailableName>SITLAB</AvailableName>
+        <Threshold SignalQuality="50" />
+      </MenuItem>
+      <MenuItem Name="Bluetooth">
+        <!--[Note: need exactly 2 inputs :"BT scanning time(second)" "Scaned BT lists" ]-->
+        <ScanTime>6</ScanTime>
+        <AvailableName>Windows phone</AvailableName>
+      </MenuItem>
+      <MenuItem Name="Light">
+        <!--"MinLux" is the Lux value that LightSensor auto test can pass when hiding the sensor-->
+        <!--"MinWaitTime" is the seconds that auto test will wait, if time is up, still not meet the MinLux then fail -->
+        <Threshold MinLux="10" MinWaitTime="10" />
+      </MenuItem>
+      <MenuItem Name="Accelerometer">
+        <Threshold AccelerationZ="-1" AccelerationY="-1" AccelerationX="1" MinWaitTime="60" />       
+      </MenuItem>
+      <MenuItem Name="Gyrometer">
+        <Threshold AngularVelocityX="90" AngularVelocityZ="-90" AngularVelocityY="-90" MinWaitTime="60" Tolerance="5" />
+      </MenuItem>
+      <MenuItem Name="LAN">
+        <Threshold MaxTimeOut="1000" />
+        <IPAddress>www.msn.com</IPAddress>
+      </MenuItem>
+      <MenuItem Name="Biometric">
+        <Threshold MinWaitTime="60" />
+      </MenuItem>
+      <MenuItem Name="SerialPort">
+        <Threshold MinWaitTime="3" />
+        <BaudRate>9600</BaudRate>
+        <ComPort>COM1</ComPort>
+        <ComPort>COM2</ComPort>
+        <ComPort>COM3</ComPort>
+      </MenuItem>
+    </TestMenu>
+  </Phase>
+   
+  <TestPath>
+    <GenerateSystemSettings>GenerateSystemSettings.exe</GenerateSystemSettings>
+    <SystemInfo>SystemInfoTest.exe</SystemInfo>
+    <Bluetooth>Bluetooth.exe</Bluetooth>
+    <Battery>Battery.exe</Battery>
+    <Brightness>Brightness.exe</Brightness>
+    <Display>Display.exe</Display>
+    <ExtDisplay>ExternalDisplay.exe</ExtDisplay>
+    <Accelerometer>Accelerometer.exe</Accelerometer>
+    <Gyrometer>Gyrometer.exe</Gyrometer>
+    <Light>LightSensor.exe</Light>
+    <Compass>Compass.exe</Compass>
+    <GPS>Geolocation.exe</GPS>
+    <Pen>Pen.exe</Pen>
+    <Touch>Touch.exe</Touch>
+	<TPTest>TPTest.exe</TPTest>
+    <Touchpad>Touchpad.exe</Touchpad>
+    <Keyboard>Keyboard.exe</Keyboard>
+    <RemovableDevice>RemovableDevice.exe</RemovableDevice>
+    <WiFi>Wifi.exe</WiFi>
+    <SIM>SIM.exe</SIM>
+    <Speaker>Audio.exe</Speaker>
+    <Headset>AudioHeadset.exe</Headset>
+    <Keypad>HardwareButton.exe</Keypad>
+    <FrontCamera>FrontCameraSkin.exe</FrontCamera>
+    <FrontCameraRec>FrontCameraSkinRec.exe</FrontCameraRec>
+    <RearCamera>RearCameraSkin.exe</RearCamera>
+    <RearCameraRec>RearCameraSkinRec.exe</RearCameraRec>
+    <LAN>LAN.exe</LAN>
+    <Biometric>Biometric.exe</Biometric>
+    <IRCamera>IRCamera.exe</IRCamera>
+    <SerialPort>SerialPortTest.exe</SerialPort>
+    <Upload>Upload.exe</Upload>
+  </TestPath>
+
+  </SystemFunctionalTest>

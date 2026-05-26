@@ -1,0 +1,37 @@
+# WinPE media and heavy binaries
+WinPe_local/Boot/
+WinPe_local/EFI/
+WinPe_local/images/
+WinPe_local/sources/
+WinPe_local/bootmgr
+WinPe_local/bootmgr.efi
+
+# Working payloads and caches
+WinPe_local/tools/
+WinPe_local/drivers/
+WinPe_local/runtimes/
+WinPe_local/packages/
+WinPe_local/cache/
+WinPe_local/downloads/
+WinPe_local/mounted_image/
+WinPe_local/temp/
+WinPe_local/builds/
+WinPe_local/reports/
+WinPe_local/logs/
+
+# Large media artifacts in test tool bundles
+WinPe_local/scripts/TEST_TOOL/**/*.mp4
+WinPe_local/scripts/TEST_TOOL/**/*.iso
+
+# Generic
+*.wim
+*.iso
+*.vhd
+*.vhdx
+*.cab
+*.msu
+*.zip
+*.7z
+*.tmp
+.DS_Store
+Thumbs.db

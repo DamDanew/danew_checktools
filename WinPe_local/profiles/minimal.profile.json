@@ -1,0 +1,30 @@
+{
+  "id": "minimal",
+  "name": "Profile 1 - Minimal",
+  "description": "Basic recovery profile with PowerShell, DISM, networking, logs, export",
+  "targets": ["basic_recovery", "field_support"],
+  "required_features": [
+    "f-core-shell",
+    "f-powershell",
+    "f-network-stack",
+    "f-storage-stack",
+    "f-driver-nvme",
+    "f-driver-lan",
+    "f-driver-usb3"
+  ],
+  "required_tools": [
+    "cmd.exe",
+    "powershell.exe",
+    "wpeinit.exe",
+    "wpeutil.exe",
+    "dism.exe",
+    "diskpart.exe",
+    "reg.exe",
+    "net.exe",
+    "ipconfig.exe",
+    "robocopy.exe",
+    "wevtutil.exe"
+  ],
+  "recommended_tools": ["pnputil.exe", "bcdedit.exe", "notepad.exe"],
+  "optional_tools": []
+}

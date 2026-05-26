@@ -1,0 +1,144 @@
+{
+  "schema": "../schemas/feature-catalog-entry.schema.json",
+  "version": "1.0.0",
+  "items": [
+    {
+      "id": "f-core-shell",
+      "name": "Core Shell",
+      "domain": "system_recovery",
+      "detection": {
+        "allOfFiles": ["Windows/System32/cmd.exe"],
+        "anyOfTools": ["cmd.exe"]
+      },
+      "score_weight": 20,
+      "required_profiles": ["minimal", "sav-advanced", "oem-expert"]
+    },
+    {
+      "id": "f-powershell",
+      "name": "PowerShell Support",
+      "domain": "system_recovery",
+      "detection": {
+        "anyOfFiles": [
+          "Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
+          "Program Files/PowerShell/7/pwsh.exe"
+        ],
+        "anyOfTools": ["powershell.exe", "pwsh.exe"]
+      },
+      "score_weight": 20,
+      "required_profiles": ["minimal", "sav-advanced", "oem-expert"]
+    },
+    {
+      "id": "f-network-stack",
+      "name": "Network Stack",
+      "domain": "networking",
+      "detection": {
+        "allOfFiles": ["Windows/System32/ipconfig.exe"],
+        "anyOfTools": ["net.exe", "ipconfig.exe"]
+      },
+      "score_weight": 25,
+      "required_profiles": ["minimal", "sav-advanced", "oem-expert"]
+    },
+    {
+      "id": "f-storage-stack",
+      "name": "Storage Stack",
+      "domain": "disk_recovery",
+      "detection": {
+        "anyOfFiles": ["Windows/System32/diskpart.exe", "Windows/System32/dism.exe"],
+        "anyOfTools": ["diskpart.exe", "dism.exe"]
+      },
+      "score_weight": 25,
+      "required_profiles": ["minimal", "sav-advanced", "oem-expert"]
+    },
+    {
+      "id": "f-evtx-advanced",
+      "name": "Advanced EVTX Analysis",
+      "domain": "crash_analysis",
+      "detection": {
+        "allOfFiles": ["Windows/System32/wevtutil.exe"],
+        "anyOfTools": ["EvtxECmd", "wevtutil.exe"]
+      },
+      "score_weight": 15,
+      "required_profiles": ["sav-advanced", "oem-expert"]
+    },
+    {
+      "id": "f-smart-monitor",
+      "name": "SMART Monitoring",
+      "domain": "disk_recovery",
+      "detection": {
+        "anyOfTools": ["smartctl"]
+      },
+      "score_weight": 15,
+      "required_profiles": ["sav-advanced", "oem-expert"]
+    },
+    {
+      "id": "f-gui-basic",
+      "name": "Basic GUI Capability",
+      "domain": "gui",
+      "detection": {
+        "anyOfFiles": ["Windows/System32/notepad.exe"]
+      },
+      "score_weight": 15,
+      "required_profiles": ["minimal", "sav-advanced", "oem-expert"]
+    },
+    {
+      "id": "f-driver-nvme",
+      "name": "NVMe Driver Coverage",
+      "domain": "disk_recovery",
+      "detection": {
+        "anyOfDriverCategories": ["nvme"]
+      },
+      "score_weight": 12,
+      "required_profiles": ["minimal", "sav-advanced", "oem-expert"]
+    },
+    {
+      "id": "f-driver-intel-rst",
+      "name": "Intel RST Driver Coverage",
+      "domain": "disk_recovery",
+      "detection": {
+        "anyOfDriverCategories": ["intel-rst"]
+      },
+      "score_weight": 10,
+      "required_profiles": ["sav-advanced", "oem-expert"]
+    },
+    {
+      "id": "f-driver-lan",
+      "name": "LAN Driver Coverage",
+      "domain": "networking",
+      "detection": {
+        "anyOfDriverCategories": ["lan"]
+      },
+      "score_weight": 12,
+      "required_profiles": ["minimal", "sav-advanced", "oem-expert"]
+    },
+    {
+      "id": "f-driver-wifi",
+      "name": "Wi-Fi Driver Coverage",
+      "domain": "networking",
+      "detection": {
+        "anyOfDriverCategories": ["wifi"]
+      },
+      "score_weight": 10,
+      "required_profiles": ["sav-advanced", "oem-expert"]
+    },
+    {
+      "id": "f-driver-usb3",
+      "name": "USB3 Driver Coverage",
+      "domain": "system_recovery",
+      "detection": {
+        "anyOfDriverCategories": ["usb3"]
+      },
+      "score_weight": 10,
+      "required_profiles": ["minimal", "sav-advanced", "oem-expert"]
+    },
+    {
+      "id": "f-driver-chipset",
+      "name": "Chipset Driver Coverage",
+      "domain": "system_recovery",
+      "detection": {
+        "anyOfDriverCategories": ["chipset"]
+      },
+      "score_weight": 8,
+      "required_profiles": ["sav-advanced", "oem-expert"]
+    }
+  ]
+}

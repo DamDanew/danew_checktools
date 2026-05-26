@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "danew/tool-catalog-entry.schema.json",
+  "title": "ToolCatalogEntry",
+  "type": "object",
+  "required": [
+    "name",
+    "category",
+    "portable",
+    "required_for",
+    "dependencies",
+    "size_mb",
+    "architecture",
+    "priority"
+  ],
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "category": { "type": "string" },
+    "version": { "type": "string" },
+    "portable": { "type": "boolean" },
+    "required_for": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["minimal", "sav", "oem"] }
+    },
+    "dependencies": { "type": "array", "items": { "type": "string" } },
+    "download_url": { "type": "string" },
+    "size_mb": { "type": "number", "minimum": 0 },
+    "architecture": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["x86", "x64", "arm64", "any"] }
+    },
+    "priority": { "type": "string", "enum": ["critical", "recommended", "optional", "expert"] },
+    "sha256": { "type": "string" },
+    "vendor": { "type": "string" },
+    "signature_required": { "type": "boolean" }
+  },
+  "additionalProperties": false
+}
