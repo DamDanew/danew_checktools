@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "danew/score-delta.schema.json",
+  "title": "ScoreDelta",
+  "type": "object",
+  "required": ["before", "after", "delta"],
+  "properties": {
+    "before": { "type": "object" },
+    "after": { "type": "object" },
+    "delta": { "type": "object" },
+    "features_recovered": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "danew/build-manifest.schema.json",
+  "title": "BuildManifest",
+  "type": "object",
+  "required": ["build_id", "timestamp", "mode", "profile", "architecture"],
+  "properties": {
+    "build_id": { "type": "string" },
+    "timestamp": { "type": "string" },
+    "mode": { "type": "string", "enum": ["DryRun", "Execute"] },
+    "profile": { "type": "string" },
+    "architecture": { "type": "string" },
+    "build_root": { "type": "string" },
+    "actions": { "type": "array", "items": { "type": "object" } },
+    "security_gate_passed": { "type": "boolean" }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,12 @@
+{
+  "input_path": ".",
+  "default_tier": "sav-advanced",
+  "reports_path": "reports",
+  "logs_path": "logs",
+  "launcher_log_path": "logs/launcher-log.json",
+  "gui_status_snapshot_path": "reports/gui-status-snapshot.json",
+  "startnet_runtime_log_path": "reports/startnet-runtime-log.txt",
+  "startnet_template_path": "scripts/StartNet.cmd.template",
+  "startnet_output_path": "X:/Windows/System32/StartNet.cmd",
+  "startnet_fallback_output_path": "reports/StartNet.generated.cmd"
+}

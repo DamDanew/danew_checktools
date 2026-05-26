@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "danew/security-approval-report.schema.json",
+  "title": "SecurityApprovalReport",
+  "type": "object",
+  "required": ["approved", "checked", "blocked"],
+  "properties": {
+    "approved": { "type": "boolean" },
+    "checked": { "type": "integer" },
+    "blocked": { "type": "integer" },
+    "violations": { "type": "array", "items": { "type": "object" } }
+  },
+  "additionalProperties": true
+}

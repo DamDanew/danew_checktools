@@ -265,12 +265,14 @@ function Get-DanewInfMetadata {
 
     $class = ''
     $provider = ''
+    $manufacturer = ''
     $classGuid = ''
     $driverVer = ''
 
     foreach ($line in $content) {
         if (-not $class -and $line -match '^\s*Class\s*=\s*(.+)\s*$') { $class = $Matches[1].Trim() }
         if (-not $provider -and $line -match '^\s*Provider\s*=\s*(.+)\s*$') { $provider = $Matches[1].Trim().Trim('"') }
+        if (-not $manufacturer -and $line -match '^\s*Manufacturer\s*=\s*(.+)\s*$') { $manufacturer = $Matches[1].Trim().Trim('"') }
         if (-not $classGuid -and $line -match '^\s*ClassGuid\s*=\s*(.+)\s*$') { $classGuid = $Matches[1].Trim() }
         if (-not $driverVer -and $line -match '^\s*DriverVer\s*=\s*(.+)\s*$') { $driverVer = $Matches[1].Trim() }
     }
@@ -280,6 +282,7 @@ function Get-DanewInfMetadata {
         inf_name = [System.IO.Path]::GetFileName($InfPath)
         class = $class
         provider = $provider
+        manufacturer = $manufacturer
         class_guid = $classGuid
         driver_ver = $driverVer
     }
@@ -301,6 +304,296 @@ function Test-DanewWildcardMatch {
         }
     }
     return $false
+}
+
+function Get-DanewRegQueryValue {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$KeyPath,
+        [Parameter(Mandatory = $true)]
+        [string]$ValueName
+    )
+
+    try {
+        $query = & reg.exe query $KeyPath /v $ValueName 2>$null
+        if (-not $query) {
+            return ''
+        }
+
+        $line = $query | Where-Object { $_ -match ("^\s*" + [regex]::Escape($ValueName) + "\s+") } | Select-Object -First 1
+        if (-not $line) {
+            return ''
+        }
+
+        return ($line -replace ('^\s*' + [regex]::Escape($ValueName) + '\s+REG_\w+\s+'), '').Trim()
+    }
+    catch {
+        return ''
+    }
+}
+
+function Get-DanewOfflineRegistryAnalysis {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$InputPath
+    )
+
+    $systemHive = Join-Path $InputPath 'Windows\System32\config\SYSTEM'
+    $softwareHive = Join-Path $InputPath 'Windows\System32\config\SOFTWARE'
+
+    $mountSystem = "HKLM\DANEW_SYS_" + ([guid]::NewGuid().ToString('N'))
+    $mountSoftware = "HKLM\DANEW_SOFT_" + ([guid]::NewGuid().ToString('N'))
+
+    $sysLoaded = $false
+    $softLoaded = $false
+
+    $serviceKeys = @('stornvme', 'iaStorA', 'iaStorV', 'e1dexpress', 'rt640x64', 'netwtw10', 'rtwlane', 'usbxhci', 'amdw3xhc')
+    $servicePresence = @{}
+    foreach ($s in $serviceKeys) { $servicePresence[$s] = $false }
+
+    try {
+        if (Test-Path -Path $systemHive) {
+            & reg.exe load $mountSystem $systemHive *> $null
+            if ($LASTEXITCODE -eq 0) { $sysLoaded = $true }
+        }
+
+        if (Test-Path -Path $softwareHive) {
+            & reg.exe load $mountSoftware $softwareHive *> $null
+            if ($LASTEXITCODE -eq 0) { $softLoaded = $true }
+        }
+
+        $currentControlSet = '001'
+        if ($sysLoaded) {
+            $current = Get-DanewRegQueryValue -KeyPath "$mountSystem\Select" -ValueName 'Current'
+            if ($current -match '^\d+$') {
+                $currentControlSet = ('{0:D3}' -f [int]$current)
+            }
+        }
+
+        $computerName = ''
+        $archHint = ''
+        $hostName = ''
+        if ($sysLoaded) {
+            $computerName = Get-DanewRegQueryValue -KeyPath "$mountSystem\ControlSet$currentControlSet\Control\ComputerName\ComputerName" -ValueName 'ComputerName'
+            $archHint = Get-DanewRegQueryValue -KeyPath "$mountSystem\ControlSet$currentControlSet\Control\Session Manager\Environment" -ValueName 'PROCESSOR_ARCHITECTURE'
+            $hostName = Get-DanewRegQueryValue -KeyPath "$mountSystem\ControlSet$currentControlSet\Services\Tcpip\Parameters" -ValueName 'Hostname'
+
+            foreach ($svc in $serviceKeys) {
+                $svcKey = "$mountSystem\ControlSet$currentControlSet\Services\$svc"
+                & reg.exe query $svcKey *> $null
+                if ($LASTEXITCODE -eq 0) {
+                    $servicePresence[$svc] = $true
+                }
+            }
+        }
+
+        $productName = ''
+        $currentBuild = ''
+        $releaseId = ''
+        $psVersion = ''
+        if ($softLoaded) {
+            $cvKey = "$mountSoftware\Microsoft\Windows NT\CurrentVersion"
+            $productName = Get-DanewRegQueryValue -KeyPath $cvKey -ValueName 'ProductName'
+            $currentBuild = Get-DanewRegQueryValue -KeyPath $cvKey -ValueName 'CurrentBuild'
+            $releaseId = Get-DanewRegQueryValue -KeyPath $cvKey -ValueName 'ReleaseId'
+
+            $psVersion = Get-DanewRegQueryValue -KeyPath "$mountSoftware\Microsoft\PowerShell\3\PowerShellEngine" -ValueName 'PowerShellVersion'
+        }
+
+        return [pscustomobject]@{
+            system_hive_found = (Test-Path -Path $systemHive)
+            software_hive_found = (Test-Path -Path $softwareHive)
+            system_hive_loaded = $sysLoaded
+            software_hive_loaded = $softLoaded
+            current_control_set = $currentControlSet
+            computer_name = $computerName
+            product_name = $productName
+            current_build = $currentBuild
+            release_id = $releaseId
+            architecture_hint = $archHint
+            powershell_version = $psVersion
+            service_presence = $servicePresence
+            network_registry = [pscustomobject]@{
+                hostname = $hostName
+            }
+        }
+    }
+    finally {
+        if ($softLoaded) {
+            & reg.exe unload $mountSoftware *> $null
+        }
+        if ($sysLoaded) {
+            & reg.exe unload $mountSystem *> $null
+        }
+    }
+}
+
+function Get-DanewPackageAnalysis {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$InputPath,
+        [string]$BootWimPath,
+        [int]$ImageIndex = 1,
+        [Parameter(Mandatory = $true)]
+        [object]$CatalogContext,
+        [Parameter(Mandatory = $true)]
+        [string]$ProfileId
+    )
+
+    $source = 'none'
+    $detected = @()
+    $packages = @()
+
+    try {
+        if (Test-Path -Path (Join-Path $InputPath 'Windows')) {
+            $pkgItems = @(Get-WindowsPackage -Path $InputPath -ErrorAction Stop)
+            foreach ($item in $pkgItems) {
+                $packages += [pscustomobject]@{ identity = [string]$item.PackageName; state = [string]$item.PackageState }
+            }
+            $source = 'dism_image'
+        }
+        elseif ($BootWimPath -and (Test-Path -Path $BootWimPath)) {
+            $mountPath = Join-Path ([System.IO.Path]::GetTempPath()) ('danew-wim-pkg-' + [guid]::NewGuid().ToString('N'))
+            New-Item -Path $mountPath -ItemType Directory -Force | Out-Null
+            try {
+                Mount-WindowsImage -ImagePath $BootWimPath -Index $ImageIndex -Path $mountPath -ReadOnly | Out-Null
+                $pkgItems = @(Get-WindowsPackage -Path $mountPath -ErrorAction Stop)
+                foreach ($item in $pkgItems) {
+                    $packages += [pscustomobject]@{ identity = [string]$item.PackageName; state = [string]$item.PackageState }
+                }
+                $source = 'mounted_wim'
+            }
+            finally {
+                $mountedImage = @(Get-WindowsImage -Mounted | Where-Object { $_.Path -eq $mountPath })
+                if (@($mountedImage).Count -gt 0) {
+                    Dismount-WindowsImage -Path $mountPath -Discard | Out-Null
+                }
+                if (Test-Path -Path $mountPath) {
+                    Remove-Item -Path $mountPath -Recurse -Force
+                }
+            }
+        }
+    }
+    catch {
+        $packages = @()
+    }
+
+    foreach ($p in $packages) {
+        if ($p.state -match 'Installed') {
+            $detected += $p.identity
+        }
+    }
+
+    $requiredPackageIds = @($CatalogContext.WinPEPackagesCatalog.items | Where-Object { @($_.required_profiles) -contains $ProfileId })
+    $missingRequired = @()
+
+    foreach ($req in $requiredPackageIds) {
+        $hit = $false
+        foreach ($pattern in $req.package_patterns) {
+            foreach ($pkg in $detected) {
+                if ($pkg -match [regex]::Escape($pattern)) {
+                    $hit = $true
+                    break
+                }
+            }
+            if ($hit) { break }
+        }
+
+        if (-not $hit) {
+            $missingRequired += $req.id
+        }
+    }
+
+    return [pscustomobject]@{
+        source = $source
+        detected_packages = @($detected | Select-Object -Unique | Sort-Object)
+        package_count = @($detected | Select-Object -Unique).Count
+        missing_required_packages = @($missingRequired | Sort-Object)
+        raw_count = @($packages).Count
+    }
+}
+
+function Get-DanewNormalizedVendor {
+    param(
+        [string]$Provider,
+        [string]$Manufacturer,
+        [Parameter(Mandatory = $true)]
+        [object]$CatalogContext
+    )
+
+    $source = ''
+    if (-not [string]::IsNullOrWhiteSpace($Provider)) {
+        $source = $Provider
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($Manufacturer)) {
+        $source = $Manufacturer
+    }
+
+    if ([string]::IsNullOrWhiteSpace($source)) {
+        return 'Unknown'
+    }
+
+    $normalized = $source.ToLowerInvariant()
+    foreach ($rule in $CatalogContext.VendorNormalizationMap.rules) {
+        foreach ($pattern in $rule.patterns) {
+            if ($normalized.Contains($pattern.ToLowerInvariant())) {
+                return $rule.canonical
+            }
+        }
+    }
+
+    return 'Unknown'
+}
+
+function Get-DanewDriverVendorAnalysis {
+    param(
+        [Parameter(Mandatory = $false)]
+        [object[]]$InfMetadata,
+        [Parameter(Mandatory = $true)]
+        [object]$CatalogContext
+    )
+
+    if (-not $InfMetadata) {
+        $InfMetadata = @()
+    }
+
+    $vendorCounts = @{}
+    foreach ($tv in $CatalogContext.VendorNormalizationMap.target_vendors) {
+        $vendorCounts[$tv] = 0
+    }
+    $vendorCounts['Unknown'] = 0
+
+    $unknownVendors = @()
+    $samples = @()
+
+    foreach ($inf in $InfMetadata) {
+        $normalized = Get-DanewNormalizedVendor -Provider $inf.provider -Manufacturer $inf.manufacturer -CatalogContext $CatalogContext
+        if (-not $vendorCounts.ContainsKey($normalized)) {
+            $vendorCounts[$normalized] = 0
+        }
+        $vendorCounts[$normalized] += 1
+
+        if ($normalized -eq 'Unknown') {
+            $raw = if ($inf.provider) { $inf.provider } else { $inf.manufacturer }
+            if (-not [string]::IsNullOrWhiteSpace($raw)) {
+                $unknownVendors += $raw
+            }
+        }
+
+        $samples += [pscustomobject]@{
+            inf_name = $inf.inf_name
+            class = $inf.class
+            provider = $inf.provider
+            manufacturer = $inf.manufacturer
+            normalized_vendor = $normalized
+        }
+    }
+
+    return [pscustomobject]@{
+        vendor_counts = $vendorCounts
+        unknown_vendors = @($unknownVendors | Select-Object -Unique | Sort-Object)
+        inf_samples = @($samples | Select-Object -First 100)
+    }
 }
 
 function Get-DanewDriverAnalysis {
@@ -406,6 +699,7 @@ function Get-DanewDriverAnalysis {
         categories_present = @($present | Sort-Object)
         categories_missing = @($missing | Sort-Object)
         evidence = $categoryEvidence
+        inf_metadata = $infMetadata
     }
 }
 
@@ -490,6 +784,9 @@ function Invoke-DanewScan {
 
     $archDetails = Get-DanewArchitecture -InputPath $InputPath -CatalogContext $CatalogContext -BootWimPath $BootWimPath -ImageIndex $ImageIndex
     $driverAnalysis = Get-DanewDriverAnalysis -InputPath $InputPath -CatalogContext $CatalogContext -ProfileId $ProfileId
+    $driverVendorAnalysis = Get-DanewDriverVendorAnalysis -InfMetadata $driverAnalysis.inf_metadata -CatalogContext $CatalogContext
+    $registryAnalysis = Get-DanewOfflineRegistryAnalysis -InputPath $InputPath
+    $packageAnalysis = Get-DanewPackageAnalysis -InputPath $InputPath -BootWimPath $BootWimPath -ImageIndex $ImageIndex -CatalogContext $CatalogContext -ProfileId $ProfileId
     $peValidation = Get-DanewPEValidation -ToolFileMatches $toolMatches -Architecture $archDetails.detected
 
     [pscustomobject]@{
@@ -502,6 +799,9 @@ function Invoke-DanewScan {
         ToolMatches = $toolMatches
         DriversDetected = @($driversFound | Sort-Object)
         DriverAnalysis = $driverAnalysis
+        DriverVendorAnalysis = $driverVendorAnalysis
+        RegistryAnalysis = $registryAnalysis
+        PackageAnalysis = $packageAnalysis
         PeValidation = $peValidation
         RuntimesDetected = @($runtimeHints | Select-Object -Unique | Sort-Object)
     }

@@ -1,0 +1,53 @@
+{
+  "version": "1.0.0",
+  "items": [
+    {
+      "category_id": "nvme",
+      "package_name": "Danew-DriverPack-NVMe",
+      "priority": "critical",
+      "size_mb": 75,
+      "ram_mb": 20,
+      "vendor_preferences": ["Microsoft", "Intel", "Samsung"]
+    },
+    {
+      "category_id": "intel-rst",
+      "package_name": "Danew-DriverPack-IntelRST",
+      "priority": "recommended",
+      "size_mb": 120,
+      "ram_mb": 25,
+      "vendor_preferences": ["Intel"]
+    },
+    {
+      "category_id": "lan",
+      "package_name": "Danew-DriverPack-LAN",
+      "priority": "critical",
+      "size_mb": 85,
+      "ram_mb": 20,
+      "vendor_preferences": ["Intel", "Realtek", "Broadcom"]
+    },
+    {
+      "category_id": "wifi",
+      "package_name": "Danew-DriverPack-WiFi",
+      "priority": "recommended",
+      "size_mb": 180,
+      "ram_mb": 35,
+      "vendor_preferences": ["Intel", "Qualcomm", "MediaTek", "Realtek", "Broadcom"]
+    },
+    {
+      "category_id": "usb3",
+      "package_name": "Danew-DriverPack-USB3",
+      "priority": "critical",
+      "size_mb": 50,
+      "ram_mb": 15,
+      "vendor_preferences": ["Microsoft", "Intel", "AMD"]
+    },
+    {
+      "category_id": "chipset",
+      "package_name": "Danew-DriverPack-Chipset",
+      "priority": "recommended",
+      "size_mb": 95,
+      "ram_mb": 20,
+      "vendor_preferences": ["Intel", "AMD"]
+    }
+  ]
+}

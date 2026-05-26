@@ -1,0 +1,28 @@
+{
+  "version": "1.0.0",
+  "folders": {
+    "tools": "tools",
+    "drivers": "drivers",
+    "packages": "packages",
+    "scripts": "scripts",
+    "reports": "reports",
+    "logs": "logs"
+  },
+  "base_copy_items": [
+    "bootmgr",
+    "bootmgr.efi",
+    "Boot",
+    "EFI",
+    "sources"
+  ],
+  "required_usb_paths": [
+    "sources/boot.wim",
+    "Boot/boot.sdi",
+    "Boot/BCD"
+  ],
+  "required_efi_by_arch": {
+    "x64": ["EFI/Boot/bootx64.efi"],
+    "x86": ["EFI/Boot/bootia32.efi"],
+    "arm64": ["EFI/Boot/bootaa64.efi"]
+  }
+}

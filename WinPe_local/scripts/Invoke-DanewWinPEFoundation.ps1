@@ -24,6 +24,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'scan\ScanEngine.ps1')
 . (Join-Path $PSScriptRoot 'profiles\ProfileEngine.ps1')
 . (Join-Path $PSScriptRoot 'recommend\RecommendationEngine.ps1')
+. (Join-Path $PSScriptRoot 'recommend\EnrichmentPlanner.ps1')
 . (Join-Path $PSScriptRoot 'build\BuildPreparation.ps1')
 . (Join-Path $PSScriptRoot 'report\ReportEngine.ps1')
 . (Join-Path $PSScriptRoot 'cache\CacheService.ps1')
@@ -43,6 +44,8 @@ $coverage = Get-DanewProfileCoverage -ScanResult $scan -ProfileDefinition $profi
 $score = Get-DanewCapabilityScore -ScanResult $scan -ProfileDefinition $profileDef -CatalogContext $catalog
 $securityValidation = Invoke-DanewSecurityValidation -InputPath $InputPath -CatalogContext $catalog
 $recommendations = Get-DanewRecommendations -ScanResult $scan -ProfileDefinition $profileDef -CatalogContext $catalog -FeatureStatus $score.feature_status -SecurityValidation $securityValidation
+$enrichmentPlan = New-DanewEnrichmentPlan -ScanResult $scan -ProfileDefinition $profileDef -CatalogContext $catalog
+$scoreDelta = Get-DanewScoreDeltaFromPlan -ScanResult $scan -BeforeScore $score -ProfileDefinition $profileDef -CatalogContext $catalog -EnrichmentPlan $enrichmentPlan
 $buildPlan = New-DanewBuildPreparationPlan -Recommendations $recommendations -ProfileId $TargetTier -Architecture $scan.Architecture -Mode $Mode
 
 $report = [pscustomobject]@{
@@ -61,6 +64,9 @@ $report = [pscustomobject]@{
         runtimes_detected = $scan.RuntimesDetected
     }
     driver_analysis = $scan.DriverAnalysis
+    driver_vendor_analysis = $scan.DriverVendorAnalysis
+    registry_analysis = $scan.RegistryAnalysis
+    package_analysis = $scan.PackageAnalysis
     pe_validation = $scan.PeValidation
     security_validation = $securityValidation
     feature_status = $score.feature_status
@@ -74,15 +80,20 @@ $report = [pscustomobject]@{
         global = $score.global
     }
     recommendations = $recommendations
+    enrichment_plan = $enrichmentPlan
+    score_delta = $scoreDelta
     build_plan = $buildPlan
 }
 
 $reportName = "scan-" + (Get-Date -Format 'yyyyMMdd-HHmmss')
 $exported = Export-DanewReports -ReportObject $report -OutputDirectory (Join-Path $RootPath 'reports') -BaseName $reportName
+$phase3Exported = Export-DanewPhase3Artifacts -OutputDirectory (Join-Path $RootPath 'reports') -EnrichmentPlan $enrichmentPlan -ScoreDelta $scoreDelta -RegistryAnalysis $scan.RegistryAnalysis -DriverVendorAnalysis $scan.DriverVendorAnalysis
 $historyEntry = Add-DanewBuildHistoryEntry -RootPath $RootPath -BuildPlan $buildPlan -Recommendations $recommendations
 
 Write-DanewLog -Level INFO -Message "Report exported to $($exported.json)" -LogFile $logFile
+Write-DanewLog -Level INFO -Message "Enrichment plan exported to $($phase3Exported.enrichment_plan_json)" -LogFile $logFile
 Write-DanewLog -Level INFO -Message $buildPlan.summary -LogFile $logFile
 Write-Host "Foundation scan complete."
 Write-Host "JSON report: $($exported.json)"
+Write-Host "Enrichment plan: $($phase3Exported.enrichment_plan_json)"
 Write-Host "Build history ID: $($historyEntry.build_id)"

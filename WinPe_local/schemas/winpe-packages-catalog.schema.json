@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "danew/winpe-packages-catalog.schema.json",
+  "title": "WinPEPackagesCatalog",
+  "type": "object",
+  "required": ["version", "items"],
+  "properties": {
+    "version": { "type": "string" },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "package_patterns", "required_profiles", "priority"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "package_patterns": { "type": "array", "items": { "type": "string" } },
+          "required_profiles": { "type": "array", "items": { "type": "string" } },
+          "priority": { "type": "string", "enum": ["critical", "recommended", "optional", "expert"] },
+          "size_mb": { "type": "number" },
+          "ram_mb": { "type": "number" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

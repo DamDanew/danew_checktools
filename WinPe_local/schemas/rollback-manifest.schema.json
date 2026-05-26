@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "danew/rollback-manifest.schema.json",
+  "title": "RollbackManifest",
+  "type": "object",
+  "required": ["build_id", "rollback_actions"],
+  "properties": {
+    "build_id": { "type": "string" },
+    "rollback_actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "path"],
+        "properties": {
+          "type": { "type": "string" },
+          "path": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

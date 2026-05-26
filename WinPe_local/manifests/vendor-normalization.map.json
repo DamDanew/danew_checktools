@@ -1,0 +1,23 @@
+{
+  "version": "1.0.0",
+  "rules": [
+    { "canonical": "Microsoft", "patterns": ["microsoft", "windows"] },
+    { "canonical": "Intel", "patterns": ["intel", "corporation"] },
+    { "canonical": "Realtek", "patterns": ["realtek"] },
+    { "canonical": "Qualcomm", "patterns": ["qualcomm", "atheros"] },
+    { "canonical": "MediaTek", "patterns": ["mediatek", "ralink"] },
+    { "canonical": "Broadcom", "patterns": ["broadcom"] },
+    { "canonical": "AMD", "patterns": ["advanced micro devices", "amd"] },
+    { "canonical": "NVIDIA", "patterns": ["nvidia"] }
+  ],
+  "target_vendors": [
+    "Intel",
+    "Realtek",
+    "Qualcomm",
+    "MediaTek",
+    "Broadcom",
+    "Microsoft",
+    "AMD",
+    "NVIDIA"
+  ]
+}

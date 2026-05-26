@@ -21,6 +21,13 @@ function Test-DanewFeaturePresence {
         [void]$driverCats.Add($dc)
     }
 
+    $packages = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    if ($ScanResult.PSObject.Properties['PackageAnalysis'] -and $ScanResult.PackageAnalysis -and $ScanResult.PackageAnalysis.detected_packages) {
+        foreach ($pkg in $ScanResult.PackageAnalysis.detected_packages) {
+            [void]$packages.Add($pkg)
+        }
+    }
+
     $detection = $Feature.detection
     if (-not $detection) {
         return $false
@@ -78,6 +85,21 @@ function Test-DanewFeaturePresence {
         }
     }
 
+    $anyPackageHit = $false
+    if ($detection.PSObject.Properties['anyOfPackages']) {
+        foreach ($pkgPattern in $detection.anyOfPackages) {
+            foreach ($pkg in $packages) {
+                if ($pkg -match [regex]::Escape($pkgPattern)) {
+                    $anyPackageHit = $true
+                    break
+                }
+            }
+            if ($anyPackageHit) {
+                break
+            }
+        }
+    }
+
     $allDriversOk = $true
     if ($detection.PSObject.Properties['allOfDriverCategories']) {
         foreach ($dc in $detection.allOfDriverCategories) {
@@ -91,14 +113,13 @@ function Test-DanewFeaturePresence {
     $registryOk = $true
     if ($detection.PSObject.Properties['requiresRegistryKey']) {
         $registryOk = $false
-        $regInfo = $ScanResult.ArchitectureDetails.registry_metadata
-        if ($regInfo -and $regInfo.architecture -ne 'unknown') {
+        if ($ScanResult.PSObject.Properties['RegistryAnalysis'] -and $ScanResult.RegistryAnalysis -and $ScanResult.RegistryAnalysis.system_hive_loaded) {
             $registryOk = $true
         }
     }
 
-    $anySignals = @(@($anyFileHit, $anyToolHit, $anyRuntimeHit, $anyDriverHit) | Where-Object { $_ })
-    if ($detection.PSObject.Properties['anyOfFiles'] -or $detection.PSObject.Properties['anyOfTools'] -or $detection.PSObject.Properties['anyOfRuntimes'] -or $detection.PSObject.Properties['anyOfDriverCategories']) {
+    $anySignals = @(@($anyFileHit, $anyToolHit, $anyRuntimeHit, $anyDriverHit, $anyPackageHit) | Where-Object { $_ })
+    if ($detection.PSObject.Properties['anyOfFiles'] -or $detection.PSObject.Properties['anyOfTools'] -or $detection.PSObject.Properties['anyOfRuntimes'] -or $detection.PSObject.Properties['anyOfDriverCategories'] -or $detection.PSObject.Properties['anyOfPackages']) {
         return ($allOfFilesOk -and $allDriversOk -and $registryOk -and (@($anySignals).Count -gt 0))
     }
 
@@ -273,6 +294,22 @@ function Get-DanewRecommendations {
             priority = 'recommended'
             size_impact_mb = 30
             ram_impact_mb = 20
+        }
+    }
+
+    if ($ScanResult.PSObject.Properties['PackageAnalysis'] -and $ScanResult.PackageAnalysis -and $ScanResult.PackageAnalysis.missing_required_packages) {
+        foreach ($pkg in $ScanResult.PackageAnalysis.missing_required_packages) {
+            $catalogEntry = $CatalogContext.WinPEPackagesCatalog.items | Where-Object { $_.id -eq $pkg } | Select-Object -First 1
+            $recos += [pscustomobject]@{
+                feature = "WinPE package: $pkg"
+                status = 'Missing'
+                present = @($ScanResult.PackageAnalysis.detected_packages)
+                missing = @($pkg)
+                recommendation = "Add optional package $pkg into offline image"
+                priority = if ($catalogEntry) { $catalogEntry.priority } else { 'recommended' }
+                size_impact_mb = if ($catalogEntry) { $catalogEntry.size_mb } else { 0 }
+                ram_impact_mb = if ($catalogEntry) { $catalogEntry.ram_mb } else { 0 }
+            }
         }
     }
 

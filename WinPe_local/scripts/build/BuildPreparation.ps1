@@ -52,7 +52,7 @@ function Add-DanewBuildHistoryEntry {
 
     $history = @()
     if (Test-Path $historyPath) {
-        $history = Get-Content -Path $historyPath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 20
+        $history = Get-Content -Path $historyPath -Raw -Encoding UTF8 | ConvertFrom-Json
     }
 
     $newHistory = @($history) + @($entry)

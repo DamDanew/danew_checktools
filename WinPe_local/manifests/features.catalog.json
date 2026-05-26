@@ -139,6 +139,36 @@
       },
       "score_weight": 8,
       "required_profiles": ["sav-advanced", "oem-expert"]
+    },
+    {
+      "id": "f-winpe-wmi",
+      "name": "WinPE WMI Optional Package",
+      "domain": "system_recovery",
+      "detection": {
+        "anyOfPackages": ["WinPE-WMI"]
+      },
+      "score_weight": 8,
+      "required_profiles": ["minimal", "sav-advanced", "oem-expert"]
+    },
+    {
+      "id": "f-winpe-powershell",
+      "name": "WinPE PowerShell Optional Package",
+      "domain": "system_recovery",
+      "detection": {
+        "anyOfPackages": ["WinPE-PowerShell"]
+      },
+      "score_weight": 12,
+      "required_profiles": ["minimal", "sav-advanced", "oem-expert"]
+    },
+    {
+      "id": "f-winpe-netfx",
+      "name": "WinPE NetFx Optional Package",
+      "domain": "crash_analysis",
+      "detection": {
+        "anyOfPackages": ["WinPE-NetFx"]
+      },
+      "score_weight": 8,
+      "required_profiles": ["sav-advanced", "oem-expert"]
     }
   ]
 }

@@ -1,0 +1,45 @@
+{
+  "version": "1.0.0",
+  "items": [
+    {
+      "name": "cmd.exe",
+      "reason": "Core command shell",
+      "required_profiles": ["minimal", "sav-advanced", "oem-expert"],
+      "priority": "critical",
+      "size_mb": 1,
+      "ram_mb": 5
+    },
+    {
+      "name": "powershell.exe",
+      "reason": "Automation and scripting runtime",
+      "required_profiles": ["minimal", "sav-advanced", "oem-expert"],
+      "priority": "critical",
+      "size_mb": 60,
+      "ram_mb": 80
+    },
+    {
+      "name": "wevtutil.exe",
+      "reason": "Event log extraction",
+      "required_profiles": ["minimal", "sav-advanced", "oem-expert"],
+      "priority": "critical",
+      "size_mb": 2,
+      "ram_mb": 8
+    },
+    {
+      "name": "EvtxECmd",
+      "reason": "Advanced EVTX parsing",
+      "required_profiles": ["sav-advanced", "oem-expert"],
+      "priority": "recommended",
+      "size_mb": 22,
+      "ram_mb": 120
+    },
+    {
+      "name": "smartctl",
+      "reason": "SMART health diagnostics",
+      "required_profiles": ["sav-advanced", "oem-expert"],
+      "priority": "recommended",
+      "size_mb": 12,
+      "ram_mb": 40
+    }
+  ]
+}

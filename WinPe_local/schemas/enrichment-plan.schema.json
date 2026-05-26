@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "danew/enrichment-plan.schema.json",
+  "title": "EnrichmentPlan",
+  "type": "object",
+  "required": ["plan_id", "profile", "driver_actions", "tool_actions", "package_actions"],
+  "properties": {
+    "plan_id": { "type": "string" },
+    "profile": { "type": "string" },
+    "driver_actions": { "type": "array", "items": { "type": "object" } },
+    "tool_actions": { "type": "array", "items": { "type": "object" } },
+    "package_actions": { "type": "array", "items": { "type": "object" } },
+    "summary": { "type": "string" },
+    "estimated_size_mb": { "type": "number" },
+    "estimated_ram_mb": { "type": "number" }
+  },
+  "additionalProperties": true
+}

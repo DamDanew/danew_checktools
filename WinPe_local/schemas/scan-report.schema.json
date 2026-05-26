@@ -48,6 +48,30 @@
       },
       "additionalProperties": true
     },
+    "driver_vendor_analysis": {
+      "type": "object",
+      "properties": {
+        "vendor_counts": { "type": "object" },
+        "unknown_vendors": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+    "registry_analysis": {
+      "type": "object",
+      "properties": {
+        "system_hive_found": { "type": "boolean" },
+        "software_hive_found": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "package_analysis": {
+      "type": "object",
+      "properties": {
+        "detected_packages": { "type": "array", "items": { "type": "string" } },
+        "missing_required_packages": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
     "pe_validation": {
       "type": "object",
       "properties": {
@@ -112,6 +136,14 @@
         },
         "additionalProperties": false
       }
+    },
+    "enrichment_plan": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "score_delta": {
+      "type": "object",
+      "additionalProperties": true
     }
   },
   "additionalProperties": false

@@ -8,7 +8,7 @@ function Get-DanewJsonFile {
         throw "Missing JSON file: $Path"
     }
 
-    return Get-Content -Path $Path -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 20
+    return Get-Content -Path $Path -Raw -Encoding UTF8 | ConvertFrom-Json
 }
 
 function Get-DanewCatalogContext {
@@ -30,6 +30,12 @@ function Get-DanewCatalogContext {
         ScoringWeights = Get-DanewJsonFile -Path (Join-Path $manifestPath 'scoring.weights.json')
         SecurityPolicy = Get-DanewJsonFile -Path (Join-Path $manifestPath 'security.policy.json')
         ArchitectureRules = Get-DanewJsonFile -Path (Join-Path $manifestPath 'architecture.rules.json')
+        WinPEPackagesCatalog = Get-DanewJsonFile -Path (Join-Path $manifestPath 'winpe-packages.catalog.json')
+        VendorNormalizationMap = Get-DanewJsonFile -Path (Join-Path $manifestPath 'vendor-normalization.map.json')
+        DriverEnrichmentCatalog = Get-DanewJsonFile -Path (Join-Path $manifestPath 'driver-enrichment.catalog.json')
+        ToolEnrichmentCatalog = Get-DanewJsonFile -Path (Join-Path $manifestPath 'tool-enrichment.catalog.json')
+        PackageDependencyOrder = Get-DanewJsonFile -Path (Join-Path $manifestPath 'package-dependency.order.json')
+        BuildComposerSettings = Get-DanewJsonFile -Path (Join-Path $manifestPath 'build-composer.settings.json')
         Profiles = @{
             minimal = Get-DanewJsonFile -Path (Join-Path $profilePath 'minimal.profile.json')
             'sav-advanced' = Get-DanewJsonFile -Path (Join-Path $profilePath 'sav-advanced.profile.json')

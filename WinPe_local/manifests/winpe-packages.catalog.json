@@ -1,0 +1,59 @@
+{
+  "version": "1.0.0",
+  "items": [
+    {
+      "id": "winpe-wmi",
+      "name": "WinPE-WMI",
+      "package_patterns": ["WinPE-WMI"],
+      "required_profiles": ["minimal", "sav-advanced", "oem-expert"],
+      "priority": "critical",
+      "size_mb": 35,
+      "ram_mb": 40
+    },
+    {
+      "id": "winpe-scripting",
+      "name": "WinPE-Scripting",
+      "package_patterns": ["WinPE-Scripting"],
+      "required_profiles": ["minimal", "sav-advanced", "oem-expert"],
+      "priority": "critical",
+      "size_mb": 60,
+      "ram_mb": 70
+    },
+    {
+      "id": "winpe-powershell",
+      "name": "WinPE-PowerShell",
+      "package_patterns": ["WinPE-PowerShell"],
+      "required_profiles": ["minimal", "sav-advanced", "oem-expert"],
+      "priority": "critical",
+      "size_mb": 140,
+      "ram_mb": 150
+    },
+    {
+      "id": "winpe-netfx",
+      "name": "WinPE-NetFx",
+      "package_patterns": ["WinPE-NetFx"],
+      "required_profiles": ["sav-advanced", "oem-expert"],
+      "priority": "recommended",
+      "size_mb": 95,
+      "ram_mb": 110
+    },
+    {
+      "id": "winpe-mdac",
+      "name": "WinPE-MDAC",
+      "package_patterns": ["WinPE-MDAC"],
+      "required_profiles": ["sav-advanced", "oem-expert"],
+      "priority": "recommended",
+      "size_mb": 28,
+      "ram_mb": 30
+    },
+    {
+      "id": "winpe-storagewmi",
+      "name": "WinPE-StorageWMI",
+      "package_patterns": ["WinPE-StorageWMI"],
+      "required_profiles": ["sav-advanced", "oem-expert"],
+      "priority": "recommended",
+      "size_mb": 22,
+      "ram_mb": 25
+    }
+  ]
+}

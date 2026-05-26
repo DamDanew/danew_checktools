@@ -18,6 +18,7 @@
         "anyOfFiles": { "type": "array", "items": { "type": "string" } },
         "anyOfTools": { "type": "array", "items": { "type": "string" } },
         "anyOfRuntimes": { "type": "array", "items": { "type": "string" } },
+        "anyOfPackages": { "type": "array", "items": { "type": "string" } },
         "anyOfDriverCategories": { "type": "array", "items": { "type": "string" } },
         "allOfDriverCategories": { "type": "array", "items": { "type": "string" } },
         "requiresRegistryKey": { "type": "string" }

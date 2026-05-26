@@ -1,0 +1,39 @@
+@echo off
+wpeinit
+
+set DANEW_ROOT=__ROOT__
+set STARTNET_LOG=%DANEW_ROOT%\reports\startnet-runtime-log.txt
+set DANEW_PS=
+
+if exist X:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe set DANEW_PS=X:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+if not defined DANEW_PS (
+    where powershell.exe >nul 2>nul
+    if not errorlevel 1 set DANEW_PS=powershell.exe
+)
+
+if not exist %DANEW_ROOT%\reports md %DANEW_ROOT%\reports
+echo [%date% %time%] STARTNET_BEGIN>>%STARTNET_LOG%
+echo [%date% %time%] DANEW_ROOT=%DANEW_ROOT%>>%STARTNET_LOG%
+
+if not defined DANEW_PS (
+    echo [%date% %time%] POWERSHELL_MISSING>>%STARTNET_LOG%
+    echo [DANEW] PowerShell is not available in this WinPE image.
+    echo [DANEW] Add WinPE-PowerShell optional component before booting this media.
+    goto :END
+)
+
+if exist %DANEW_ROOT%\scripts\launcher.ps1 (
+    echo [%date% %time%] LAUNCHER_INVOKE_GUI>>%STARTNET_LOG%
+    "%DANEW_PS%" -NoLogo -ExecutionPolicy Bypass -File %DANEW_ROOT%\scripts\launcher.ps1 -RootPath %DANEW_ROOT% -FallbackToCli
+    echo [%date% %time%] LAUNCHER_EXIT_CODE=%errorlevel%>>%STARTNET_LOG%
+    if errorlevel 1 (
+        echo [%date% %time%] LAUNCHER_FAILED_FALLBACK_TO_CLI>>%STARTNET_LOG%
+        "%DANEW_PS%" -NoLogo -ExecutionPolicy Bypass -File %DANEW_ROOT%\scripts\DanewCheckTool.CLI.ps1 -RootPath %DANEW_ROOT% -Command Interactive
+    )
+) else (
+    echo [%date% %time%] LAUNCHER_MISSING_FALLBACK_TO_CLI>>%STARTNET_LOG%
+    "%DANEW_PS%" -NoLogo -ExecutionPolicy Bypass -File %DANEW_ROOT%\scripts\DanewCheckTool.CLI.ps1 -RootPath %DANEW_ROOT% -Command Interactive
+)
+
+:END
+echo [%date% %time%] STARTNET_END>>%STARTNET_LOG%

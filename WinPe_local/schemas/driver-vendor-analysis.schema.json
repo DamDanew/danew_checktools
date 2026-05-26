@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "danew/driver-vendor-analysis.schema.json",
+  "title": "DriverVendorAnalysis",
+  "type": "object",
+  "required": ["vendor_counts", "unknown_vendors"],
+  "properties": {
+    "vendor_counts": { "type": "object" },
+    "unknown_vendors": { "type": "array", "items": { "type": "string" } },
+    "inf_samples": { "type": "array", "items": { "type": "object" }
+    }
+  },
+  "additionalProperties": true
+}

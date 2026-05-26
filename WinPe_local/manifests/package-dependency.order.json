@@ -1,0 +1,11 @@
+{
+  "version": "1.0.0",
+  "order": [
+    "winpe-wmi",
+    "winpe-scripting",
+    "winpe-netfx",
+    "winpe-powershell",
+    "winpe-mdac",
+    "winpe-storagewmi"
+  ]
+}

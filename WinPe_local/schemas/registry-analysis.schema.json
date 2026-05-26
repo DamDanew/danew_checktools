@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "danew/registry-analysis.schema.json",
+  "title": "RegistryAnalysis",
+  "type": "object",
+  "required": ["system_hive_found", "software_hive_found"],
+  "properties": {
+    "system_hive_found": { "type": "boolean" },
+    "software_hive_found": { "type": "boolean" },
+    "computer_name": { "type": "string" },
+    "product_name": { "type": "string" },
+    "current_build": { "type": "string" },
+    "architecture_hint": { "type": "string" },
+    "service_presence": { "type": "object" },
+    "network_registry": { "type": "object" }
+  },
+  "additionalProperties": true
+}

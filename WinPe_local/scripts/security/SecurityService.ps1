@@ -2,7 +2,6 @@ function Test-DanewSha256 {
     param(
         [Parameter(Mandatory = $true)]
         [string]$FilePath,
-        [Parameter(Mandatory = $true)]
         [string]$ExpectedSha256
     )
 
