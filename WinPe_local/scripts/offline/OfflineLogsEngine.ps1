@@ -151,6 +151,14 @@ function Test-DanewOfflineWindowsCandidate {
         $confidence = 'Medium'
     }
 
+    $acceptanceReasons = New-Object System.Collections.ArrayList
+    if ($hasWindows) { [void]$acceptanceReasons.Add('Windows directory detected.') }
+    if ($hasSystemHive) { [void]$acceptanceReasons.Add('SYSTEM hive detected.') }
+    if ($hasSoftwareHive) { [void]$acceptanceReasons.Add('SOFTWARE hive detected.') }
+    if ($hasLogs) { [void]$acceptanceReasons.Add('EVTX logs directory detected.') }
+    if ($hasExplorer) { [void]$acceptanceReasons.Add('explorer.exe detected.') }
+    if ($hasKernel) { [void]$acceptanceReasons.Add('ntoskrnl.exe detected.') }
+
     $rejectionReasons = New-Object System.Collections.ArrayList
     if (-not $hasWindows) { [void]$rejectionReasons.Add('Windows directory is missing or inaccessible.') }
     if (-not $hasSystemHive) { [void]$rejectionReasons.Add('SYSTEM hive is missing or inaccessible.') }
@@ -194,9 +202,13 @@ function Test-DanewOfflineWindowsCandidate {
         has_explorer = $hasExplorer
         has_ntoskrnl = $hasKernel
         accessibility_state = $accessibilityState
+        acceptance_reasons = @($acceptanceReasons)
         rejection_reasons = @($rejectionReasons)
         detection_confidence = $confidence
         evidence_score = $score
+        acceptance_status = if ($isValid) { 'accepted' } else { 'rejected' }
+        rejection_reason = if ($isValid) { '' } elseif (@($rejectionReasons).Count -gt 0) { [string]$rejectionReasons[0] } else { [string]$reason }
+        selected_as_preferred = $false
         is_valid = $isValid
         reason = $reason
     }
@@ -213,8 +225,9 @@ function Find-DanewOfflineWindowsInstallations {
     $candidateMap = @{}
 
     $roots = @()
-    if (@($CandidatePaths).Count -gt 0) {
-        $roots = @($CandidatePaths)
+    $explicitCandidatePaths = @($CandidatePaths | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+    if (@($explicitCandidatePaths).Count -gt 0) {
+        $roots = @($explicitCandidatePaths)
     }
     else {
         $roots = @(Get-DanewOfflineCandidateRoots -InputPath $InputPath -RootPath $RootPath)
@@ -265,12 +278,65 @@ function Find-DanewOfflineWindowsInstallations {
         }
     }
 
-    $results = @()
-    foreach ($candidate in @($candidateMap.Values)) {
-        $results += Test-DanewOfflineWindowsCandidate -CandidatePath $candidate
+    $results = @(
+        foreach ($candidate in @($candidateMap.Values)) {
+            Test-DanewOfflineWindowsCandidate -CandidatePath $candidate
+        }
+    )
+
+    $ranked = @(
+        $results |
+            Sort-Object -Property @(
+                @{ Expression = 'evidence_score'; Descending = $true },
+                @{ Expression = 'has_evtx_logs'; Descending = $true },
+                @{ Expression = 'has_ntoskrnl'; Descending = $true },
+                @{ Expression = 'has_explorer'; Descending = $true },
+                @{ Expression = 'path'; Descending = $false }
+            )
+    )
+
+    $preferredPath = ''
+    $preferredCandidate = @($ranked | Where-Object { $_.is_valid } | Select-Object -First 1)
+    if (@($preferredCandidate).Count -gt 0) {
+        $preferredPath = [string]$preferredCandidate[0].path
     }
 
-    return @($results | Sort-Object path -Unique)
+    $position = 1
+    $normalized = @(
+        foreach ($row in @($ranked)) {
+            $isPreferred = (-not [string]::IsNullOrWhiteSpace($preferredPath)) -and ([string]$row.path -eq $preferredPath)
+
+            [pscustomobject]@{
+                path = [string]$row.path
+                windows_root = [string]$row.windows_root
+                windows_dir = [string]$row.windows_dir
+                system32_dir = [string]$row.system32_dir
+                config_dir = [string]$row.config_dir
+                logs_dir = [string]$row.logs_dir
+                has_windows = [bool]$row.has_windows
+                has_system_hive = [bool]$row.has_system_hive
+                has_software_hive = [bool]$row.has_software_hive
+                has_evtx_logs = [bool]$row.has_evtx_logs
+                has_explorer = [bool]$row.has_explorer
+                has_ntoskrnl = [bool]$row.has_ntoskrnl
+                accessibility_state = [string]$row.accessibility_state
+                acceptance_reasons = @($row.acceptance_reasons)
+                rejection_reasons = @($row.rejection_reasons)
+                detection_confidence = [string]$row.detection_confidence
+                evidence_score = [int]$row.evidence_score
+                acceptance_status = if ([bool]$row.is_valid) { 'accepted' } else { 'rejected' }
+                rejection_reason = if ([bool]$row.is_valid) { '' } elseif (-not [string]::IsNullOrWhiteSpace([string]$row.rejection_reason)) { [string]$row.rejection_reason } elseif (@($row.rejection_reasons).Count -gt 0) { [string]$row.rejection_reasons[0] } else { [string]$row.reason }
+                selected_as_preferred = $isPreferred
+                ranking_position = $position
+                is_valid = [bool]$row.is_valid
+                reason = [string]$row.reason
+            }
+
+            $position += 1
+        }
+    )
+
+    return $normalized
 }
 
 function Get-DanewNormalizedPath {
@@ -1486,22 +1552,22 @@ function Get-DanewEvtxSummary {
 
     $levelCounts = @()
     if (@($eventsArray).Count -gt 0) {
-        $levelCounts = @($eventsArray | Group-Object level | Sort-Object Count -Descending | ForEach-Object {
-                [pscustomobject]@{ level = [string]$_.Name; count = [int]$_.Count }
+        $levelCounts = @($eventsArray | Group-Object level | Sort-Object @{Expression={@($_.Group).Count}; Descending=$true} | ForEach-Object {
+                [pscustomobject]@{ level = [string]$_.Name; count = @($_.Group).Count }
             })
     }
 
     $providerCounts = @()
     if (@($eventsArray).Count -gt 0) {
-        $providerCounts = @($eventsArray | Group-Object provider | Sort-Object Count -Descending | Select-Object -First 25 | ForEach-Object {
-                [pscustomobject]@{ provider = [string]$_.Name; count = [int]$_.Count }
+        $providerCounts = @($eventsArray | Group-Object provider | Sort-Object @{Expression={@($_.Group).Count}; Descending=$true} | Select-Object -First 25 | ForEach-Object {
+                [pscustomobject]@{ provider = [string]$_.Name; count = @($_.Group).Count }
             })
     }
 
     $eventIdCounts = @()
     if (@($eventsArray).Count -gt 0) {
-        $eventIdCounts = @($eventsArray | Group-Object event_id | Sort-Object Count -Descending | Select-Object -First 25 | ForEach-Object {
-                [pscustomobject]@{ event_id = [string]$_.Name; count = [int]$_.Count }
+        $eventIdCounts = @($eventsArray | Group-Object event_id | Sort-Object @{Expression={@($_.Group).Count}; Descending=$true} | Select-Object -First 25 | ForEach-Object {
+                [pscustomobject]@{ event_id = [string]$_.Name; count = @($_.Group).Count }
             })
     }
 

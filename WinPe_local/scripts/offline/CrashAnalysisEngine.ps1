@@ -114,7 +114,7 @@ function Get-DanewCrashClassification {
         if ($text -match 'recovery loop|restart loop|boot failure') { [void]$categories.Add('Recovery loop indicators'); $criticality += 3 }
         if ($eventId -in @(7045,4697) -or $text -match 'malware|persistence|service installed') { [void]$categories.Add('Security / malware persistence indicators'); $criticality += 2 }
         if ($text -match 'memory|page fault|0x1a|0x50|0xc4') { [void]$categories.Add('Memory instability'); $criticality += 3 }
-        if ($categories.Count -eq 0) { [void]$categories.Add('Unclassified') }
+        if (@($categories).Count -eq 0) { [void]$categories.Add('Unclassified') }
 
         foreach ($category in @($categories)) {
             if (-not $signals.ContainsKey($category)) {
@@ -278,7 +278,7 @@ function Get-DanewCrashEvidenceCorrelation {
             })
     }
 
-    if ([int]$StorageDiagnostics.evidence.Count -gt 0 -and ([string]$OfflineAnalysis.detection_confidence -ne 'Low')) {
+    if ([int]@($StorageDiagnostics.evidence).Count -gt 0 -and ([string]$OfflineAnalysis.detection_confidence -ne 'Low')) {
         [void]$correlations.Add([pscustomobject]@{
                 type = 'Offline storage evidence correlation'
                 score = 70
@@ -659,7 +659,7 @@ function Invoke-DanewCrashCauseAnalysis {
             default { $recommendations += 'Correlate the primary cause with the offline storage and registry evidence.' }
         }
     }
-    if ($recommendations.Count -eq 0) {
+    if (@($recommendations).Count -eq 0) {
         $recommendations += 'Review storage, driver, and timeline evidence for the strongest failure chain.'
     }
     $recommendations += 'Do not perform repairs from this phase; keep the analysis read-only.'

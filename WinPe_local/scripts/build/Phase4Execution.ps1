@@ -173,7 +173,7 @@ function Get-DanewInfArchitectures {
     if ($content -match '(?i)\.NTamd64') { [void]$archs.Add('x64') }
     if ($content -match '(?i)\.NTarm64') { [void]$archs.Add('arm64') }
 
-    if ($archs.Count -eq 0) {
+    if (@($archs).Count -eq 0) {
         [void]$archs.Add('any')
     }
 

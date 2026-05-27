@@ -31,9 +31,18 @@ $cliPath = Join-Path $PSScriptRoot 'DanewCheckTool.CLI.ps1'
 $statusFields = @{}
 $progressBox = $null
 $summaryLabel = $null
+$overallBadgeLabel = $null
 $offlineProgressBar = $null
 $offlineOperationLabel = $null
 $offlineTimingLabel = $null
+$stepLabels = @{}
+$recentActivityBox = $null
+$simpleActionsGroup = $null
+$advancedToggleButton = $null
+$buttonGroup = $null
+$script:ActionButtons = New-Object System.Collections.ArrayList
+$script:IsActionRunning = $false
+$script:AdvancedToolsVisible = $false
 
 $script:StatusColorDefault = $null
 $script:StatusColorPass = $null
@@ -101,6 +110,202 @@ function Set-DanewStatusText {
     }
 }
 
+function Set-DanewActionButtonsEnabled {
+    param(
+        [Parameter(Mandatory = $true)]
+        [bool]$Enabled
+    )
+
+    foreach ($button in @($script:ActionButtons)) {
+        if ($button) {
+            $button.Enabled = $Enabled
+        }
+    }
+
+    [System.Windows.Forms.Application]::DoEvents()
+}
+
+function Set-DanewSummaryVisual {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Status,
+        [string]$Text = ''
+    )
+
+    $normalized = $Status.Trim().ToUpperInvariant()
+    $badgeText = if ([string]::IsNullOrWhiteSpace($normalized)) { 'IDLE' } else { $normalized }
+    $badgeBack = [System.Drawing.Color]::FromArgb(229, 231, 235)
+    $badgeFore = [System.Drawing.Color]::FromArgb(31, 41, 55)
+
+    if ($normalized -eq 'PASS' -or $normalized -eq 'OK' -or $normalized -eq 'SUCCESS') {
+        $badgeBack = [System.Drawing.Color]::FromArgb(20, 184, 166)
+        $badgeFore = [System.Drawing.Color]::White
+    }
+    elseif ($normalized -eq 'WARNING' -or $normalized -eq 'WARN') {
+        $badgeBack = [System.Drawing.Color]::FromArgb(245, 158, 11)
+        $badgeFore = [System.Drawing.Color]::FromArgb(17, 24, 39)
+    }
+    elseif ($normalized -eq 'FAIL' -or $normalized -eq 'ERROR') {
+        $badgeBack = [System.Drawing.Color]::FromArgb(220, 38, 38)
+        $badgeFore = [System.Drawing.Color]::White
+    }
+    elseif ($normalized -eq 'RUNNING') {
+        $badgeBack = [System.Drawing.Color]::FromArgb(37, 99, 235)
+        $badgeFore = [System.Drawing.Color]::White
+    }
+
+    if ($overallBadgeLabel) {
+        $overallBadgeLabel.Text = $badgeText
+        $overallBadgeLabel.BackColor = $badgeBack
+        $overallBadgeLabel.ForeColor = $badgeFore
+    }
+
+    if ($summaryLabel -and -not [string]::IsNullOrWhiteSpace($Text)) {
+        $summaryLabel.Text = $Text
+    }
+}
+
+function Set-DanewStepState {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+        [ValidateSet('pending', 'running', 'pass', 'warning', 'fail')]
+        [string]$State
+    )
+
+    if (-not ($stepLabels.ContainsKey($Name) -and $stepLabels[$Name])) {
+        return
+    }
+
+    $label = $stepLabels[$Name]
+    $prefix = '[ ] '
+    $back = [System.Drawing.Color]::FromArgb(241, 245, 249)
+    $fore = [System.Drawing.Color]::FromArgb(71, 85, 105)
+
+    switch ($State) {
+        'running' { $prefix = '[...] '; $back = [System.Drawing.Color]::FromArgb(219, 234, 254); $fore = [System.Drawing.Color]::FromArgb(30, 64, 175) }
+        'pass' { $prefix = '[OK] '; $back = [System.Drawing.Color]::FromArgb(204, 251, 241); $fore = [System.Drawing.Color]::FromArgb(15, 118, 110) }
+        'warning' { $prefix = '[!] '; $back = [System.Drawing.Color]::FromArgb(254, 243, 199); $fore = [System.Drawing.Color]::FromArgb(146, 64, 14) }
+        'fail' { $prefix = '[X] '; $back = [System.Drawing.Color]::FromArgb(254, 226, 226); $fore = [System.Drawing.Color]::FromArgb(153, 27, 27) }
+    }
+
+    $baseText = [string]$label.Tag
+    $label.Text = $prefix + $baseText
+    $label.BackColor = $back
+    $label.ForeColor = $fore
+}
+
+function Reset-DanewStepStates {
+    foreach ($name in @($stepLabels.Keys)) {
+        Set-DanewStepState -Name ([string]$name) -State 'pending'
+    }
+}
+
+function Update-DanewRecentActivity {
+    if (-not $recentActivityBox) {
+        return
+    }
+
+    try {
+        $entries = @()
+        if (Test-Path -Path $config.launcher_log_path) {
+            $raw = Get-Content -Path $config.launcher_log_path -Raw -Encoding UTF8
+            if (-not [string]::IsNullOrWhiteSpace($raw)) {
+                $entries = @($raw | ConvertFrom-Json -Depth 20)
+            }
+        }
+
+        $lines = @(
+            $entries |
+                Select-Object -Last 5 |
+                ForEach-Object {
+                    $time = [string]$_.timestamp
+                    if ($time.Length -ge 16) { $time = $time.Substring(11, 5) }
+                    $time + '  ' + [string]$_.action + '  ' + [string]$_.status
+                }
+        )
+
+        if (@($lines).Count -eq 0) {
+            $lines = @('No recent activity')
+        }
+        $recentActivityBox.Text = ($lines -join [Environment]::NewLine)
+    }
+    catch {
+        $recentActivityBox.Text = 'Recent activity unavailable'
+    }
+}
+
+function Get-DanewUsbMediaReadyDisplay {
+    $bootValidationPath = Join-Path ([string]$config.reports_path) 'usb-boot-validation.json'
+    if (-not (Test-Path -Path $bootValidationPath)) {
+        return 'Unknown'
+    }
+
+    try {
+        $bootValidation = Get-Content -Path $bootValidationPath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 20
+        if ([string]$bootValidation.status -eq 'PASS') {
+            return 'READY'
+        }
+        if ([string]$bootValidation.status -eq 'WARNING') {
+            return 'WARNING'
+        }
+        return 'NOT READY'
+    }
+    catch {
+        return 'Unknown'
+    }
+}
+
+function Copy-DanewReportToDataVolume {
+    param(
+        [string]$HtmlPath,
+        [string]$JsonPath
+    )
+
+    try {
+        $dataVolume = @(Get-Volume -FileSystemLabel 'DANEW_DATA' -ErrorAction SilentlyContinue | Select-Object -First 1)
+        if (@($dataVolume).Count -eq 0 -or [string]::IsNullOrWhiteSpace([string]$dataVolume[0].DriveLetter)) {
+            return ''
+        }
+
+        $targetRoot = [string]$dataVolume[0].DriveLetter + ':\DANEW_REPORTS'
+        if (-not (Test-Path -Path $targetRoot)) {
+            New-Item -Path $targetRoot -ItemType Directory -Force | Out-Null
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($HtmlPath) -and (Test-Path -Path $HtmlPath)) {
+            Copy-Item -Path $HtmlPath -Destination (Join-Path $targetRoot 'latest.html') -Force
+        }
+        if (-not [string]::IsNullOrWhiteSpace($JsonPath) -and (Test-Path -Path $JsonPath)) {
+            Copy-Item -Path $JsonPath -Destination (Join-Path $targetRoot 'latest.json') -Force
+        }
+
+        return $targetRoot
+    }
+    catch {
+        return ''
+    }
+}
+
+function Set-DanewAdvancedToolsVisible {
+    param(
+        [Parameter(Mandatory = $true)]
+        [bool]$Visible
+    )
+
+    $script:AdvancedToolsVisible = $Visible
+    if ($buttonGroup) {
+        $buttonGroup.Visible = $Visible
+    }
+    if ($advancedToggleButton) {
+        $advancedToggleButton.Text = if ($Visible) { 'Hide Advanced Tools' } else { 'Show Advanced Tools' }
+    }
+    if ($form) {
+        $scrollHeight = if ($Visible) { 980 } else { 760 }
+        $form.AutoScrollMinSize = New-Object System.Drawing.Size(900, $scrollHeight)
+    }
+}
+
 function New-DanewActionButton {
     param(
         [Parameter(Mandatory = $true)]
@@ -116,50 +321,53 @@ function New-DanewActionButton {
 
     $button = New-Object System.Windows.Forms.Button
     $button.Text = $Text
-    $button.Width = 250
-    $button.Height = 34
-    $button.Margin = New-Object System.Windows.Forms.Padding(6)
+    $button.Width = 236
+    $button.Height = 40
+    $button.Margin = New-Object System.Windows.Forms.Padding(5, 4, 5, 4)
     $button.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-    $button.FlatAppearance.BorderSize = 1
-    $button.Font = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Regular)
+    $button.FlatAppearance.BorderSize = 2
+    $button.Font = New-Object System.Drawing.Font('Segoe UI', 9.5, [System.Drawing.FontStyle]::Bold)
     $button.Cursor = [System.Windows.Forms.Cursors]::Hand
 
-    $baseBackColor = [System.Drawing.Color]::FromArgb(239, 246, 255)
-    $baseBorderColor = [System.Drawing.Color]::FromArgb(191, 219, 254)
+    $baseBackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
+    $baseBorderColor = [System.Drawing.Color]::FromArgb(59, 130, 246)
     $baseForeColor = [System.Drawing.Color]::FromArgb(30, 64, 175)
     $hoverBackColor = [System.Drawing.Color]::FromArgb(219, 234, 254)
 
     if ($Tone -eq 'primary') {
-        $baseBackColor = [System.Drawing.Color]::FromArgb(29, 78, 216)
-        $baseBorderColor = [System.Drawing.Color]::FromArgb(30, 64, 175)
+        $baseBackColor = [System.Drawing.Color]::FromArgb(37, 99, 235)
+        $baseBorderColor = [System.Drawing.Color]::FromArgb(29, 78, 216)
         $baseForeColor = [System.Drawing.Color]::White
-        $hoverBackColor = [System.Drawing.Color]::FromArgb(30, 64, 175)
+        $hoverBackColor = [System.Drawing.Color]::FromArgb(29, 78, 216)
     }
     elseif ($Tone -eq 'warn') {
-        $baseBackColor = [System.Drawing.Color]::FromArgb(255, 251, 235)
-        $baseBorderColor = [System.Drawing.Color]::FromArgb(251, 191, 36)
-        $baseForeColor = [System.Drawing.Color]::FromArgb(146, 64, 14)
-        $hoverBackColor = [System.Drawing.Color]::FromArgb(254, 243, 199)
+        $baseBackColor = [System.Drawing.Color]::FromArgb(245, 158, 11)
+        $baseBorderColor = [System.Drawing.Color]::FromArgb(180, 83, 9)
+        $baseForeColor = [System.Drawing.Color]::FromArgb(17, 24, 39)
+        $hoverBackColor = [System.Drawing.Color]::FromArgb(217, 119, 6)
     }
     elseif ($Tone -eq 'danger') {
-        $baseBackColor = [System.Drawing.Color]::FromArgb(254, 242, 242)
-        $baseBorderColor = [System.Drawing.Color]::FromArgb(252, 165, 165)
-        $baseForeColor = [System.Drawing.Color]::FromArgb(153, 27, 27)
-        $hoverBackColor = [System.Drawing.Color]::FromArgb(254, 226, 226)
+        $baseBackColor = [System.Drawing.Color]::FromArgb(220, 38, 38)
+        $baseBorderColor = [System.Drawing.Color]::FromArgb(153, 27, 27)
+        $baseForeColor = [System.Drawing.Color]::White
+        $hoverBackColor = [System.Drawing.Color]::FromArgb(185, 28, 28)
     }
 
     $button.BackColor = $baseBackColor
     $button.ForeColor = $baseForeColor
     $button.FlatAppearance.BorderColor = $baseBorderColor
 
-    $button.Add_MouseEnter({
+    $hoverBackColorForHandler = $hoverBackColor
+    $baseBackColorForHandler = $baseBackColor
+
+    $button.Add_MouseEnter(({
         $sender = [System.Windows.Forms.Button]$this
-        $sender.BackColor = $hoverBackColor
-    })
-    $button.Add_MouseLeave({
+        $sender.BackColor = $hoverBackColorForHandler
+    }).GetNewClosure())
+    $button.Add_MouseLeave(({
         $sender = [System.Windows.Forms.Button]$this
-        $sender.BackColor = $baseBackColor
-    })
+        $sender.BackColor = $baseBackColorForHandler
+    }).GetNewClosure())
 
     if (-not [string]::IsNullOrWhiteSpace($Hint)) {
         $ToolTip.SetToolTip($button, $Hint)
@@ -167,6 +375,7 @@ function New-DanewActionButton {
 
     if ($Action -eq 'exit') {
         $button.Add_Click({
+            if ($script:IsActionRunning) { return }
             Invoke-DanewLauncherAction -Action 'exit' -RootPath $RootPath -Config $config | Out-Null
             $form.Close()
         })
@@ -176,6 +385,7 @@ function New-DanewActionButton {
         $button.Add_Click(({ Invoke-GuiAction -Action $actionName }).GetNewClosure())
     }
 
+    [void]$script:ActionButtons.Add($button)
     return $button
 }
 
@@ -216,7 +426,9 @@ function Update-DanewStatusPanel {
     Set-DanewStatusText -Name 'last_report_path' -Value ([string]$snapshot.last_report_path)
     Set-DanewStatusText -Name 'selected_usb_disk' -Value ([string]$snapshot.selected_usb_disk)
     Set-DanewStatusText -Name 'offline_windows_detected' -Value ([string]$snapshot.offline_windows_detected)
+    Set-DanewStatusText -Name 'usb_media_ready' -Value (Get-DanewUsbMediaReadyDisplay)
     Set-DanewStatusText -Name 'logs_folder_path' -Value ([string]$snapshot.logs_folder_path)
+    Update-DanewRecentActivity
 
     return $snapshot
 }
@@ -227,7 +439,26 @@ function Invoke-GuiAction {
         [string]$Action
     )
 
+    if ($script:IsActionRunning) {
+        return
+    }
+
+    $script:IsActionRunning = $true
+    Set-DanewActionButtonsEnabled -Enabled $false
+    Set-DanewSummaryVisual -Status 'RUNNING' -Text ('Running: ' + $Action)
+
     try {
+        if ($Action -eq 'create-usb-media') {
+            $usbDetails = 'This will prepare bootable USB media and may erase the selected target disk.' + [Environment]::NewLine + [Environment]::NewLine +
+                'Current selected USB disk: ' + [string](Get-DanewLauncherSelectedUsbDisk -Config $config) + [Environment]::NewLine +
+                'Continue only if the target disk is correct.'
+            $confirmUsb = [System.Windows.Forms.MessageBox]::Show($usbDetails, 'Confirm USB Media Creation', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Warning)
+            if ($confirmUsb -ne [System.Windows.Forms.DialogResult]::Yes) {
+                Set-DanewSummaryVisual -Status 'IDLE' -Text 'USB media creation cancelled'
+                return
+            }
+        }
+
         $suppressLog = $Action -in @('refresh-status', 'view-last-report')
         if ($Action -eq 'analyze-offline-logs') {
             if ($progressBox) {
@@ -236,6 +467,7 @@ function Invoke-GuiAction {
             if ($summaryLabel) {
                 $summaryLabel.Text = 'Summary: Offline logs running...'
             }
+            Set-DanewSummaryVisual -Status 'RUNNING' -Text 'Offline logs running...'
             if ($offlineOperationLabel) {
                 $offlineOperationLabel.Text = 'Current operation: initializing'
             }
@@ -264,6 +496,7 @@ function Invoke-GuiAction {
         }
         elseif ($Action -eq 'refresh-status') {
             [void](Update-DanewStatusPanel)
+            Set-DanewSummaryVisual -Status 'PASS' -Text 'Status refreshed'
         }
         elseif ($Action -eq 'analyze-offline-logs') {
             $offline = $res.output
@@ -275,6 +508,7 @@ function Invoke-GuiAction {
             if ($summaryLabel) {
                 $summaryLabel.Text = 'Summary: Offline logs complete. Overall=' + [string]$offline.overall_status
             }
+            Set-DanewSummaryVisual -Status ([string]$offline.overall_status) -Text ('Offline logs complete: ' + [string]$offline.overall_status)
             if ($offlineOperationLabel) {
                 $offlineOperationLabel.Text = 'Current operation: complete'
             }
@@ -342,13 +576,24 @@ function Invoke-GuiAction {
             }
             [void](Update-DanewStatusPanel)
         }
+        elseif ($Action -eq 'create-usb-media') {
+            Set-DanewSummaryVisual -Status 'PASS' -Text 'USB media report generated'
+            [System.Windows.Forms.MessageBox]::Show('USB media action completed. Check the USB readiness status and report.', 'Danew Launcher') | Out-Null
+            [void](Update-DanewStatusPanel)
+        }
         elseif ($Action -ne 'exit') {
+            Set-DanewSummaryVisual -Status 'PASS' -Text ('Completed: ' + [string]$res.action)
             [System.Windows.Forms.MessageBox]::Show("Action completed: $($res.action)", 'Danew Launcher') | Out-Null
             [void](Update-DanewStatusPanel)
         }
     }
     catch {
+        Set-DanewSummaryVisual -Status 'FAIL' -Text ('Failed: ' + $Action)
         [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, 'Danew Launcher Error') | Out-Null
+    }
+    finally {
+        $script:IsActionRunning = $false
+        Set-DanewActionButtonsEnabled -Enabled $true
     }
 }
 
@@ -391,6 +636,7 @@ function Update-OfflineProgressFromLine {
             if ($summaryLabel) {
                 $summaryLabel.Text = 'Summary: Offline logs running - ' + [string]$value + '%'
             }
+            Set-DanewSummaryVisual -Status 'RUNNING' -Text ('Offline logs running: ' + [string]$value + '%')
         }
     }
 
@@ -409,30 +655,98 @@ function Update-OfflineProgressFromLine {
     }
 }
 
+function Update-DiagnosticProgressFromLine {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Line
+    )
+
+    Add-DiagnosticProgressLine -Line $Line
+
+    $runningMatch = [regex]::Match($Line, 'Running step\s+(\d+)/7')
+    $doneMatch = [regex]::Match($Line, '^(PASS|WARNING|FAIL)\s+(\d+)/7')
+
+    if ($runningMatch.Success) {
+        switch ([int]$runningMatch.Groups[1].Value) {
+            1 { Set-DanewStepState -Name 'scan' -State 'running' }
+            2 { Set-DanewStepState -Name 'snapshot' -State 'running' }
+            3 { Set-DanewStepState -Name 'usb' -State 'running' }
+            4 { Set-DanewStepState -Name 'offline' -State 'running' }
+            5 { Set-DanewStepState -Name 'logs' -State 'running' }
+            6 { Set-DanewStepState -Name 'report' -State 'running' }
+            7 { Set-DanewStepState -Name 'export' -State 'running' }
+        }
+    }
+    elseif ($doneMatch.Success) {
+        $state = ([string]$doneMatch.Groups[1].Value).ToLowerInvariant()
+        switch ([int]$doneMatch.Groups[2].Value) {
+            1 { Set-DanewStepState -Name 'scan' -State $state }
+            2 { Set-DanewStepState -Name 'snapshot' -State $state }
+            3 { Set-DanewStepState -Name 'usb' -State $state }
+            4 { Set-DanewStepState -Name 'offline' -State $state }
+            5 { Set-DanewStepState -Name 'logs' -State $state }
+            6 { Set-DanewStepState -Name 'report' -State $state }
+            7 { Set-DanewStepState -Name 'export' -State $state }
+        }
+    }
+}
+
 function Invoke-StartDiagnostic {
+    if ($script:IsActionRunning) {
+        return
+    }
+
+    $script:IsActionRunning = $true
+    Set-DanewActionButtonsEnabled -Enabled $false
+
     if ($progressBox) {
         $progressBox.Text = ''
     }
+    Reset-DanewStepStates
+    Set-DanewStepState -Name 'scan' -State 'running'
     if ($summaryLabel) {
         $summaryLabel.Text = 'Summary: Running...'
     }
+    Set-DanewSummaryVisual -Status 'RUNNING' -Text 'Diagnostic running...'
 
     $progress = {
         param([string]$Message)
-        Add-DiagnosticProgressLine -Line $Message
+        Update-DiagnosticProgressFromLine -Line $Message
     }
 
     try {
         $result = Invoke-DanewLauncherAction -Action 'start-diagnostic' -RootPath $RootPath -Config $config -RuntimeSystemDrive $env:SystemDrive -CurrentLocationPath (Get-Location).Path -ProgressCallback $progress
         $diag = $result.output.diagnostic
-        $summaryText = 'Summary: Overall=' + [string]$diag.summary.overall_status + ' PASS=' + [string]$diag.summary.pass + ' WARNING=' + [string]$diag.summary.warning + ' FAIL=' + [string]$diag.summary.fail
+        foreach ($step in @($diag.steps)) {
+            $state = 'pending'
+            if ([string]$step.status -eq 'PASS') { $state = 'pass' }
+            elseif ([string]$step.status -eq 'WARNING') { $state = 'warning' }
+            elseif ([string]$step.status -eq 'FAIL') { $state = 'fail' }
+
+            switch ([int]$step.order) {
+                1 { Set-DanewStepState -Name 'scan' -State $state }
+                2 { Set-DanewStepState -Name 'snapshot' -State $state }
+                3 { Set-DanewStepState -Name 'usb' -State $state }
+                4 { Set-DanewStepState -Name 'offline' -State $state }
+                5 { Set-DanewStepState -Name 'logs' -State $state }
+                6 { Set-DanewStepState -Name 'report' -State $state }
+                7 { Set-DanewStepState -Name 'export' -State $state }
+            }
+        }
+
+        $summaryText = [string]$diag.summary.pass + ' OK, ' + [string]$diag.summary.warning + ' warning, ' + [string]$diag.summary.fail + ' fail'
         if ($summaryLabel) {
             $summaryLabel.Text = $summaryText
         }
+        Set-DanewSummaryVisual -Status ([string]$diag.summary.overall_status) -Text $summaryText
 
+        $dataReportRoot = Copy-DanewReportToDataVolume -HtmlPath ([string]$result.output.artifacts.report_html_path) -JsonPath ([string]$result.output.artifacts.report_json_path)
         Add-DiagnosticProgressLine -Line ('Final summary: ' + $summaryText)
         Add-DiagnosticProgressLine -Line ('JSON report: ' + [string]$result.output.artifacts.report_json_path)
         Add-DiagnosticProgressLine -Line ('HTML report: ' + [string]$result.output.artifacts.report_html_path)
+        if (-not [string]::IsNullOrWhiteSpace($dataReportRoot)) {
+            Add-DiagnosticProgressLine -Line ('Copied latest report to: ' + $dataReportRoot)
+        }
         [System.Windows.Forms.MessageBox]::Show('Diagnostic completed. Overall: ' + [string]$diag.summary.overall_status, 'Danew Launcher') | Out-Null
         [void](Update-DanewStatusPanel)
     }
@@ -440,8 +754,13 @@ function Invoke-StartDiagnostic {
         if ($summaryLabel) {
             $summaryLabel.Text = 'Summary: FAIL'
         }
+        Set-DanewSummaryVisual -Status 'FAIL' -Text 'Diagnostic failed'
         Add-DiagnosticProgressLine -Line ('FAIL - Start diagnostic: ' + $_.Exception.Message)
         [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, 'Danew Launcher Error') | Out-Null
+    }
+    finally {
+        $script:IsActionRunning = $false
+        Set-DanewActionButtonsEnabled -Enabled $true
     }
 }
 
@@ -481,12 +800,20 @@ if ($config.PSObject.Properties['runtime_mode']) {
 }
 $form.Text = 'Danew WinPE Check Tool - ' + $runtimeTitle
 $form.StartPosition = 'CenterScreen'
-$form.ClientSize = New-Object System.Drawing.Size(900, 860)
+$form.ClientSize = New-Object System.Drawing.Size(900, 780)
 $form.TopMost = $true
-$form.AutoScroll = $false
-$form.MinimumSize = New-Object System.Drawing.Size(900, 860)
+$form.AutoScroll = $true
+$form.AutoScrollMinSize = New-Object System.Drawing.Size(900, 760)
+$form.MinimumSize = New-Object System.Drawing.Size(900, 760)
 $form.BackColor = [System.Drawing.Color]::FromArgb(243, 246, 252)
 $form.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+
+$workingArea = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+if ($workingArea.Height -lt 900 -or $workingArea.Width -lt 940) {
+    $targetWidth = [Math]::Max(820, [Math]::Min(900, $workingArea.Width - 24))
+    $targetHeight = [Math]::Max(640, [Math]::Min(780, $workingArea.Height - 24))
+    $form.ClientSize = New-Object System.Drawing.Size($targetWidth, $targetHeight)
+}
 
 $headerPanel = New-Object System.Windows.Forms.Panel
 $headerPanel.Left = 14
@@ -518,37 +845,40 @@ $subtitleLabel.Text = 'Runtime: ' + $runtimeTitle + ' | Offline diagnostics, cra
 [void]$headerPanel.Controls.Add($subtitleLabel)
 
 $statusGroup = New-Object System.Windows.Forms.GroupBox
-$statusGroup.Text = 'Status Snapshot'
+$statusGroup.Text = 'Status'
 $statusGroup.Left = 14
 $statusGroup.Top = 96
 $statusGroup.Width = 872
-$statusGroup.Height = 286
+$statusGroup.Height = 154
 $statusGroup.Anchor = 'Top,Left,Right'
 $statusGroup.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
+$statusGroup.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
 
 $statusTable = New-Object System.Windows.Forms.TableLayoutPanel
 $statusTable.Left = 12
 $statusTable.Top = 22
 $statusTable.Width = 846
-$statusTable.Height = 252
-$statusTable.ColumnCount = 2
-$statusTable.RowCount = 8
+$statusTable.Height = 120
+$statusTable.ColumnCount = 4
+$statusTable.RowCount = 4
 $statusTable.AutoSize = $false
 $statusTable.Dock = 'Fill'
-$statusTable.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Absolute, 190)))
-$statusTable.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100)))
+$statusTable.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Absolute, 132)))
+$statusTable.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 50)))
+$statusTable.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Absolute, 142)))
+$statusTable.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 50)))
 
 $statusRows = @(
-    @{ key = 'root_path'; label = 'Current root path' },
-    @{ key = 'runtime_mode'; label = 'Runtime mode' },
+    @{ key = 'runtime_mode'; label = 'Runtime' },
+    @{ key = 'last_action_status'; label = 'Last status' },
     @{ key = 'last_action'; label = 'Last action' },
-    @{ key = 'last_action_status'; label = 'Last action status' },
-    @{ key = 'last_report_path'; label = 'Last report path' },
-    @{ key = 'selected_usb_disk'; label = 'Selected USB disk' },
-    @{ key = 'offline_windows_detected'; label = 'Offline Windows detected' },
-    @{ key = 'logs_folder_path'; label = 'Logs folder path' }
+    @{ key = 'selected_usb_disk'; label = 'USB disk' },
+    @{ key = 'usb_media_ready'; label = 'USB media' },
+    @{ key = 'offline_windows_detected'; label = 'Offline Windows' },
+    @{ key = 'last_report_path'; label = 'Last report' }
 )
 
+$statusPairIndex = 0
 foreach ($row in $statusRows) {
     $label = New-Object System.Windows.Forms.Label
     $label.Text = [string]$row.label + ' :'
@@ -561,8 +891,18 @@ foreach ($row in $statusRows) {
     $value = New-DanewReadOnlyTextBox -Name $row.key
     $statusFields[$row.key] = $value
 
-    [void]$statusTable.Controls.Add($label)
-    [void]$statusTable.Controls.Add($value)
+    if ([string]$row.key -eq 'last_report_path') {
+        [void]$statusTable.Controls.Add($label, 0, 3)
+        [void]$statusTable.Controls.Add($value, 1, 3)
+        $statusTable.SetColumnSpan($value, 3)
+    }
+    else {
+        $statusRowIndex = [int][Math]::Floor($statusPairIndex / 2)
+        $statusColumnIndex = if (($statusPairIndex % 2) -eq 0) { 0 } else { 2 }
+        [void]$statusTable.Controls.Add($label, $statusColumnIndex, $statusRowIndex)
+        [void]$statusTable.Controls.Add($value, ($statusColumnIndex + 1), $statusRowIndex)
+        $statusPairIndex++
+    }
 }
 
 [void]$statusGroup.Controls.Add($statusTable)
@@ -570,11 +910,12 @@ foreach ($row in $statusRows) {
 $primaryGroup = New-Object System.Windows.Forms.GroupBox
 $primaryGroup.Text = 'Diagnostic Console'
 $primaryGroup.Left = 14
-$primaryGroup.Top = 392
+$primaryGroup.Top = 262
 $primaryGroup.Width = 872
-$primaryGroup.Height = 260
+$primaryGroup.Height = 340
 $primaryGroup.Anchor = 'Top,Left,Right'
 $primaryGroup.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
+$primaryGroup.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
 
 $startDiagnosticButton = New-Object System.Windows.Forms.Button
 $startDiagnosticButton.Text = 'START DIAGNOSTIC'
@@ -602,16 +943,27 @@ $startDiagnosticButton.Add_MouseLeave({
 
 $summaryLabel = New-Object System.Windows.Forms.Label
 $summaryLabel.Left = 14
-$summaryLabel.Top = 82
-$summaryLabel.Width = 844
+$summaryLabel.Top = 136
+$summaryLabel.Width = 704
 $summaryLabel.Height = 24
 $summaryLabel.Text = 'Summary: Idle'
 $summaryLabel.ForeColor = [System.Drawing.Color]::FromArgb(30, 64, 175)
-$summaryLabel.Font = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)
+$summaryLabel.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
+
+$overallBadgeLabel = New-Object System.Windows.Forms.Label
+$overallBadgeLabel.Left = 730
+$overallBadgeLabel.Top = 134
+$overallBadgeLabel.Width = 128
+$overallBadgeLabel.Height = 28
+$overallBadgeLabel.Text = 'IDLE'
+$overallBadgeLabel.TextAlign = 'MiddleCenter'
+$overallBadgeLabel.BackColor = [System.Drawing.Color]::FromArgb(229, 231, 235)
+$overallBadgeLabel.ForeColor = [System.Drawing.Color]::FromArgb(31, 41, 55)
+$overallBadgeLabel.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
 
 $offlineOperationLabel = New-Object System.Windows.Forms.Label
 $offlineOperationLabel.Left = 14
-$offlineOperationLabel.Top = 104
+$offlineOperationLabel.Top = 162
 $offlineOperationLabel.Width = 844
 $offlineOperationLabel.Height = 20
 $offlineOperationLabel.Text = 'Current operation: idle'
@@ -620,7 +972,7 @@ $offlineOperationLabel.Font = New-Object System.Drawing.Font('Segoe UI', 9)
 
 $offlineProgressBar = New-Object System.Windows.Forms.ProgressBar
 $offlineProgressBar.Left = 14
-$offlineProgressBar.Top = 130
+$offlineProgressBar.Top = 186
 $offlineProgressBar.Width = 844
 $offlineProgressBar.Height = 18
 $offlineProgressBar.Minimum = 0
@@ -630,7 +982,7 @@ $offlineProgressBar.Style = 'Continuous'
 
 $offlineTimingLabel = New-Object System.Windows.Forms.Label
 $offlineTimingLabel.Left = 14
-$offlineTimingLabel.Top = 152
+$offlineTimingLabel.Top = 208
 $offlineTimingLabel.Width = 844
 $offlineTimingLabel.Height = 20
 $offlineTimingLabel.Text = 'Elapsed: 00:00    ETA: --:--'
@@ -639,39 +991,132 @@ $offlineTimingLabel.Font = New-Object System.Drawing.Font('Segoe UI', 9)
 
 $progressBox = New-Object System.Windows.Forms.TextBox
 $progressBox.Left = 14
-$progressBox.Top = 176
+$progressBox.Top = 234
 $progressBox.Width = 844
-$progressBox.Height = 72
+$progressBox.Height = 92
 $progressBox.Multiline = $true
 $progressBox.ScrollBars = 'Vertical'
 $progressBox.ReadOnly = $true
 $progressBox.BorderStyle = 'FixedSingle'
-$progressBox.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
-$progressBox.ForeColor = [System.Drawing.Color]::FromArgb(31, 41, 55)
+$progressBox.BackColor = [System.Drawing.Color]::FromArgb(248, 250, 252)
+$progressBox.ForeColor = [System.Drawing.Color]::FromArgb(15, 23, 42)
 $progressBox.Font = New-Object System.Drawing.Font('Consolas', 9)
 
 $startDiagnosticButton.Add_Click({ Invoke-StartDiagnostic })
+[void]$script:ActionButtons.Add($startDiagnosticButton)
+
+$stepPanel = New-Object System.Windows.Forms.FlowLayoutPanel
+$stepPanel.Left = 14
+$stepPanel.Top = 80
+$stepPanel.Width = 844
+$stepPanel.Height = 48
+$stepPanel.FlowDirection = 'LeftToRight'
+$stepPanel.WrapContents = $true
+$stepPanel.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
+
+foreach ($step in @(
+        @{ key = 'scan'; label = 'Scan' },
+        @{ key = 'snapshot'; label = 'Status' },
+        @{ key = 'usb'; label = 'USB' },
+        @{ key = 'offline'; label = 'Offline' },
+        @{ key = 'logs'; label = 'Logs' },
+        @{ key = 'report'; label = 'Report' },
+        @{ key = 'export'; label = 'Export' }
+    )) {
+    $stepLabel = New-Object System.Windows.Forms.Label
+    $stepLabel.Text = '[ ] ' + [string]$step.label
+    $stepLabel.Tag = [string]$step.label
+    $stepLabel.Width = 112
+    $stepLabel.Height = 20
+    $stepLabel.Margin = New-Object System.Windows.Forms.Padding(3, 2, 3, 2)
+    $stepLabel.TextAlign = 'MiddleCenter'
+    $stepLabel.BackColor = [System.Drawing.Color]::FromArgb(241, 245, 249)
+    $stepLabel.ForeColor = [System.Drawing.Color]::FromArgb(71, 85, 105)
+    $stepLabel.Font = New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Bold)
+    $stepLabels[[string]$step.key] = $stepLabel
+    [void]$stepPanel.Controls.Add($stepLabel)
+}
 
 [void]$primaryGroup.Controls.Add($startDiagnosticButton)
+[void]$primaryGroup.Controls.Add($stepPanel)
 [void]$primaryGroup.Controls.Add($summaryLabel)
+[void]$primaryGroup.Controls.Add($overallBadgeLabel)
 [void]$primaryGroup.Controls.Add($offlineOperationLabel)
 [void]$primaryGroup.Controls.Add($offlineProgressBar)
 [void]$primaryGroup.Controls.Add($offlineTimingLabel)
 [void]$primaryGroup.Controls.Add($progressBox)
-
-$buttonGroup = New-Object System.Windows.Forms.GroupBox
-$buttonGroup.Text = 'Advanced Tools'
-$buttonGroup.Left = 14
-$buttonGroup.Top = 660
-$buttonGroup.Width = 872
-$buttonGroup.Height = 186
-$buttonGroup.Anchor = 'Top,Left,Right'
 
 $toolTip = New-Object System.Windows.Forms.ToolTip
 $toolTip.AutoPopDelay = 12000
 $toolTip.InitialDelay = 250
 $toolTip.ReshowDelay = 150
 $toolTip.ShowAlways = $true
+
+$simpleActionsGroup = New-Object System.Windows.Forms.GroupBox
+$simpleActionsGroup.Text = 'Simple Actions'
+$simpleActionsGroup.Left = 14
+$simpleActionsGroup.Top = 614
+$simpleActionsGroup.Width = 872
+$simpleActionsGroup.Height = 148
+$simpleActionsGroup.Anchor = 'Top,Left,Right'
+$simpleActionsGroup.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
+$simpleActionsGroup.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
+
+$simplePanel = New-Object System.Windows.Forms.FlowLayoutPanel
+$simplePanel.Left = 10
+$simplePanel.Top = 22
+$simplePanel.Width = 844
+$simplePanel.Height = 50
+$simplePanel.FlowDirection = 'LeftToRight'
+$simplePanel.WrapContents = $false
+$simplePanel.Padding = New-Object System.Windows.Forms.Padding(0)
+
+[void]$simplePanel.Controls.Add((New-DanewActionButton -Text 'Open Last Report' -Action 'view-last-report' -ToolTip $toolTip -Hint 'Open the most recent HTML or JSON report.' -Tone 'primary'))
+[void]$simplePanel.Controls.Add((New-DanewActionButton -Text 'Export Package' -Action 'export-diagnostic-package' -ToolTip $toolTip -Hint 'Bundle reports and artifacts for transfer.' -Tone 'neutral'))
+
+$advancedToggleButton = New-Object System.Windows.Forms.Button
+$advancedToggleButton.Text = 'Show Advanced Tools'
+$advancedToggleButton.Width = 236
+$advancedToggleButton.Height = 40
+$advancedToggleButton.Margin = New-Object System.Windows.Forms.Padding(5, 4, 5, 4)
+$advancedToggleButton.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$advancedToggleButton.FlatAppearance.BorderSize = 2
+$advancedToggleButton.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(71, 85, 105)
+$advancedToggleButton.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
+$advancedToggleButton.ForeColor = [System.Drawing.Color]::FromArgb(31, 41, 55)
+$advancedToggleButton.Font = New-Object System.Drawing.Font('Segoe UI', 9.5, [System.Drawing.FontStyle]::Bold)
+$advancedToggleButton.Cursor = [System.Windows.Forms.Cursors]::Hand
+$advancedToggleButton.Add_Click({
+    Set-DanewAdvancedToolsVisible -Visible (-not $script:AdvancedToolsVisible)
+})
+[void]$script:ActionButtons.Add($advancedToggleButton)
+[void]$simplePanel.Controls.Add($advancedToggleButton)
+
+$recentActivityBox = New-Object System.Windows.Forms.TextBox
+$recentActivityBox.Left = 14
+$recentActivityBox.Top = 78
+$recentActivityBox.Width = 844
+$recentActivityBox.Height = 54
+$recentActivityBox.Multiline = $true
+$recentActivityBox.ScrollBars = 'Vertical'
+$recentActivityBox.ReadOnly = $true
+$recentActivityBox.BorderStyle = 'FixedSingle'
+$recentActivityBox.BackColor = [System.Drawing.Color]::FromArgb(248, 250, 252)
+$recentActivityBox.ForeColor = [System.Drawing.Color]::FromArgb(51, 65, 85)
+$recentActivityBox.Font = New-Object System.Drawing.Font('Consolas', 8.5)
+$recentActivityBox.Text = 'Recent activity: idle'
+
+[void]$simpleActionsGroup.Controls.Add($simplePanel)
+[void]$simpleActionsGroup.Controls.Add($recentActivityBox)
+
+$buttonGroup = New-Object System.Windows.Forms.GroupBox
+$buttonGroup.Text = 'Advanced Tools'
+$buttonGroup.Left = 14
+$buttonGroup.Top = 774
+$buttonGroup.Width = 872
+$buttonGroup.Height = 186
+$buttonGroup.Anchor = 'Top,Left,Right'
+$buttonGroup.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
 
 $toolsLayout = New-Object System.Windows.Forms.TableLayoutPanel
 $toolsLayout.Dock = 'Fill'
@@ -686,33 +1131,39 @@ $quickGroup = New-Object System.Windows.Forms.GroupBox
 $quickGroup.Text = 'Quick Actions'
 $quickGroup.Dock = 'Fill'
 $quickGroup.Font = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)
+$quickGroup.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
 
 $analysisGroup = New-Object System.Windows.Forms.GroupBox
 $analysisGroup.Text = 'Analysis'
 $analysisGroup.Dock = 'Fill'
 $analysisGroup.Font = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)
+$analysisGroup.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
 
 $systemGroup = New-Object System.Windows.Forms.GroupBox
 $systemGroup.Text = 'System'
 $systemGroup.Dock = 'Fill'
 $systemGroup.Font = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)
+$systemGroup.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
 
 $quickPanel = New-Object System.Windows.Forms.FlowLayoutPanel
 $quickPanel.Dock = 'Fill'
 $quickPanel.FlowDirection = 'TopDown'
 $quickPanel.WrapContents = $false
+$quickPanel.AutoScroll = $true
 $quickPanel.Padding = New-Object System.Windows.Forms.Padding(8, 10, 8, 8)
 
 $analysisPanel = New-Object System.Windows.Forms.FlowLayoutPanel
 $analysisPanel.Dock = 'Fill'
 $analysisPanel.FlowDirection = 'TopDown'
 $analysisPanel.WrapContents = $false
+$analysisPanel.AutoScroll = $true
 $analysisPanel.Padding = New-Object System.Windows.Forms.Padding(8, 10, 8, 8)
 
 $systemPanel = New-Object System.Windows.Forms.FlowLayoutPanel
 $systemPanel.Dock = 'Fill'
 $systemPanel.FlowDirection = 'TopDown'
 $systemPanel.WrapContents = $false
+$systemPanel.AutoScroll = $true
 $systemPanel.Padding = New-Object System.Windows.Forms.Padding(8, 10, 8, 8)
 
 [void]$quickPanel.Controls.Add((New-DanewActionButton -Text 'Refresh Status' -Action 'refresh-status' -ToolTip $toolTip -Hint 'Reload the status snapshot and latest state from launcher.' -Tone 'neutral'))
@@ -742,7 +1193,9 @@ $systemPanel.Padding = New-Object System.Windows.Forms.Padding(8, 10, 8, 8)
 [void]$form.Controls.Add($headerPanel)
 [void]$form.Controls.Add($statusGroup)
 [void]$form.Controls.Add($primaryGroup)
+[void]$form.Controls.Add($simpleActionsGroup)
 [void]$form.Controls.Add($buttonGroup)
 
+Set-DanewAdvancedToolsVisible -Visible $false
 [void](Update-DanewStatusPanel)
 [void]$form.ShowDialog()

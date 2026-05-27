@@ -48,6 +48,7 @@ function New-Phase6A1TestRoot {
             'offline-lab',
             'offline-lab\efi-only\EFI\Microsoft\Boot',
             'offline-lab\fake\candidate-1\Windows',
+            'offline-lab\fake\candidate-1\Windows\System32',
             'offline-lab\multi\install-1\Windows\System32\config',
             'offline-lab\multi\install-1\Windows\System32\winevt\Logs',
             'offline-lab\multi\install-1\Windows\System32',
@@ -63,6 +64,10 @@ function New-Phase6A1TestRoot {
 
     Copy-Item -Path (Join-Path $BasePath 'scripts\*') -Destination (Join-Path $tempRoot 'scripts') -Recurse -Force
 
+    # Fake Windows candidate: has Windows directory but no hives (should be detected as invalid)
+    Set-Content -Path (Join-Path $tempRoot 'offline-lab\fake\candidate-1\Windows\System32\.danew-marker') -Value 'detected' -Encoding ASCII
+
+    # Multiple valid installs: create minimal hives + marker binaries
     Set-Content -Path (Join-Path $tempRoot 'offline-lab\multi\install-1\Windows\System32\config\SYSTEM') -Value 'hive' -Encoding ASCII
     Set-Content -Path (Join-Path $tempRoot 'offline-lab\multi\install-1\Windows\System32\config\SOFTWARE') -Value 'hive' -Encoding ASCII
     Set-Content -Path (Join-Path $tempRoot 'offline-lab\multi\install-1\Windows\System32\explorer.exe') -Value 'bin' -Encoding ASCII
@@ -167,11 +172,30 @@ try {
 
     $multiCandidates = @(Find-DanewOfflineWindowsInstallations -InputPath (Join-Path $temp.root 'offline-lab\multi') -RootPath $temp.root)
     $multiValidCount = @($multiCandidates | Where-Object { $_.is_valid }).Count
-    $results += Add-Phase6A1Result -Name 'multiple_Windows_installs' -Passed ($multiValidCount -ge 2) -Details ('valid=' + [string]$multiValidCount)
+    $multiPreferred = @($multiCandidates | Where-Object { $_.selected_as_preferred })
+    $multiTopScore = if (@($multiCandidates).Count -gt 0) { ($multiCandidates | Measure-Object -Property evidence_score -Maximum).Maximum } else { -1 }
+    $multiPreferredTop = @($multiPreferred | Where-Object { $_.evidence_score -eq $multiTopScore -and $_.acceptance_status -eq 'accepted' })
+    $multiHasSchema = @($multiCandidates | Where-Object {
+            $_.PSObject.Properties['evidence_score'] -and
+            $_.PSObject.Properties['detection_confidence'] -and
+            $_.PSObject.Properties['acceptance_status'] -and
+            $_.PSObject.Properties['rejection_reason'] -and
+            $_.PSObject.Properties['selected_as_preferred']
+        }).Count -eq @($multiCandidates).Count
+    $multiPass = ($multiValidCount -ge 2) -and (@($multiPreferred).Count -eq 1) -and (@($multiPreferredTop).Count -eq 1) -and $multiHasSchema
+    $results += Add-Phase6A1Result -Name 'multiple_Windows_installs' -Passed $multiPass -Details ('valid=' + [string]$multiValidCount + '; preferred=' + [string](@($multiPreferred).Count))
 
     $fakeCandidates = @(Find-DanewOfflineWindowsInstallations -InputPath (Join-Path $temp.root 'offline-lab\fake') -RootPath $temp.root)
-    $fakeInvalid = @($fakeCandidates | Where-Object { -not $_.is_valid }).Count -ge 1
-    $results += Add-Phase6A1Result -Name 'fake_Windows_candidate' -Passed $fakeInvalid -Details ('invalid=' + [string]$fakeInvalid)
+    $fakeInvalidRows = @($fakeCandidates | Where-Object {
+            -not $_.is_valid -and
+            $_.acceptance_status -eq 'rejected' -and
+            -not [string]::IsNullOrWhiteSpace([string]$_.rejection_reason) -and
+            $_.PSObject.Properties['evidence_score'] -and
+            $_.PSObject.Properties['detection_confidence'] -and
+            $_.PSObject.Properties['selected_as_preferred']
+        })
+    $fakePass = @($fakeInvalidRows).Count -ge 1
+    $results += Add-Phase6A1Result -Name 'fake_Windows_candidate' -Passed $fakePass -Details ('invalid=' + [string](@($fakeInvalidRows).Count))
 
     $partialInstall = Test-DanewOfflineWindowsCandidate -CandidatePath (Join-Path $temp.root 'offline-lab\partial')
     $partialPass = (-not $partialInstall.is_valid) -and ([string]$partialInstall.detection_confidence -in @('Low', 'Medium'))

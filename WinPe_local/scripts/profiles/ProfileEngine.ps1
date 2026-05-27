@@ -38,7 +38,7 @@ function Get-DanewProfileCoverage {
             100
         }
         else {
-            [math]::Round(((@($ProfileDefinition.required_tools).Count - $missingRequired.Count) / @($ProfileDefinition.required_tools).Count) * 100)
+            [math]::Round(((@($ProfileDefinition.required_tools).Count - @($missingRequired).Count) / @($ProfileDefinition.required_tools).Count) * 100)
         }
     }
 }

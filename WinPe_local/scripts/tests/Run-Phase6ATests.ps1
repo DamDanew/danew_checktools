@@ -41,16 +41,25 @@ function New-Phase6ATestRoot {
     }
 
     New-Item -Path $tempRoot -ItemType Directory -Force | Out-Null
-    foreach ($folder in @('scripts', 'reports', 'logs', 'offline-lab', 'offline-lab\fake-only\candidate-1\Windows', 'offline-lab\multi\install-1\Windows\System32\config', 'offline-lab\multi\install-1\Windows\System32\winevt\Logs', 'offline-lab\multi\install-2\Windows\System32\config', 'offline-lab\multi\install-2\Windows\System32\winevt\Logs', 'offline-lab\invalid-hive\Windows\System32\config', 'offline-lab\missing-system\Windows\System32\config', 'offline-lab\missing-system\Windows\System32\winevt\Logs')) {
+    foreach ($folder in @('scripts', 'reports', 'logs', 'offline-lab', 'offline-lab\fake-only\candidate-1\Windows', 'offline-lab\fake-only\candidate-1\Windows\System32', 'offline-lab\multi\install-1\Windows\System32\config', 'offline-lab\multi\install-1\Windows\System32\winevt\Logs', 'offline-lab\multi\install-2\Windows\System32\config', 'offline-lab\multi\install-2\Windows\System32\winevt\Logs', 'offline-lab\invalid-hive\Windows\System32\config', 'offline-lab\missing-system\Windows\System32\config', 'offline-lab\missing-system\Windows\System32\winevt\Logs')) {
         New-Item -Path (Join-Path $tempRoot $folder) -ItemType Directory -Force | Out-Null
     }
 
     Copy-Item -Path (Join-Path $BasePath 'scripts\*') -Destination (Join-Path $tempRoot 'scripts') -Recurse -Force
 
+    # Fake Windows candidate: has Windows directory but no hives (should be detected as invalid)
+    Set-Content -Path (Join-Path $tempRoot 'offline-lab\fake-only\candidate-1\Windows\System32\.danew-marker') -Value 'detected' -Encoding ASCII
+
+    # Multiple valid installs: create minimal hives + marker binaries
     Set-Content -Path (Join-Path $tempRoot 'offline-lab\multi\install-1\Windows\System32\config\SYSTEM') -Value 'hive' -Encoding ASCII
     Set-Content -Path (Join-Path $tempRoot 'offline-lab\multi\install-1\Windows\System32\config\SOFTWARE') -Value 'hive' -Encoding ASCII
+    Set-Content -Path (Join-Path $tempRoot 'offline-lab\multi\install-1\Windows\System32\explorer.exe') -Value 'bin' -Encoding ASCII
+    Set-Content -Path (Join-Path $tempRoot 'offline-lab\multi\install-1\Windows\System32\ntoskrnl.exe') -Value 'bin' -Encoding ASCII
+
     Set-Content -Path (Join-Path $tempRoot 'offline-lab\multi\install-2\Windows\System32\config\SYSTEM') -Value 'hive' -Encoding ASCII
     Set-Content -Path (Join-Path $tempRoot 'offline-lab\multi\install-2\Windows\System32\config\SOFTWARE') -Value 'hive' -Encoding ASCII
+    Set-Content -Path (Join-Path $tempRoot 'offline-lab\multi\install-2\Windows\System32\explorer.exe') -Value 'bin' -Encoding ASCII
+    Set-Content -Path (Join-Path $tempRoot 'offline-lab\multi\install-2\Windows\System32\ntoskrnl.exe') -Value 'bin' -Encoding ASCII
 
     Set-Content -Path (Join-Path $tempRoot 'offline-lab\invalid-hive\Windows\System32\config\SYSTEM') -Value 'not-a-real-hive' -Encoding ASCII
     Set-Content -Path (Join-Path $tempRoot 'offline-lab\invalid-hive\Windows\System32\config\SOFTWARE') -Value 'not-a-real-hive' -Encoding ASCII
@@ -314,11 +323,29 @@ try {
 
     $fakeCandidates = @(Find-DanewOfflineWindowsInstallations -InputPath (Join-Path $temp.root 'offline-lab\fake-only') -RootPath $temp.root)
     $fakeMatch = @($fakeCandidates | Where-Object { $_.has_windows -and -not $_.is_valid })
-    $results += Add-Phase6AResult -Name 'fake_windows_install' -Passed (@($fakeMatch).Count -ge 1) -Details ('matches=' + [string]@($fakeMatch).Count)
+    $fakeQuality = @($fakeMatch | Where-Object {
+            $_.acceptance_status -eq 'rejected' -and
+            -not [string]::IsNullOrWhiteSpace([string]$_.rejection_reason) -and
+            $_.PSObject.Properties['evidence_score'] -and
+            $_.PSObject.Properties['detection_confidence'] -and
+            $_.PSObject.Properties['selected_as_preferred']
+        })
+    $results += Add-Phase6AResult -Name 'fake_windows_install' -Passed (@($fakeQuality).Count -ge 1) -Details ('matches=' + [string](@($fakeQuality).Count))
 
     $multiCandidates = @(Find-DanewOfflineWindowsInstallations -InputPath (Join-Path $temp.root 'offline-lab\multi') -RootPath $temp.root)
     $multiValid = @($multiCandidates | Where-Object { $_.is_valid })
-    $results += Add-Phase6AResult -Name 'multiple_installs' -Passed (@($multiValid).Count -ge 2) -Details ('valid=' + [string]@($multiValid).Count)
+    $preferred = @($multiCandidates | Where-Object { $_.selected_as_preferred })
+    $topScore = if (@($multiCandidates).Count -gt 0) { ($multiCandidates | Measure-Object -Property evidence_score -Maximum).Maximum } else { -1 }
+    $preferredTop = @($preferred | Where-Object { $_.evidence_score -eq $topScore -and $_.acceptance_status -eq 'accepted' })
+    $multiHasSchema = @($multiCandidates | Where-Object {
+            $_.PSObject.Properties['evidence_score'] -and
+            $_.PSObject.Properties['detection_confidence'] -and
+            $_.PSObject.Properties['acceptance_status'] -and
+            $_.PSObject.Properties['rejection_reason'] -and
+            $_.PSObject.Properties['selected_as_preferred']
+        }).Count -eq @($multiCandidates).Count
+    $multiPass = (@($multiValid).Count -ge 2) -and (@($preferred).Count -eq 1) -and (@($preferredTop).Count -eq 1) -and $multiHasSchema
+    $results += Add-Phase6AResult -Name 'multiple_installs' -Passed $multiPass -Details ('valid=' + [string](@($multiValid).Count) + '; preferred=' + [string](@($preferred).Count))
 
     $invalidInstall = Test-DanewOfflineWindowsCandidate -CandidatePath (Join-Path $temp.root 'offline-lab\invalid-hive')
     $invalidRegistry = Get-DanewOfflineHiveMetadata -InstallInfo $invalidInstall

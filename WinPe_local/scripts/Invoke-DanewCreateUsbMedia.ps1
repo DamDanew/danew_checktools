@@ -118,8 +118,9 @@ $beforeStatePath = Join-Path $reportsDir 'disk-before-state.json'
 $beforeState | ConvertTo-Json -Depth 30 | Set-Content -Path $beforeStatePath -Encoding UTF8
 
 $executeProvision = ($Mode -eq 'Provision')
+$isSimulatedProvisioning = $executeProvision -and -not [string]::IsNullOrWhiteSpace($SimulationRoot)
 if ($executeProvision) {
-    if ($bootWimPackageValidation.status -ne 'PASS') {
+    if ($bootWimPackageValidation.status -ne 'PASS' -and -not $isSimulatedProvisioning) {
         throw ('boot.wim package validation failed. ' + $bootWimPackageValidation.details)
     }
 
@@ -155,10 +156,10 @@ $rollbackPath = Join-Path $reportsDir 'rollback-usb-plan.json'
 $rollbackPlan | ConvertTo-Json -Depth 20 | Set-Content -Path $rollbackPath -Encoding UTF8
 
 $status = 'PASS'
-if ($bootWimPackageValidation.status -eq 'FAIL' -or -not $safety.safety_passed -or $bootValidation.status -eq 'FAIL') {
+if (($bootWimPackageValidation.status -eq 'FAIL' -and -not $isSimulatedProvisioning) -or -not $safety.safety_passed -or $bootValidation.status -eq 'FAIL') {
     $status = 'FAIL'
 }
-elseif ($selected.compatibility.status -eq 'WARNING' -or @($exportResult.warnings).Count -gt 0 -or -not $executeProvision) {
+elseif ($bootWimPackageValidation.status -eq 'FAIL' -or $selected.compatibility.status -eq 'WARNING' -or @($exportResult.warnings).Count -gt 0 -or -not $executeProvision) {
     $status = 'WARNING'
 }
 

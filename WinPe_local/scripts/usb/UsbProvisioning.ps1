@@ -607,6 +607,7 @@ function Invoke-DanewUsbExport {
 
     $bootTarget = [string](Get-DanewSafeProperty -Object $PartitionResult -Name 'boot_path' -DefaultValue '')
     $dataTarget = [string](Get-DanewSafeProperty -Object $PartitionResult -Name 'data_path' -DefaultValue '')
+    $isSimulatedPartitionResult = ([string](Get-DanewSafeProperty -Object $PartitionResult -Name 'mode' -DefaultValue '') -eq 'simulation')
 
     function ConvertTo-DanewDriveRootPath {
         param([string]$PathValue)
@@ -626,6 +627,11 @@ function Invoke-DanewUsbExport {
     if (-not $Execute) {
         if ([string]::IsNullOrWhiteSpace([string]$bootTarget)) { $bootTarget = 'PLANNED_BOOT' }
         if ([string]::IsNullOrWhiteSpace([string]$dataTarget)) { $dataTarget = 'PLANNED_DATA' }
+    }
+    elseif ($isSimulatedPartitionResult) {
+        if ([string]::IsNullOrWhiteSpace($bootTarget) -or [string]::IsNullOrWhiteSpace($dataTarget)) {
+            throw ('USB export aborted: simulated partition result is missing BOOT/DATA paths. bootTarget=' + [string]$bootTarget + '; dataTarget=' + [string]$dataTarget)
+        }
     }
     else {
         # Some WinPE stacks can return empty DriveLetter from Format-Volume even though volumes are mounted.

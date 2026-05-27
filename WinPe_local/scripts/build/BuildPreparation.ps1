@@ -23,7 +23,7 @@ function New-DanewBuildPreparationPlan {
         additions_count = @($Recommendations).Count
         estimated_size_increase_mb = [math]::Round($totalSize, 2)
         estimated_ram_increase_mb = [math]::Round($totalRam, 2)
-        summary = "[SIMULATION] +$([math]::Round($totalSize,2)) MB ; +$($Recommendations.Count) items ; +$([math]::Round($totalRam,2)) MB RAM"
+        summary = "[SIMULATION] +$([math]::Round($totalSize,2)) MB ; +$(@($Recommendations).Count) items ; +$([math]::Round($totalRam,2)) MB RAM"
     }
 }
 

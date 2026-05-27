@@ -119,7 +119,22 @@ function Write-DanewLauncherActionLog {
     }
 
     $items += $entry
-    $items | ConvertTo-Json -Depth 30 | Set-Content -Path $Config.launcher_log_path -Encoding UTF8
+    $json = $items | ConvertTo-Json -Depth 30
+    $lastError = $null
+    for ($attempt = 1; $attempt -le 5; $attempt++) {
+        try {
+            $json | Set-Content -Path $Config.launcher_log_path -Encoding UTF8 -ErrorAction Stop
+            return
+        }
+        catch {
+            $lastError = $_
+            Start-Sleep -Milliseconds (50 * $attempt)
+        }
+    }
+
+    if ($lastError) {
+        throw $lastError
+    }
 }
 
 function Get-DanewLauncherLatestLogEntry {
