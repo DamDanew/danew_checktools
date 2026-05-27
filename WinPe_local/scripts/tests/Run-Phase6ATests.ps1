@@ -114,8 +114,8 @@ function Invoke-WithOfflineOverrides {
     if (Get-Command -Name Find-DanewOfflineWindowsInstallations -ErrorAction SilentlyContinue) {
         $originalFind = ${function:script:Find-DanewOfflineWindowsInstallations}
     }
-    if (Get-Command -Name Get-DanewOfflineRegistryMetadata -ErrorAction SilentlyContinue) {
-        $originalRegistry = ${function:script:Get-DanewOfflineRegistryMetadata}
+    if (Get-Command -Name Get-DanewOfflineHiveMetadata -ErrorAction SilentlyContinue) {
+        $originalRegistry = ${function:script:Get-DanewOfflineHiveMetadata}
     }
     if (Get-Command -Name Get-DanewEvtxDiscovery -ErrorAction SilentlyContinue) {
         $originalDiscovery = ${function:script:Get-DanewEvtxDiscovery}
@@ -129,7 +129,7 @@ function Invoke-WithOfflineOverrides {
             Set-Item -Path function:script:Find-DanewOfflineWindowsInstallations -Value $FindOverride
         }
         if ($RegistryOverride) {
-            Set-Item -Path function:script:Get-DanewOfflineRegistryMetadata -Value $RegistryOverride
+            Set-Item -Path function:script:Get-DanewOfflineHiveMetadata -Value $RegistryOverride
         }
         if ($DiscoveryOverride) {
             Set-Item -Path function:script:Get-DanewEvtxDiscovery -Value $DiscoveryOverride
@@ -145,7 +145,7 @@ function Invoke-WithOfflineOverrides {
             Set-Item -Path function:script:Find-DanewOfflineWindowsInstallations -Value $originalFind
         }
         if ($null -ne $originalRegistry) {
-            Set-Item -Path function:script:Get-DanewOfflineRegistryMetadata -Value $originalRegistry
+            Set-Item -Path function:script:Get-DanewOfflineHiveMetadata -Value $originalRegistry
         }
         if ($null -ne $originalDiscovery) {
             Set-Item -Path function:script:Get-DanewEvtxDiscovery -Value $originalDiscovery
@@ -321,7 +321,7 @@ try {
     $results += Add-Phase6AResult -Name 'multiple_installs' -Passed (@($multiValid).Count -ge 2) -Details ('valid=' + [string]@($multiValid).Count)
 
     $invalidInstall = Test-DanewOfflineWindowsCandidate -CandidatePath (Join-Path $temp.root 'offline-lab\invalid-hive')
-    $invalidRegistry = Get-DanewOfflineRegistryMetadata -InstallInfo $invalidInstall
+    $invalidRegistry = Get-DanewOfflineHiveMetadata -InstallInfo $invalidInstall
     $invalidPass = ($invalidRegistry.status -eq 'WARNING')
     $results += Add-Phase6AResult -Name 'invalid_hive' -Passed $invalidPass -Details ([string]$invalidRegistry.message)
 

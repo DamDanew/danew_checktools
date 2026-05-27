@@ -260,7 +260,7 @@ function Invoke-DanewRegUnload {
     return [pscustomobject]@{ ok = ($LASTEXITCODE -eq 0); output = @($output) }
 }
 
-function Get-DanewOfflineRegistryMetadata {
+function Get-DanewOfflineHiveMetadata {
     param(
         [Parameter(Mandatory = $true)]
         [object]$InstallInfo
@@ -547,6 +547,7 @@ function Convert-DanewWinEventRecord {
 function Get-DanewEvtxEventRecords {
     param(
         [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
         [object[]]$DiscoveryItems,
         [int]$MaxEventsPerLog = 2000
     )
@@ -777,7 +778,7 @@ function Invoke-DanewOfflineLogsAnalysis {
 
     foreach ($install in @($validInstallations)) {
         try {
-            $registryItem = Get-DanewOfflineRegistryMetadata -InstallInfo $install
+            $registryItem = Get-DanewOfflineHiveMetadata -InstallInfo $install
             $registryDetails += $registryItem
             if ($registryItem.status -ne 'PASS') {
                 [void]$warnings.Add('Registry warning for ' + [string]$install.windows_root + ': ' + [string]$registryItem.message)

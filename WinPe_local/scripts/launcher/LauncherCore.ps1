@@ -454,12 +454,9 @@ function Export-DanewDiagnosticPackage {
         if (-not (Test-Path -Path $src)) { continue }
 
         if ((Get-Item -Path $src).PSIsContainer) {
-            Get-ChildItem -Path $src -File -Recurse -ErrorAction SilentlyContinue |
+            Get-ChildItem -Path $src -File -ErrorAction SilentlyContinue |
                 Where-Object { $_.Extension -in @('.json', '.txt', '.log', '.csv', '.html', '.ps1', '.cmd') } |
                 ForEach-Object {
-                    if ($_.FullName.StartsWith($diagFolder, [System.StringComparison]::OrdinalIgnoreCase)) {
-                        return
-                    }
                     $target = Join-Path $diagFolder $_.Name
                     if ([string]::Equals([string]$_.FullName, [string]$target, [System.StringComparison]::OrdinalIgnoreCase)) {
                         return
