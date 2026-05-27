@@ -185,6 +185,17 @@ function Update-DanewStatusPanel {
         $snapshot = $status.output
     }
     catch {
+        $logsPath = 'Unknown'
+        if ($config.PSObject.Properties['logs_path']) {
+            $logsPath = [string]$config.logs_path
+        }
+        $snapshotPath = 'Unknown'
+        if ($config.PSObject.Properties['gui_status_snapshot_path'] -and -not [string]::IsNullOrWhiteSpace([string]$config.gui_status_snapshot_path)) {
+            $snapshotPath = [string]$config.gui_status_snapshot_path
+        }
+        elseif ($config.PSObject.Properties['reports_path']) {
+            $snapshotPath = Join-Path ([string]$config.reports_path) 'gui-status-snapshot.json'
+        }
         $snapshot = [pscustomobject]@{
             root_path = $RootPath
             runtime_mode = 'Unknown'
@@ -193,8 +204,8 @@ function Update-DanewStatusPanel {
             last_report_path = 'Unknown'
             selected_usb_disk = 'Unknown'
             offline_windows_detected = 'Unknown'
-            logs_folder_path = $config.logs_path
-            snapshot_path = if ($config.gui_status_snapshot_path) { $config.gui_status_snapshot_path } else { Join-Path $config.reports_path 'gui-status-snapshot.json' }
+            logs_folder_path = $logsPath
+            snapshot_path = $snapshotPath
         }
     }
 
@@ -461,7 +472,13 @@ catch {
 }
 
 $form = New-Object System.Windows.Forms.Form
-$runtimeTitle = if ([string]::IsNullOrWhiteSpace([string]$config.runtime_mode)) { 'WinPE' } else { [string]$config.runtime_mode }
+$runtimeTitle = 'WinPE'
+if ($config.PSObject.Properties['runtime_mode']) {
+    $modeVal = [string]$config.runtime_mode
+    if (-not [string]::IsNullOrWhiteSpace($modeVal)) {
+        $runtimeTitle = $modeVal
+    }
+}
 $form.Text = 'Danew WinPE Check Tool - ' + $runtimeTitle
 $form.StartPosition = 'CenterScreen'
 $form.ClientSize = New-Object System.Drawing.Size(900, 860)
