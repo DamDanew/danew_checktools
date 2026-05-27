@@ -35,10 +35,10 @@ $offlineProgressBar = $null
 $offlineOperationLabel = $null
 $offlineTimingLabel = $null
 
-$script:StatusColorDefault = [System.Drawing.Color]::FromArgb(31, 41, 55)
-$script:StatusColorPass = [System.Drawing.Color]::FromArgb(15, 118, 110)
-$script:StatusColorWarning = [System.Drawing.Color]::FromArgb(180, 83, 9)
-$script:StatusColorFail = [System.Drawing.Color]::FromArgb(190, 18, 60)
+$script:StatusColorDefault = $null
+$script:StatusColorPass = $null
+$script:StatusColorWarning = $null
+$script:StatusColorFail = $null
 
 function New-DanewReadOnlyTextBox {
     param(
@@ -441,6 +441,12 @@ try {
 
     Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
     Add-Type -AssemblyName System.Drawing -ErrorAction Stop
+
+    $script:StatusColorDefault = [System.Drawing.Color]::FromArgb(31, 41, 55)
+    $script:StatusColorPass = [System.Drawing.Color]::FromArgb(15, 118, 110)
+    $script:StatusColorWarning = [System.Drawing.Color]::FromArgb(180, 83, 9)
+    $script:StatusColorFail = [System.Drawing.Color]::FromArgb(190, 18, 60)
+
     Write-DanewLauncherActionLog -Config $config -Action 'gui-launcher' -Status 'ok' -Message 'GUI assemblies loaded'
 }
 catch {
