@@ -4,7 +4,7 @@ param(
     [string]$ConfigPath,
     [switch]$Json,
     [string]$RuntimeSystemDrive,
-    [ValidateSet('Interactive', 'scan-winpe', 'capability-analysis', 'generate-report', 'open-reports-folder', 'export-diagnostic-package', 'prepare-startnet', 'start-diagnostic', 'analyze-offline-logs', 'create-usb-media', 'real-winpe-validation', 'pre-real-boot-check', 'refresh-status', 'show-status', 'view-last-report', 'exit')]
+    [ValidateSet('Interactive', 'scan-winpe', 'capability-analysis', 'generate-report', 'open-reports-folder', 'export-diagnostic-package', 'prepare-startnet', 'start-diagnostic', 'analyze-offline-logs', 'analyze-crash-causes', 'create-usb-media', 'real-winpe-validation', 'pre-real-boot-check', 'refresh-status', 'show-status', 'view-last-report', 'exit')]
     [string]$Command = 'Interactive'
 )
 
@@ -210,7 +210,14 @@ function Invoke-DanewCliDiagnosticCommand {
 }
 
 function Invoke-DanewCliOfflineLogsCommand {
-    $result = Invoke-DanewLauncherAction -Action 'analyze-offline-logs' -RootPath $RootPath -Config $config
+    $progress = {
+        param([string]$Message)
+        if (-not $Json) {
+            Write-Host $Message
+        }
+    }
+
+    $result = Invoke-DanewLauncherAction -Action 'analyze-offline-logs' -RootPath $RootPath -Config $config -ProgressCallback $progress
 
     if ($Json) {
         $result.output | ConvertTo-Json -Depth 40
@@ -221,10 +228,38 @@ function Invoke-DanewCliOfflineLogsCommand {
     Write-Host ''
     Write-Host 'Offline Windows Logs Analysis Summary'
     Write-Host ('Overall: ' + [string]$payload.overall_status)
+    Write-Host ('Discovery case: ' + [string]$payload.discovery_case)
+    Write-Host ('Discovery summary: ' + [string]$payload.discovery_case_message)
+    Write-Host ('Primary disk status: ' + [string]$payload.primary_disk_status)
+    Write-Host ('Storage visibility case: ' + [string]$payload.storage_visibility_case)
+    if ($payload.preferred_windows_volume) {
+        Write-Host ('Preferred Windows volume: ' + [string]$payload.preferred_windows_volume.path)
+    }
+    Write-Host ('Temporary mount attempts: ' + [string]@($payload.temporary_mount_attempts).Count)
+    Write-Host ('Detection confidence: ' + [string]$payload.failure_report.confidence)
     Write-Host ('Discovered logs: ' + [string]$payload.summary.total_discovered_logs)
     Write-Host ('Events: ' + [string]$payload.summary.total_events)
     Write-Host ('Missing required logs: ' + [string]$payload.summary.missing_required_logs)
     Write-Host ('Parse issues: ' + [string]$payload.summary.parse_issue_count)
+    if ([string]$payload.failure_report.status -eq 'generated') {
+        Write-Host 'SAV failure report: GENERATED'
+        $topCauses = @($payload.failure_report.probable_causes | Select-Object -First 3)
+        foreach ($cause in @($topCauses)) {
+            Write-Host ('- Cause: ' + [string]$cause.cause + ' (confidence=' + [string]$cause.confidence + ')')
+        }
+    }
+    else {
+        Write-Host 'SAV failure report: not required (valid Windows installation detected)'
+    }
+    Write-Host ('storage-analysis.json: ' + [string]$payload.artifacts.storage_analysis)
+    Write-Host ('primary-disk-analysis.json: ' + [string]$payload.artifacts.primary_disk_analysis)
+    Write-Host ('temporary-mount-analysis.json: ' + [string]$payload.artifacts.temporary_mount_analysis)
+    Write-Host ('windows-volume-ranking.json: ' + [string]$payload.artifacts.windows_volume_ranking)
+    Write-Host ('storage-visibility-diagnosis.json: ' + [string]$payload.artifacts.storage_visibility_diagnosis)
+    Write-Host ('offline-discovery-exclusions.json: ' + [string]$payload.artifacts.offline_discovery_exclusions)
+    Write-Host ('storage-diagnostics.json: ' + [string]$payload.artifacts.storage_diagnostics)
+    Write-Host ('partition-role-analysis.json: ' + [string]$payload.artifacts.partition_role_analysis)
+    Write-Host ('bitlocker-analysis.json: ' + [string]$payload.artifacts.bitlocker_analysis)
     Write-Host ('offline-windows-analysis.json: ' + [string]$payload.artifacts.offline_windows_analysis)
     Write-Host ('evtx-discovery.json: ' + [string]$payload.artifacts.evtx_discovery)
     Write-Host ('evtx-events.json: ' + [string]$payload.artifacts.evtx_events_json)
@@ -232,6 +267,29 @@ function Invoke-DanewCliOfflineLogsCommand {
     Write-Host ('evtx-summary.json: ' + [string]$payload.artifacts.evtx_summary)
     Write-Host ('timeline-raw.json: ' + [string]$payload.artifacts.timeline_raw_json)
     Write-Host ('timeline-raw.html: ' + [string]$payload.artifacts.timeline_raw_html)
+    if ([string]$payload.failure_report.status -eq 'generated') {
+        Write-Host ('offline-windows-failure-report.json: ' + [string]$payload.artifacts.offline_windows_failure_report_json)
+        Write-Host ('offline-windows-failure-report.html: ' + [string]$payload.artifacts.offline_windows_failure_report_html)
+    }
+}
+
+function Invoke-DanewCliCrashCausesCommand {
+    $result = Invoke-DanewLauncherAction -Action 'analyze-crash-causes' -RootPath $RootPath -Config $config
+
+    if ($Json) {
+        $result.output | ConvertTo-Json -Depth 40
+        return
+    }
+
+    $payload = $result.output
+    Write-Host ''
+    Write-Host 'Crash Cause Analysis Summary'
+    Write-Host ('Severity: ' + [string]$payload.severity)
+    Write-Host ('Primary cause: ' + [string]$payload.root_cause_analysis.primary_cause.cause)
+    Write-Host ('Confidence: ' + [string]$payload.root_cause_analysis.primary_cause.confidence)
+    Write-Host ('Impact: ' + [string]$payload.impact)
+    Write-Host ('sav-diagnostic-report.json: ' + [string]$payload.report_paths.sav_diagnostic_report_json)
+    Write-Host ('sav-diagnostic-report.html: ' + [string]$payload.report_paths.sav_diagnostic_report_html)
 }
 
 if ($Command -ne 'Interactive') {
@@ -268,6 +326,12 @@ if ($Command -ne 'Interactive') {
         exit 0
     }
 
+    if ($Command -eq 'analyze-crash-causes') {
+        Invoke-DanewCliCrashCausesCommand
+        Write-DanewLauncherActionLog -Config $config -Action 'cli-launcher' -Status 'ok' -Message 'CLI command completed: analyze-crash-causes'
+        exit 0
+    }
+
     if ($Command -eq 'refresh-status' -or $Command -eq 'show-status' -or $Command -eq 'view-last-report') {
         Invoke-DanewCliStatusCommand -ActionName $Command
         Write-DanewLauncherActionLog -Config $config -Action 'cli-launcher' -Status 'ok' -Message ('CLI command completed: ' + $Command)
@@ -298,10 +362,11 @@ while ($true) {
     Write-Host '8. Export Diagnostic Package'
     Write-Host '9. Start Diagnostic'
     Write-Host '10. Analyze Offline Windows Logs'
-    Write-Host '11. Create Bootable USB'
-    Write-Host '12. Exit'
+    Write-Host '11. Analyze Crash Causes'
+    Write-Host '12. Create Bootable USB'
+    Write-Host '13. Exit'
 
-    $choice = Read-Host 'Select action (1-12)'
+    $choice = Read-Host 'Select action (1-13)'
     switch ($choice) {
         '1' { Invoke-DanewCliStatusCommand -ActionName 'refresh-status' }
         '2' { Invoke-DanewCliStatusCommand -ActionName 'show-status' }
@@ -313,8 +378,9 @@ while ($true) {
         '8' { Invoke-DanewCliAction -ActionName 'export-diagnostic-package' }
         '9' { Invoke-DanewCliDiagnosticCommand }
         '10' { Invoke-DanewCliOfflineLogsCommand }
-        '11' { Invoke-DanewCliAction -ActionName 'create-usb-media' }
-        '12' {
+        '11' { Invoke-DanewCliCrashCausesCommand }
+        '12' { Invoke-DanewCliAction -ActionName 'create-usb-media' }
+        '13' {
             Invoke-DanewCliAction -ActionName 'exit'
             break
         }

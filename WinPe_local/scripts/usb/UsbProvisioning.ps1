@@ -539,8 +539,8 @@ function Invoke-DanewUsbPartitioningEngine {
     $v1 = Format-Volume -Partition $p1 -FileSystem FAT32 -NewFileSystemLabel $Layout.partitions[0].label -Confirm:$false -Force -ErrorAction Stop
     $v2 = Format-Volume -Partition $p2 -FileSystem NTFS -NewFileSystemLabel $Layout.partitions[1].label -Confirm:$false -Force -ErrorAction Stop
 
-    $bootPath = $v1.DriveLetter + ':\\'
-    $dataPath = $v2.DriveLetter + ':\\'
+    $bootPath = $v1.DriveLetter + ':\'
+    $dataPath = $v2.DriveLetter + ':\'
 
     [pscustomobject]@{
         executed = $true
@@ -605,12 +605,62 @@ function Invoke-DanewUsbExport {
     $manifest = @()
     $warnings = @()
 
-    $bootTarget = $PartitionResult.boot_path
-    $dataTarget = $PartitionResult.data_path
+    $bootTarget = [string](Get-DanewSafeProperty -Object $PartitionResult -Name 'boot_path' -DefaultValue '')
+    $dataTarget = [string](Get-DanewSafeProperty -Object $PartitionResult -Name 'data_path' -DefaultValue '')
+
+    function ConvertTo-DanewDriveRootPath {
+        param([string]$PathValue)
+        if ([string]::IsNullOrWhiteSpace($PathValue)) {
+            return ''
+        }
+        $trimmed = [string]$PathValue
+        if ($trimmed -match '^[A-Za-z]:\\+$') {
+            return ([string]$trimmed.Substring(0, 2) + '\')
+        }
+        if ($trimmed -match '^[A-Za-z]:$') {
+            return ([string]$trimmed + '\')
+        }
+        return ''
+    }
 
     if (-not $Execute) {
         if ([string]::IsNullOrWhiteSpace([string]$bootTarget)) { $bootTarget = 'PLANNED_BOOT' }
         if ([string]::IsNullOrWhiteSpace([string]$dataTarget)) { $dataTarget = 'PLANNED_DATA' }
+    }
+    else {
+        # Some WinPE stacks can return empty DriveLetter from Format-Volume even though volumes are mounted.
+        $bootTarget = ConvertTo-DanewDriveRootPath -PathValue $bootTarget
+        $dataTarget = ConvertTo-DanewDriveRootPath -PathValue $dataTarget
+        if ([string]::IsNullOrWhiteSpace($bootTarget) -or [string]::IsNullOrWhiteSpace($dataTarget)) {
+            $bootVol = $null
+            $dataVol = $null
+            try {
+                $bootVol = Get-Volume -FileSystemLabel $Layout.partitions[0].label -ErrorAction SilentlyContinue | Select-Object -First 1
+            }
+            catch {
+                $bootVol = $null
+            }
+
+            try {
+                $dataVol = Get-Volume -FileSystemLabel $Layout.partitions[1].label -ErrorAction SilentlyContinue | Select-Object -First 1
+            }
+            catch {
+                $dataVol = $null
+            }
+
+            if ($bootVol -and $bootVol.DriveLetter -and ([string]$bootVol.DriveLetter -match '^[A-Za-z]$')) {
+                $bootTarget = [string]$bootVol.DriveLetter + ':\'
+            }
+            if ($dataVol -and $dataVol.DriveLetter -and ([string]$dataVol.DriveLetter -match '^[A-Za-z]$')) {
+                $dataTarget = [string]$dataVol.DriveLetter + ':\'
+            }
+        }
+
+        $bootTarget = ConvertTo-DanewDriveRootPath -PathValue $bootTarget
+        $dataTarget = ConvertTo-DanewDriveRootPath -PathValue $dataTarget
+        if ([string]::IsNullOrWhiteSpace($bootTarget) -or [string]::IsNullOrWhiteSpace($dataTarget)) {
+            throw ('USB export aborted: unable to resolve BOOT/DATA target paths after partitioning. bootTarget=' + [string]$bootTarget + '; dataTarget=' + [string]$dataTarget)
+        }
     }
 
     $bootMap = @(
@@ -634,46 +684,14 @@ function Invoke-DanewUsbExport {
     )
 
     foreach ($item in @($bootMap + $dataMap)) {
+        if ([string]::IsNullOrWhiteSpace([string]$item.src) -or [string]::IsNullOrWhiteSpace([string]$item.dst)) {
+            throw ('USB export aborted: invalid map entry. BuildPath=' + [string]$BuildPath + '; bootTarget=' + [string]$bootTarget + '; dataTarget=' + [string]$dataTarget + '; src=' + [string]$item.src + '; dst=' + [string]$item.dst)
+        }
+
         if (-not (Test-Path -Path $item.src)) {
             $manifest += [pscustomobject]@{ source = $item.src; destination = $item.dst; status = 'missing_source' }
             continue
         }
-
-            if ($Execute) {
-                $compatMain = Join-Path $bootTarget 'scripts\main.cmd'
-                $compatLines = @(
-                    '@echo off',
-                    'setlocal enabledelayedexpansion',
-                    'set DANEW_PS=',
-                    'if exist X:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe set DANEW_PS=X:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
-                    'if not defined DANEW_PS (',
-                    '  where powershell.exe >nul 2>nul',
-                    '  if not errorlevel 1 set DANEW_PS=powershell.exe',
-                    ')',
-                    'if not defined DANEW_PS (',
-                    '  echo [DANEW] PowerShell is not available in this WinPE image.',
-                    '  echo [DANEW] Add WinPE-PowerShell optional component before booting this media.',
-                    '  exit /b 127',
-                    ')',
-                    'set DANEW_ROOT=',
-                    'for %%L in (D E F G H I J K L M N O P Q R S T U V W Y Z) do (',
-                    '  if exist %%L:\\scripts\\launcher.ps1 set DANEW_ROOT=%%L:\\',
-                    ')',
-                    'if not defined DANEW_ROOT (',
-                    '  echo [DANEW] launcher.ps1 not found on USB partitions.',
-                    '  exit /b 1',
-                    ')',
-                    '"%DANEW_PS%" -NoLogo -ExecutionPolicy Bypass -File %DANEW_ROOT%scripts\\launcher.ps1 -RootPath %DANEW_ROOT% -FallbackToCli',
-                    'if errorlevel 1 "%DANEW_PS%" -NoLogo -ExecutionPolicy Bypass -File %DANEW_ROOT%scripts\\DanewCheckTool.CLI.ps1 -RootPath %DANEW_ROOT% -Command Interactive',
-                    'exit /b %errorlevel%'
-                )
-                $compatDir = Split-Path -Parent $compatMain
-                if (-not (Test-Path -Path $compatDir)) {
-                    New-Item -Path $compatDir -ItemType Directory -Force | Out-Null
-                }
-                $compatLines | Set-Content -Path $compatMain -Encoding ASCII
-                $manifest += [pscustomobject]@{ source = '[generated]'; destination = $compatMain; status = 'generated'; attempts = 1; message = 'compatibility main.cmd bridge created' }
-            }
 
         if (-not $Execute) {
             $manifest += [pscustomobject]@{ source = $item.src; destination = $item.dst; status = 'planned' }
@@ -690,6 +708,50 @@ function Invoke-DanewUsbExport {
             $hashOk = ($srcHash -eq $dstHash)
             $copied += [pscustomobject]@{ source = $item.src; destination = $item.dst; sha256_source = $srcHash; sha256_destination = $dstHash; hash_ok = $hashOk }
         }
+    }
+
+    if ($Execute) {
+        $compatMain = Join-Path -Path $bootTarget -ChildPath 'scripts\main.cmd'
+        if ([string]::IsNullOrWhiteSpace([string]$compatMain)) {
+            throw ('USB export aborted: failed to build compatibility script path from bootTarget=' + [string]$bootTarget)
+        }
+
+        $compatLines = @(
+            '@echo off',
+            'setlocal enabledelayedexpansion',
+            'set DANEW_PS=',
+            'if exist X:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe set DANEW_PS=X:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe',
+            'if not defined DANEW_PS (',
+            '  where powershell.exe >nul 2>nul',
+            '  if not errorlevel 1 set DANEW_PS=powershell.exe',
+            ')',
+            'if not defined DANEW_PS (',
+            '  echo [DANEW] PowerShell is not available in this WinPE image.',
+            '  echo [DANEW] Add WinPE-PowerShell optional component before booting this media.',
+            '  exit /b 127',
+            ')',
+            'set DANEW_ROOT=',
+            'for %%L in (D E F G H I J K L M N O P Q R S T U V W Y Z) do (',
+            '  if exist %%L:\scripts\launcher.ps1 set DANEW_ROOT=%%L:\',
+            ')',
+            'if not defined DANEW_ROOT (',
+            '  echo [DANEW] launcher.ps1 not found on USB partitions.',
+            '  exit /b 1',
+            ')',
+            '"%DANEW_PS%" -NoLogo -ExecutionPolicy Bypass -File %DANEW_ROOT%scripts\launcher.ps1 -RootPath %DANEW_ROOT% -FallbackToCli',
+            'if errorlevel 1 "%DANEW_PS%" -NoLogo -ExecutionPolicy Bypass -File %DANEW_ROOT%scripts\DanewCheckTool.CLI.ps1 -RootPath %DANEW_ROOT% -Command Interactive',
+            'exit /b %errorlevel%'
+        )
+
+        $compatDir = Split-Path -Parent $compatMain
+        if ([string]::IsNullOrWhiteSpace([string]$compatDir)) {
+            $compatDir = Join-Path -Path $bootTarget -ChildPath 'scripts'
+        }
+        if (-not (Test-Path -Path $compatDir)) {
+            New-Item -Path $compatDir -ItemType Directory -Force | Out-Null
+        }
+        $compatLines | Set-Content -Path $compatMain -Encoding ASCII
+        $manifest += [pscustomobject]@{ source = '[generated]'; destination = $compatMain; status = 'generated'; attempts = 1; message = 'compatibility main.cmd bridge created' }
     }
 
     if ($BuildMetrics.boot_wim_over_fat32_limit) {
@@ -730,7 +792,7 @@ function Test-DanewUsbBootValidation {
         [pscustomobject]@{ name = 'efi_bootx64'; path = (Join-Path $boot 'EFI\Boot\bootx64.efi'); required = $true },
         [pscustomobject]@{ name = 'bcd'; path = (Join-Path $boot 'Boot\BCD'); required = $true },
         [pscustomobject]@{ name = 'boot_wim'; path = (Join-Path $boot 'sources\boot.wim'); required = $true },
-            [pscustomobject]@{ name = 'compat_main_cmd'; path = (Join-Path $boot 'scripts\main.cmd'); required = $true },
+        [pscustomobject]@{ name = 'compat_main_cmd'; path = (Join-Path $boot 'scripts\main.cmd'); required = $true },
         [pscustomobject]@{ name = 'startnet_template'; path = (Join-Path $data 'scripts\StartNet.cmd.template'); required = $true },
         [pscustomobject]@{ name = 'launcher'; path = (Join-Path $data 'scripts\launcher.ps1'); required = $true },
         [pscustomobject]@{ name = 'cli'; path = (Join-Path $data 'scripts\DanewCheckTool.CLI.ps1'); required = $true },

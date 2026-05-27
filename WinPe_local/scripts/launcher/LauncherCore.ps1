@@ -6,6 +6,11 @@ if (Test-Path -Path $offlineEnginePath) {
     . $offlineEnginePath
 }
 
+$crashEnginePath = Join-Path (Split-Path -Parent $PSScriptRoot) 'offline\CrashAnalysisEngine.ps1'
+if (Test-Path -Path $crashEnginePath) {
+    . $crashEnginePath
+}
+
 function Resolve-DanewLauncherPath {
     param(
         [Parameter(Mandatory = $true)]
@@ -1002,8 +1007,13 @@ function Invoke-DanewLauncherAction {
                 $result = [pscustomobject]@{ action = $Action; output = $diag }
             }
             'analyze-offline-logs' {
-                $offline = Invoke-DanewOfflineLogsAnalysis -RootPath $RootPath -Config $Config
+                $offline = Invoke-DanewOfflineLogsAnalysis -RootPath $RootPath -Config $Config -ProgressCallback $ProgressCallback
                 $result = [pscustomobject]@{ action = $Action; output = $offline }
+            }
+            'analyze-crash-causes' {
+                $offline = Invoke-DanewOfflineLogsAnalysis -RootPath $RootPath -Config $Config -ProgressCallback $ProgressCallback
+                $crash = Invoke-DanewCrashCauseAnalysis -RootPath $RootPath -Config $Config -OfflineAnalysis $offline
+                $result = [pscustomobject]@{ action = $Action; output = $crash }
             }
             'create-usb-media' {
                 $usbReport = Invoke-DanewCreateUsbMedia -RootPath $RootPath -Config $Config

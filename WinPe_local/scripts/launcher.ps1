@@ -4,7 +4,7 @@ param(
     [string]$ConfigPath,
     [switch]$FallbackToCli,
     [switch]$ForceGuiInitFailure,
-    [ValidateSet('Interactive', 'scan-winpe', 'capability-analysis', 'generate-report', 'open-reports-folder', 'export-diagnostic-package', 'prepare-startnet', 'start-diagnostic', 'analyze-offline-logs', 'create-usb-media', 'real-winpe-validation', 'exit')]
+    [ValidateSet('Interactive', 'scan-winpe', 'capability-analysis', 'generate-report', 'open-reports-folder', 'export-diagnostic-package', 'prepare-startnet', 'start-diagnostic', 'analyze-offline-logs', 'analyze-crash-causes', 'create-usb-media', 'real-winpe-validation', 'exit')]
     [string]$CliFallbackCommand = 'Interactive'
 )
 
@@ -31,6 +31,7 @@ $cliPath = Join-Path $PSScriptRoot 'DanewCheckTool.CLI.ps1'
 $statusFields = @{}
 $progressBox = $null
 $summaryLabel = $null
+$offlineProgressBar = $null
 
 function New-DanewReadOnlyTextBox {
     param(
@@ -100,7 +101,27 @@ function Invoke-GuiAction {
 
     try {
         $suppressLog = $Action -in @('refresh-status', 'view-last-report')
-        $res = Invoke-DanewLauncherAction -Action $Action -RootPath $RootPath -Config $config -RuntimeSystemDrive $env:SystemDrive -CurrentLocationPath (Get-Location).Path -SuppressActionLog:$suppressLog
+        if ($Action -eq 'analyze-offline-logs') {
+            if ($progressBox) {
+                $progressBox.Text = ''
+            }
+            if ($summaryLabel) {
+                $summaryLabel.Text = 'Summary: Offline logs running...'
+            }
+            if ($offlineProgressBar) {
+                $offlineProgressBar.Value = 0
+            }
+
+            $offlineProgress = {
+                param([string]$Message)
+                Update-OfflineProgressFromLine -Line $Message
+            }
+
+            $res = Invoke-DanewLauncherAction -Action $Action -RootPath $RootPath -Config $config -RuntimeSystemDrive $env:SystemDrive -CurrentLocationPath (Get-Location).Path -ProgressCallback $offlineProgress -SuppressActionLog:$suppressLog
+        }
+        else {
+            $res = Invoke-DanewLauncherAction -Action $Action -RootPath $RootPath -Config $config -RuntimeSystemDrive $env:SystemDrive -CurrentLocationPath (Get-Location).Path -SuppressActionLog:$suppressLog
+        }
 
         if ($Action -eq 'view-last-report') {
             $view = $res.output
@@ -113,12 +134,72 @@ function Invoke-GuiAction {
         elseif ($Action -eq 'analyze-offline-logs') {
             $offline = $res.output
             $summary = $offline.summary
+            $failure = $offline.failure_report
+            if ($offlineProgressBar) {
+                $offlineProgressBar.Value = 100
+            }
+            if ($summaryLabel) {
+                $summaryLabel.Text = 'Summary: Offline logs complete. Overall=' + [string]$offline.overall_status
+            }
             $message = 'Offline logs analysis complete.' + [Environment]::NewLine +
                 'Overall: ' + [string]$offline.overall_status + [Environment]::NewLine +
+                'Discovery case: ' + [string]$offline.discovery_case + [Environment]::NewLine +
+                'Discovery summary: ' + [string]$offline.discovery_case_message + [Environment]::NewLine +
+                'Primary disk status: ' + [string]$offline.primary_disk_status + [Environment]::NewLine +
+                'Storage visibility case: ' + [string]$offline.storage_visibility_case + [Environment]::NewLine +
+                'Confidence: ' + [string]$failure.confidence + [Environment]::NewLine +
                 'Events: ' + [string]$summary.total_events + [Environment]::NewLine +
                 'Missing required logs: ' + [string]$summary.missing_required_logs + [Environment]::NewLine +
                 'Summary report: ' + [string]$offline.artifacts.evtx_summary
+
+            if ($offline.preferred_windows_volume) {
+                $message += [Environment]::NewLine + 'Preferred Windows volume: ' + [string]$offline.preferred_windows_volume.path
+            }
+
+            if ([string]$failure.status -eq 'generated') {
+                $topCause = @($failure.probable_causes | Select-Object -First 1)
+                if (@($topCause).Count -gt 0) {
+                    $message += [Environment]::NewLine + 'Possible cause: ' + [string]$topCause[0].cause
+                }
+                $message += [Environment]::NewLine + 'SAV failure report: ' + [string]$offline.artifacts.offline_windows_failure_report_html
+            }
+
             [System.Windows.Forms.MessageBox]::Show($message, 'Danew Launcher') | Out-Null
+
+            if ([string]$failure.status -eq 'generated' -and -not [string]::IsNullOrWhiteSpace([string]$offline.artifacts.offline_windows_failure_report_html)) {
+                $askOpen = [System.Windows.Forms.MessageBox]::Show('Open SAV failure report now?', 'Danew Launcher', [System.Windows.Forms.MessageBoxButtons]::YesNo)
+                if ($askOpen -eq [System.Windows.Forms.DialogResult]::Yes) {
+                    try {
+                        Start-Process -FilePath [string]$offline.artifacts.offline_windows_failure_report_html | Out-Null
+                    }
+                    catch {
+                    }
+                }
+            }
+            [void](Update-DanewStatusPanel)
+        }
+        elseif ($Action -eq 'analyze-crash-causes') {
+            $crash = $res.output
+            $primary = $crash.root_cause_analysis.primary_cause
+            $topEvidence = @($crash.evidence_correlation.correlations | Select-Object -First 1)
+            $topEvidenceSummary = 'n/a'
+            if (@($topEvidence).Count -gt 0) {
+                $topEvidenceSummary = [string]$topEvidence[0].summary
+            }
+            $message = 'Crash cause analysis complete.' + [Environment]::NewLine +
+                'Severity: ' + [string]$crash.severity + [Environment]::NewLine +
+                'Primary cause: ' + [string]$primary.cause + [Environment]::NewLine +
+                'Confidence: ' + [string]$primary.confidence + [Environment]::NewLine +
+                'Top evidence: ' + $topEvidenceSummary + [Environment]::NewLine +
+                'Report: ' + [string]$crash.report_paths.sav_diagnostic_report_html
+            [System.Windows.Forms.MessageBox]::Show($message, 'Danew Launcher') | Out-Null
+            if (-not [string]::IsNullOrWhiteSpace([string]$crash.report_paths.sav_diagnostic_report_html)) {
+                try {
+                    Start-Process -FilePath [string]$crash.report_paths.sav_diagnostic_report_html | Out-Null
+                }
+                catch {
+                }
+            }
             [void](Update-DanewStatusPanel)
         }
         elseif ($Action -ne 'exit') {
@@ -150,6 +231,29 @@ function Add-DiagnosticProgressLine {
     $progressBox.SelectionStart = $progressBox.Text.Length
     $progressBox.ScrollToCaret()
     [System.Windows.Forms.Application]::DoEvents()
+}
+
+function Update-OfflineProgressFromLine {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Line
+    )
+
+    Add-DiagnosticProgressLine -Line $Line
+
+    if ($summaryLabel) {
+        $summaryLabel.Text = 'Summary: Offline logs running - ' + $Line
+    }
+
+    if ($offlineProgressBar) {
+        $match = [regex]::Match($Line, '^\[(\d+)%\]')
+        if ($match.Success) {
+            $value = [int]$match.Groups[1].Value
+            if ($value -lt 0) { $value = 0 }
+            if ($value -gt 100) { $value = 100 }
+            $offlineProgressBar.Value = $value
+        }
+    }
 }
 
 function Invoke-StartDiagnostic {
@@ -285,11 +389,21 @@ $summaryLabel.Width = 620
 $summaryLabel.Height = 24
 $summaryLabel.Text = 'Summary: Idle'
 
+$offlineProgressBar = New-Object System.Windows.Forms.ProgressBar
+$offlineProgressBar.Left = 14
+$offlineProgressBar.Top = 108
+$offlineProgressBar.Width = 620
+$offlineProgressBar.Height = 16
+$offlineProgressBar.Minimum = 0
+$offlineProgressBar.Maximum = 100
+$offlineProgressBar.Value = 0
+$offlineProgressBar.Style = 'Continuous'
+
 $progressBox = New-Object System.Windows.Forms.TextBox
 $progressBox.Left = 14
-$progressBox.Top = 112
+$progressBox.Top = 132
 $progressBox.Width = 620
-$progressBox.Height = 122
+$progressBox.Height = 102
 $progressBox.Multiline = $true
 $progressBox.ScrollBars = 'Vertical'
 $progressBox.ReadOnly = $true
@@ -300,6 +414,7 @@ $startDiagnosticButton.Add_Click({ Invoke-StartDiagnostic })
 
 $primaryGroup.Controls.Add($startDiagnosticButton)
 $primaryGroup.Controls.Add($summaryLabel)
+$primaryGroup.Controls.Add($offlineProgressBar)
 $primaryGroup.Controls.Add($progressBox)
 
 $buttonGroup = New-Object System.Windows.Forms.GroupBox
@@ -328,6 +443,7 @@ $buttonDefinitions = @(
     @{ label = 'Run Capability Analysis'; action = 'capability-analysis' },
     @{ label = 'Generate Report'; action = 'generate-report' },
     @{ label = 'Analyze Offline Windows Logs'; action = 'analyze-offline-logs' },
+    @{ label = 'Analyze Crash Causes'; action = 'analyze-crash-causes' },
     @{ label = 'Open Reports Folder'; action = 'open-reports-folder' },
     @{ label = 'Export Diagnostic Package'; action = 'export-diagnostic-package' },
     @{ label = 'Create Bootable USB'; action = 'create-usb-media' },
