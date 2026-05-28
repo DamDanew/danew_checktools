@@ -1601,6 +1601,486 @@ function ConvertTo-DanewCsvFriendly {
     return [string]$Value
 }
 
+function Get-DanewEvtxKnowledgeItems {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RootPath
+    )
+
+    $knowledgePath = Join-Path $RootPath 'manifests\evtx-event-knowledge.json'
+    if (-not (Test-Path -Path $knowledgePath)) {
+        return @()
+    }
+
+    try {
+        return @(Get-Content -Path $knowledgePath -Raw -Encoding UTF8 | ConvertFrom-Json)
+    }
+    catch {
+        return @()
+    }
+}
+
+function Get-DanewEvtxTargetedExportModel {
+    param(
+        [object[]]$Events,
+        [object]$Summary,
+        [object[]]$KnowledgeItems
+    )
+
+    $eventsArray = @($Events)
+    $knowledgeArray = @($KnowledgeItems)
+
+    function Get-EvtxLevelFr {
+        param([AllowNull()][object]$Level)
+        $raw = [string]$Level
+        if ([string]::IsNullOrWhiteSpace($raw)) { return 'Information' }
+        if ($raw -match '(?i)critical|critique') { return 'Critique' }
+        if ($raw -match '(?i)error|erreur') { return 'Erreur' }
+        if ($raw -match '(?i)warn|avert') { return 'Avertissement' }
+        return 'Information'
+    }
+
+    function Get-EvtxFamily {
+        param(
+            [AllowNull()][object]$Provider,
+            [AllowNull()][object]$EventId,
+            [AllowNull()][object]$Channel,
+            [AllowNull()][object]$Message
+        )
+
+        $provider = ([string]$Provider).ToLowerInvariant()
+        $id = [string]$EventId
+        $channel = ([string]$Channel).ToLowerInvariant()
+        $message = ([string]$Message).ToLowerInvariant()
+
+        if ($provider -match 'kernel-power|bugcheck|wer-systemerrorreporting' -or $id -eq '41' -or $id -eq '1001') { return 'Crash / BSOD' }
+        if ($provider -match 'kernel-boot|boot|bcd|winload' -or $message -match 'boot|demarrage|bcd') { return 'Demarrage / boot' }
+        if ($provider -match 'disk|ntfs|stor|nvme|iastor|vmd' -or $id -in @('7', '11', '51', '55', '98', '129', '140', '153', '157')) { return 'Disque / NTFS' }
+        if ($provider -match 'driverframeworks|driver|pnp') { return 'Pilotes' }
+        if ($provider -match 'windowsupdateclient|update') { return 'Windows Update' }
+        if ($provider -match 'whea') { return 'Materiel / WHEA' }
+        if ($provider -match 'service control manager|service') { return 'Services' }
+        if ($provider -match 'bitlocker|fve') { return 'BitLocker / Chiffrement' }
+        if ($channel -match 'security' -or $provider -match 'security|audit') { return 'Securite' }
+        return 'Autres'
+    }
+
+    function Get-EvtxKnowledge {
+        param(
+            [AllowNull()][object]$Provider,
+            [AllowNull()][object]$EventId
+        )
+
+        $provider = [string]$Provider
+        $idText = [string]$EventId
+        $idInt = 0
+        [void][int]::TryParse($idText, [ref]$idInt)
+
+        foreach ($item in @($knowledgeArray)) {
+            if ($null -eq $item) { continue }
+
+            $providerRule = [string]($item.provider)
+            $providerOk = $false
+            if ([string]::IsNullOrWhiteSpace($providerRule)) {
+                $providerOk = $true
+            }
+            elseif ($provider -like "*$providerRule*") {
+                $providerOk = $true
+            }
+
+            if (-not $providerOk) { continue }
+
+            $ids = @()
+            if ($item.PSObject.Properties['event_ids']) {
+                $ids = @($item.event_ids)
+            }
+            if (@($ids).Count -gt 0) {
+                $idHit = $false
+                foreach ($candidate in @($ids)) {
+                    $candidateInt = 0
+                    if ([int]::TryParse([string]$candidate, [ref]$candidateInt) -and $candidateInt -eq $idInt) {
+                        $idHit = $true
+                        break
+                    }
+                }
+                if (-not $idHit) { continue }
+            }
+
+            return $item
+        }
+
+        return $null
+    }
+
+    function Get-KnowledgeText {
+        param(
+            [AllowNull()][object]$Knowledge,
+            [string]$Preferred,
+            [string]$Legacy,
+            [string]$DefaultValue
+        )
+
+        if ($Knowledge) {
+            if ($Knowledge.PSObject.Properties[$Preferred] -and -not [string]::IsNullOrWhiteSpace([string]$Knowledge.$Preferred)) {
+                return [string]$Knowledge.$Preferred
+            }
+            if ($Knowledge.PSObject.Properties[$Legacy] -and -not [string]::IsNullOrWhiteSpace([string]$Knowledge.$Legacy)) {
+                return [string]$Knowledge.$Legacy
+            }
+        }
+        return $DefaultValue
+    }
+
+    function Get-KnowledgeList {
+        param(
+            [AllowNull()][object]$Knowledge,
+            [string]$Preferred,
+            [string]$Legacy,
+            [string[]]$DefaultValues
+        )
+
+        if ($Knowledge) {
+            if ($Knowledge.PSObject.Properties[$Preferred]) {
+                $items = @($Knowledge.$Preferred | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+                if (@($items).Count -gt 0) { return $items }
+            }
+            if ($Knowledge.PSObject.Properties[$Legacy]) {
+                $itemsLegacy = @($Knowledge.$Legacy | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+                if (@($itemsLegacy).Count -gt 0) { return $itemsLegacy }
+            }
+        }
+        return @($DefaultValues)
+    }
+
+    function Get-EvtxImportance {
+        param(
+            [AllowNull()][object]$Event,
+            [AllowNull()][object]$Knowledge,
+            [bool]$NearCrash,
+            [int]$RepetitionCount
+        )
+
+        $score = 0
+        if ($Knowledge -and $Knowledge.PSObject.Properties['importance_sav']) {
+            $kValue = 0
+            if ([int]::TryParse([string]$Knowledge.importance_sav, [ref]$kValue)) {
+                $score = $kValue
+            }
+        }
+        elseif ($Knowledge -and $Knowledge.PSObject.Properties['importance']) {
+            $kValueLegacy = 0
+            if ([int]::TryParse([string]$Knowledge.importance, [ref]$kValueLegacy)) {
+                $score = $kValueLegacy
+            }
+        }
+
+        if ($score -le 0) {
+            $score = 5
+            $provider = ([string]$Event.provider).ToLowerInvariant()
+            $id = [string]$Event.event_id
+            $levelFr = Get-EvtxLevelFr -Level $Event.level
+
+            if ($id -eq '1001' -or $provider -match 'bugcheck|wer-systemerrorreporting') { $score = 95 }
+            elseif ($id -eq '41' -or $provider -match 'kernel-power') { $score = 92 }
+            elseif ($provider -match '^disk$' -and $id -in @('7', '11', '51', '129', '153', '157')) { $score = 90 }
+            elseif ($provider -match 'ntfs' -and $id -in @('55', '98', '140')) { $score = 88 }
+            elseif ($provider -match 'storport') { $score = 88 }
+            elseif ($provider -match 'whea') { $score = 85 }
+            elseif ($provider -match 'windowsupdateclient' -and $levelFr -in @('Erreur', 'Critique')) { $score = 75 }
+            elseif ($provider -match 'driverframeworks' -and $levelFr -in @('Erreur', 'Critique')) { $score = 72 }
+            elseif ($provider -match 'service control manager' -and $id -in @('7000', '7001', '7023', '7031', '7034')) { $score = 70 }
+            elseif ($provider -match 'bitlocker|fve') { $score = 78 }
+            elseif ($provider -match 'kernel-boot|boot|bcd|winload') { $score = 80 }
+            elseif ($levelFr -eq 'Avertissement') { $score = 30 }
+            elseif ($levelFr -eq 'Information') { $score = 5 }
+        }
+
+        if ($NearCrash) { $score += 6 }
+        if ($RepetitionCount -ge 8) { $score += 6 }
+        elseif ($RepetitionCount -ge 4) { $score += 3 }
+        if ($score -gt 100) { $score = 100 }
+        if ($score -lt 0) { $score = 0 }
+        return [int]$score
+    }
+
+    $sortedByTime = @($eventsArray | Sort-Object timestamp)
+    $crashCandidates = @($sortedByTime | Where-Object {
+            $provider = ([string]$_.provider).ToLowerInvariant()
+            $id = [string]$_.event_id
+            ($id -eq '41') -or ($id -eq '1001') -or ($provider -match 'kernel-power|bugcheck|wer-systemerrorreporting')
+        })
+    $lastCrash = $null
+    if (@($crashCandidates).Count -gt 0) {
+        $lastCrash = @($crashCandidates)[-1]
+    }
+
+    $crashWindowStart = $null
+    $crashWindowEnd = $null
+    if ($lastCrash -and -not [string]::IsNullOrWhiteSpace([string]$lastCrash.timestamp)) {
+        try {
+            $lastCrashTs = [datetime]::Parse([string]$lastCrash.timestamp)
+            $crashWindowStart = $lastCrashTs.AddMinutes(-30)
+            $crashWindowEnd = $lastCrashTs.AddMinutes(10)
+        }
+        catch {
+            $crashWindowStart = $null
+            $crashWindowEnd = $null
+        }
+    }
+
+    $repeatMap = @{}
+    foreach ($evt in @($eventsArray)) {
+        $repeatKey = ([string]$evt.provider) + '|' + ([string]$evt.event_id)
+        if (-not $repeatMap.ContainsKey($repeatKey)) { $repeatMap[$repeatKey] = 0 }
+        $repeatMap[$repeatKey] = [int]$repeatMap[$repeatKey] + 1
+    }
+
+    $enriched = @()
+    foreach ($evt in @($sortedByTime)) {
+        $timestampText = [string]$evt.timestamp
+        $providerText = [string]$evt.provider
+        $eventIdText = [string]$evt.event_id
+        $channelText = [string]$evt.channel
+        $sourceFileText = [string]$evt.source_file
+        $messageText = [string]$evt.message
+        if ([string]::IsNullOrWhiteSpace($messageText)) { $messageText = '-' }
+
+        $levelFr = Get-EvtxLevelFr -Level $evt.level
+        $knowledge = Get-EvtxKnowledge -Provider $providerText -EventId $eventIdText
+        $family = Get-EvtxFamily -Provider $providerText -EventId $eventIdText -Channel $channelText -Message $messageText
+        if ($knowledge -and $knowledge.PSObject.Properties['family'] -and -not [string]::IsNullOrWhiteSpace([string]$knowledge.family)) {
+            $family = [string]$knowledge.family
+        }
+
+        $nearCrash = $false
+        $eventTs = $null
+        if (-not [string]::IsNullOrWhiteSpace($timestampText)) {
+            try {
+                $eventTs = [datetime]::Parse($timestampText)
+            }
+            catch {
+                $eventTs = $null
+            }
+        }
+
+        if ($null -ne $eventTs -and $lastCrash) {
+            try {
+                $crashTs = [datetime]::Parse([string]$lastCrash.timestamp)
+                $delta = [math]::Abs(($eventTs - $crashTs).TotalMinutes)
+                if ($delta -le 5.0) { $nearCrash = $true }
+            }
+            catch {
+            }
+        }
+
+        $repeatKey = $providerText + '|' + $eventIdText
+        $repeatCount = 1
+        if ($repeatMap.ContainsKey($repeatKey)) {
+            $repeatCount = [int]$repeatMap[$repeatKey]
+        }
+
+        $importance = Get-EvtxImportance -Event $evt -Knowledge $knowledge -NearCrash:$nearCrash -RepetitionCount $repeatCount
+        $isUseful = ($importance -ge 60) -or ($levelFr -in @('Critique', 'Erreur'))
+
+        $explanation = Get-KnowledgeText -Knowledge $knowledge -Preferred 'explanation_fr' -Legacy 'explanation' -DefaultValue 'Evenement Windows a verifier dans le contexte de la panne.'
+        $probableCause = Get-KnowledgeText -Knowledge $knowledge -Preferred 'probable_cause_fr' -Legacy 'cause_probable' -DefaultValue 'Cause a confirmer avec la chronologie et les evenements voisins.'
+        $impact = Get-KnowledgeText -Knowledge $knowledge -Preferred 'impact_fr' -Legacy 'impact_possible' -DefaultValue 'Impact non determine a ce stade.'
+        $recommendedChecks = Get-KnowledgeList -Knowledge $knowledge -Preferred 'recommended_checks_fr' -Legacy 'sav_advice' -DefaultValues @('Comparer cet evenement avec les erreurs de stockage, de boot et les crashs proches.')
+
+        $enriched += [pscustomobject]@{
+            timestamp = $timestampText
+            timestamp_obj = $eventTs
+            level_fr = $levelFr
+            importance_sav = [int]$importance
+            family = $family
+            provider = $providerText
+            event_id = $eventIdText
+            channel = $channelText
+            source_file = $sourceFileText
+            message = $messageText
+            useful = [bool]$isUseful
+            near_crash = [bool]$nearCrash
+            repeat_count = [int]$repeatCount
+            explanation_fr = $explanation
+            probable_cause_fr = $probableCause
+            impact_fr = $impact
+            recommended_checks_fr = @($recommendedChecks)
+        }
+    }
+
+    $criticalHigh = @($enriched | Where-Object { $_.level_fr -eq 'Critique' -or [int]$_.importance_sav -ge 80 })
+    $filteredUseful = @($enriched | Where-Object { $_.useful })
+    $crashWindow = @()
+    if ($crashWindowStart -and $crashWindowEnd) {
+        $crashWindow = @($enriched | Where-Object {
+                $_.timestamp_obj -and $_.timestamp_obj -ge $crashWindowStart -and $_.timestamp_obj -le $crashWindowEnd
+            })
+    }
+
+    return [pscustomobject]@{
+        knowledge_rules_loaded = @($knowledgeArray).Count
+        total_events = @($eventsArray).Count
+        all = @($enriched)
+        filtered = @($filteredUseful)
+        critical_high = @($criticalHigh)
+        crash_window = @($crashWindow)
+        last_crash = $lastCrash
+        crash_window_start = if ($crashWindowStart) { $crashWindowStart.ToString('s') } else { '' }
+        crash_window_end = if ($crashWindowEnd) { $crashWindowEnd.ToString('s') } else { '' }
+        summary = $Summary
+    }
+}
+
+function Write-DanewEvtxTargetedExports {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RootPath,
+        [Parameter(Mandatory = $true)]
+        [string]$ReportsPath,
+        [object[]]$Events,
+        [object]$Summary
+    )
+
+    if (-not (Test-Path -Path $ReportsPath)) {
+        New-Item -Path $ReportsPath -ItemType Directory -Force | Out-Null
+    }
+
+    $knowledgeItems = Get-DanewEvtxKnowledgeItems -RootPath $RootPath
+    $model = Get-DanewEvtxTargetedExportModel -Events $Events -Summary $Summary -KnowledgeItems $knowledgeItems
+
+    $filteredPath = Join-Path $ReportsPath 'evtx-filtered-events.csv'
+    $criticalPath = Join-Path $ReportsPath 'evtx-critical-events.csv'
+    $crashWindowPath = Join-Path $ReportsPath 'evtx-crash-window.csv'
+    $savSummaryPath = Join-Path $ReportsPath 'evtx-sav-summary.txt'
+
+    $csvProjection = @('timestamp', 'level_fr', 'importance_sav', 'family', 'provider', 'event_id', 'channel', 'source_file', 'message', 'explanation_fr', 'probable_cause_fr', 'impact_fr')
+
+    $filteredRows = @($model.filtered | Select-Object $csvProjection)
+    if (@($filteredRows).Count -gt 0) {
+        $filteredRows | Export-Csv -Path $filteredPath -NoTypeInformation -Encoding UTF8
+    }
+    else {
+        'timestamp,level_fr,importance_sav,family,provider,event_id,channel,source_file,message,explanation_fr,probable_cause_fr,impact_fr' | Set-Content -Path $filteredPath -Encoding ASCII
+    }
+
+    $criticalRows = @($model.critical_high | Select-Object $csvProjection)
+    if (@($criticalRows).Count -gt 0) {
+        $criticalRows | Export-Csv -Path $criticalPath -NoTypeInformation -Encoding UTF8
+    }
+    else {
+        'timestamp,level_fr,importance_sav,family,provider,event_id,channel,source_file,message,explanation_fr,probable_cause_fr,impact_fr' | Set-Content -Path $criticalPath -Encoding ASCII
+    }
+
+    $crashRows = @($model.crash_window | Select-Object $csvProjection)
+    if (@($crashRows).Count -gt 0) {
+        $crashRows | Export-Csv -Path $crashWindowPath -NoTypeInformation -Encoding UTF8
+    }
+    else {
+        'timestamp,level_fr,importance_sav,family,provider,event_id,channel,source_file,message,explanation_fr,probable_cause_fr,impact_fr' | Set-Content -Path $crashWindowPath -Encoding ASCII
+    }
+
+    $top3 = @($model.critical_high | Sort-Object @{ Expression = { [int]$_.importance_sav }; Descending = $true }, @{ Expression = { [string]$_.timestamp }; Descending = $true } | Select-Object -First 3)
+    $summaryLines = @(
+        'Resume SAV EVTX (PowerShell)',
+        ('Generation: ' + (Get-Date).ToString('s')),
+        ('Total evenements: ' + [string]$model.total_events),
+        ('Evenements filtres (utiles): ' + [string]@($model.filtered).Count),
+        ('Evenements critiques / importance >= 80: ' + [string]@($model.critical_high).Count),
+        ('Evenements dans la fenetre de crash: ' + [string]@($model.crash_window).Count),
+        ('Dernier crash: ' + $(if ($model.last_crash) { ([string]$model.last_crash.timestamp + ' - ' + [string]$model.last_crash.provider + ' ' + [string]$model.last_crash.event_id) } else { 'Aucun' })),
+        ('Fenetre crash: ' + $(if (-not [string]::IsNullOrWhiteSpace([string]$model.crash_window_start)) { ([string]$model.crash_window_start + ' -> ' + [string]$model.crash_window_end) } else { 'Non applicable' })),
+        ('Regles de connaissance chargees: ' + [string]$model.knowledge_rules_loaded),
+        ''
+    )
+
+    if (@($top3).Count -gt 0) {
+        $summaryLines += 'Top evenements prioritaires :'
+        foreach ($item in @($top3)) {
+            $summaryLines += ('- [' + [string]$item.importance_sav + '] ' + [string]$item.timestamp + ' | ' + [string]$item.provider + ' ' + [string]$item.event_id + ' | ' + [string]$item.probable_cause_fr)
+            foreach ($check in @($item.recommended_checks_fr)) {
+                $summaryLines += ('  * ' + [string]$check)
+            }
+        }
+    }
+    else {
+        $summaryLines += 'Aucun evenement prioritaire detecte.'
+    }
+
+    $summaryLines | Set-Content -Path $savSummaryPath -Encoding UTF8
+
+    return [pscustomobject]@{
+        generated = $true
+        reports_path = $ReportsPath
+        knowledge_rules_loaded = $model.knowledge_rules_loaded
+        total_events = $model.total_events
+        filtered_events = @($model.filtered).Count
+        critical_high_events = @($model.critical_high).Count
+        crash_window_events = @($model.crash_window).Count
+        last_crash_timestamp = if ($model.last_crash) { [string]$model.last_crash.timestamp } else { '' }
+        crash_window_start = [string]$model.crash_window_start
+        crash_window_end = [string]$model.crash_window_end
+        artifacts = [pscustomobject]@{
+            evtx_filtered_events_csv = $filteredPath
+            evtx_critical_events_csv = $criticalPath
+            evtx_crash_window_csv = $crashWindowPath
+            evtx_sav_summary_txt = $savSummaryPath
+        }
+    }
+}
+
+function Invoke-DanewEvtxTargetedExportsAction {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RootPath,
+        [Parameter(Mandatory = $true)]
+        [object]$Config
+    )
+
+    $eventsPath = Join-Path $Config.reports_path 'evtx-events.json'
+    $summaryPath = Join-Path $Config.reports_path 'evtx-summary.json'
+
+    if (-not (Test-Path -Path $eventsPath)) {
+        return [pscustomobject]@{
+            generated = $false
+            status = 'WARNING'
+            message = "Aucun journal EVTX analyse. Lancez d'abord l'analyse des journaux Windows."
+            reports_path = $Config.reports_path
+            artifacts = [pscustomobject]@{
+                evtx_filtered_events_csv = ''
+                evtx_critical_events_csv = ''
+                evtx_crash_window_csv = ''
+                evtx_sav_summary_txt = ''
+            }
+        }
+    }
+
+    $events = @()
+    try {
+        $events = @(Get-Content -Path $eventsPath -Raw -Encoding UTF8 | ConvertFrom-Json)
+    }
+    catch {
+        throw ('Unable to read EVTX events source: ' + $eventsPath + ' | ' + $_.Exception.Message)
+    }
+
+    $summary = [pscustomobject]@{
+        total_events = @($events).Count
+        missing_required_logs = 0
+        parse_issue_count = 0
+    }
+    if (Test-Path -Path $summaryPath) {
+        try {
+            $loadedSummary = Get-Content -Path $summaryPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($loadedSummary) {
+                $summary = $loadedSummary
+            }
+        }
+        catch {
+        }
+    }
+
+    return (Write-DanewEvtxTargetedExports -RootPath $RootPath -ReportsPath $Config.reports_path -Events $events -Summary $summary)
+}
+
 function Write-DanewTimelineHtml {
     param(
         [Parameter(Mandatory = $true)]
@@ -1609,55 +2089,978 @@ function Write-DanewTimelineHtml {
         [object]$Summary
     )
 
-    $rows = @()
-    $index = 0
-    foreach ($evt in @($Events)) {
-        $index += 1
-        if ($index -gt 4000) {
-            break
+    $eventsArray = @($Events)
+    $renderedEvents = @($eventsArray | Select-Object -First 4000)
+
+    $knowledgePath = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'manifests\evtx-event-knowledge.json'
+    $knowledgeItems = @()
+    if (Test-Path -Path $knowledgePath) {
+        try {
+            $knowledgeItems = @(Get-Content -Path $knowledgePath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 30)
+        }
+        catch {
+            $knowledgeItems = @()
+        }
+    }
+
+    function Get-EvtxLevelFr {
+        param([AllowNull()][object]$Level)
+        $raw = [string]$Level
+        if ([string]::IsNullOrWhiteSpace($raw)) { return 'Information' }
+        if ($raw -match '(?i)critical|critique') { return 'Critique' }
+        if ($raw -match '(?i)error|erreur') { return 'Erreur' }
+        if ($raw -match '(?i)warn|avert') { return 'Avertissement' }
+        return 'Information'
+    }
+
+    function Get-EvtxFamily {
+        param(
+            [AllowNull()][object]$Provider,
+            [AllowNull()][object]$EventId,
+            [AllowNull()][object]$Channel,
+            [AllowNull()][object]$Message
+        )
+
+        $provider = ([string]$Provider).ToLowerInvariant()
+        $id = [string]$EventId
+        $channel = ([string]$Channel).ToLowerInvariant()
+        $message = ([string]$Message).ToLowerInvariant()
+
+        if ($provider -match 'kernel-power|bugcheck|wer-systemerrorreporting' -or $id -eq '41' -or $id -eq '1001') { return 'Crash / BSOD' }
+        if ($provider -match 'kernel-boot|boot' -or $message -match 'boot|demarrage') { return 'Demarrage / boot' }
+        if ($provider -match 'disk|ntfs|stor|nvme|iaStor|vmd' -or $id -in @('7', '51', '55', '153')) { return 'Disque / NTFS' }
+        if ($provider -match 'driverframeworks|driver|pnp') { return 'Pilotes' }
+        if ($provider -match 'windowsupdateclient|update') { return 'Windows Update' }
+        if ($provider -match 'whea') { return 'Materiel / WHEA' }
+        if ($provider -match 'service control manager|service') { return 'Services' }
+        if ($channel -match 'security' -or $provider -match 'security|audit') { return 'Securite' }
+        return 'Autres'
+    }
+
+    function Get-EvtxKnowledge {
+        param(
+            [AllowNull()][object]$Provider,
+            [AllowNull()][object]$EventId,
+            [AllowNull()][object]$Level,
+            [AllowNull()][object]$Channel
+        )
+
+        $provider = [string]$Provider
+        $idText = [string]$EventId
+        $idInt = 0
+        [void][int]::TryParse($idText, [ref]$idInt)
+
+        foreach ($item in @($knowledgeItems)) {
+            if ($null -eq $item) { continue }
+
+            $providerRule = [string]($item.provider)
+            $providerOk = $false
+            if ([string]::IsNullOrWhiteSpace($providerRule)) {
+                $providerOk = $true
+            }
+            elseif ($provider -like "*$providerRule*") {
+                $providerOk = $true
+            }
+
+            if (-not $providerOk) { continue }
+
+            $ids = @()
+            if ($item.PSObject.Properties['event_ids']) {
+                $ids = @($item.event_ids)
+            }
+            if (@($ids).Count -gt 0) {
+                $idHit = $false
+                foreach ($candidate in @($ids)) {
+                    $candidateInt = 0
+                    if ([int]::TryParse([string]$candidate, [ref]$candidateInt) -and $candidateInt -eq $idInt) {
+                        $idHit = $true
+                        break
+                    }
+                }
+                if (-not $idHit) { continue }
+            }
+
+            return $item
         }
 
-        $rowSearch = ConvertTo-DanewReportHtmlText ($evt.timestamp, $evt.level, $evt.provider, $evt.event_id, $evt.channel, $evt.source_file, $evt.message -join ' ')
-        $rows += @"
-<tr data-search-row="$rowSearch">
-<td>$([System.Security.SecurityElement]::Escape([string]$evt.timestamp))</td>
-<td>$([System.Security.SecurityElement]::Escape([string]$evt.level))</td>
-<td>$([System.Security.SecurityElement]::Escape([string]$evt.provider))</td>
-<td>$([System.Security.SecurityElement]::Escape([string]$evt.event_id))</td>
-<td>$([System.Security.SecurityElement]::Escape([string]$evt.channel))</td>
-<td>$([System.Security.SecurityElement]::Escape([string]$evt.source_file))</td>
-<td>$([System.Security.SecurityElement]::Escape([string]$evt.message))</td>
+        return $null
+    }
+
+    function Get-EvtxImportance {
+        param(
+            [AllowNull()][object]$Event,
+            [AllowNull()][object]$Knowledge,
+            [bool]$NearCrash,
+            [int]$RepetitionCount
+        )
+
+        if ($Knowledge -and $Knowledge.PSObject.Properties['importance_sav']) {
+            $kValue = 0
+            if ([int]::TryParse([string]$Knowledge.importance_sav, [ref]$kValue)) {
+                $score = $kValue
+            }
+            else {
+                $score = 0
+            }
+        }
+        elseif ($Knowledge -and $Knowledge.PSObject.Properties['importance']) {
+            $kValue = 0
+            if ([int]::TryParse([string]$Knowledge.importance, [ref]$kValue)) {
+                $score = $kValue
+            }
+            else {
+                $score = 0
+            }
+        }
+        else {
+            $score = 5
+            $provider = ([string]$Event.provider).ToLowerInvariant()
+            $id = [string]$Event.event_id
+            $levelFr = Get-EvtxLevelFr -Level $Event.level
+
+            if ($id -eq '1001' -or $provider -match 'bugcheck|wer-systemerrorreporting') { $score = 95 }
+            elseif ($id -eq '41' -or $provider -match 'kernel-power') { $score = 90 }
+            elseif ($provider -match '^disk$' -and $id -in @('7', '51', '153')) { $score = 90 }
+            elseif ($provider -match 'ntfs' -and $id -eq '55') { $score = 90 }
+            elseif ($provider -match 'whea') { $score = 85 }
+            elseif ($provider -match 'windowsupdateclient' -and $levelFr -in @('Erreur', 'Critique')) { $score = 75 }
+            elseif ($provider -match 'driverframeworks' -and $levelFr -in @('Erreur', 'Critique')) { $score = 70 }
+            elseif ($provider -match 'service control manager' -and $levelFr -in @('Erreur', 'Critique')) { $score = 65 }
+            elseif ($levelFr -eq 'Avertissement') { $score = 30 }
+            elseif ($levelFr -eq 'Information') { $score = 5 }
+        }
+
+        if ($NearCrash) { $score += 6 }
+        if ($RepetitionCount -ge 8) { $score += 6 }
+        elseif ($RepetitionCount -ge 4) { $score += 3 }
+        if ($score -gt 100) { $score = 100 }
+        if ($score -lt 0) { $score = 0 }
+        return [int]$score
+    }
+
+    $crashCandidates = @($renderedEvents | Where-Object {
+            $provider = ([string]$_.provider).ToLowerInvariant()
+            $id = [string]$_.event_id
+            ($id -eq '41') -or ($id -eq '1001') -or ($provider -match 'kernel-power|bugcheck|wer-systemerrorreporting')
+        } | Sort-Object timestamp)
+    $lastCrash = $null
+    if (@($crashCandidates).Count -gt 0) {
+        $lastCrash = @($crashCandidates)[-1]
+    }
+
+    $startTime = $null
+    $endTime = $null
+    if (@($renderedEvents).Count -gt 0) {
+        $sortedByTime = @($renderedEvents | Sort-Object timestamp)
+        $startTime = [string]$sortedByTime[0].timestamp
+        $endTime = [string]$sortedByTime[-1].timestamp
+    }
+
+    $journalList = @($renderedEvents | ForEach-Object { [string]$_.channel } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Unique)
+    $providerList = @($renderedEvents | ForEach-Object { [string]$_.provider } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Unique)
+    $idList = @($renderedEvents | ForEach-Object { [string]$_.event_id } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Unique)
+
+    $repeatMap = @{}
+    foreach ($evt in @($renderedEvents)) {
+        $repeatKey = ([string]$evt.provider) + '|' + ([string]$evt.event_id)
+        if (-not $repeatMap.ContainsKey($repeatKey)) { $repeatMap[$repeatKey] = 0 }
+        $repeatMap[$repeatKey] = [int]$repeatMap[$repeatKey] + 1
+    }
+
+    $enrichedRows = @()
+    $rowsHtml = @()
+    $eventLinks = @()
+    $criticalCount = 0
+    $errorCount = 0
+    $warnCount = 0
+    $infoCount = 0
+
+    foreach ($evt in @($renderedEvents)) {
+        $timestampText = [string]$evt.timestamp
+        $providerText = [string]$evt.provider
+        $eventIdText = [string]$evt.event_id
+        $channelText = [string]$evt.channel
+        $sourceFileText = [string]$evt.source_file
+        $messageText = [string]$evt.message
+        if ([string]::IsNullOrWhiteSpace($messageText)) { $messageText = '-' }
+
+        $messageSingleLine = (($messageText -replace "`r", ' ') -replace "`n", ' ').Trim()
+        $levelFr = Get-EvtxLevelFr -Level $evt.level
+        $family = Get-EvtxFamily -Provider $providerText -EventId $eventIdText -Channel $channelText -Message $messageText
+        $knowledge = Get-EvtxKnowledge -Provider $providerText -EventId $eventIdText -Level $evt.level -Channel $channelText
+        if ($knowledge -and $knowledge.PSObject.Properties['family'] -and -not [string]::IsNullOrWhiteSpace([string]$knowledge.family)) {
+            $family = [string]$knowledge.family
+        }
+
+        $nearCrash = $false
+        if ($lastCrash -and -not [string]::IsNullOrWhiteSpace($timestampText) -and -not [string]::IsNullOrWhiteSpace([string]$lastCrash.timestamp)) {
+            try {
+                $tsEvt = [datetime]::Parse($timestampText)
+                $tsCrash = [datetime]::Parse([string]$lastCrash.timestamp)
+                $delta = [math]::Abs(($tsEvt - $tsCrash).TotalMinutes)
+                if ($delta -le 5.0) { $nearCrash = $true }
+            }
+            catch {
+            }
+        }
+
+        $repeatKey = $providerText + '|' + $eventIdText
+        $repeatCount = 1
+        if ($repeatMap.ContainsKey($repeatKey)) {
+            $repeatCount = [int]$repeatMap[$repeatKey]
+        }
+
+        $importance = Get-EvtxImportance -Event $evt -Knowledge $knowledge -NearCrash:$nearCrash -RepetitionCount $repeatCount
+        $isUseful = ($importance -ge 60) -or ($levelFr -in @('Critique', 'Erreur'))
+
+        switch ($levelFr) {
+            'Critique' { $criticalCount++ }
+            'Erreur' { $errorCount++ }
+            'Avertissement' { $warnCount++ }
+            default { $infoCount++ }
+        }
+
+        $explanation = 'Evenement Windows a verifier dans le contexte de la panne.'
+        $causeProbable = 'Cause a confirmer avec la chronologie et les evenements voisins.'
+        $impactPossible = 'Impact non determine a ce stade.'
+        $savAdvice = @('Comparer cet evenement avec les erreurs de stockage, de boot et les crashs proches.')
+        $clientSummary = 'Un evenement systeme a ete detecte.'
+
+        if ($knowledge) {
+            if ($knowledge.PSObject.Properties['explanation_fr']) { $explanation = [string]$knowledge.explanation_fr }
+            elseif ($knowledge.PSObject.Properties['explanation']) { $explanation = [string]$knowledge.explanation }
+
+            if ($knowledge.PSObject.Properties['probable_cause_fr']) { $causeProbable = [string]$knowledge.probable_cause_fr }
+            elseif ($knowledge.PSObject.Properties['cause_probable']) { $causeProbable = [string]$knowledge.cause_probable }
+
+            if ($knowledge.PSObject.Properties['impact_fr']) { $impactPossible = [string]$knowledge.impact_fr }
+            elseif ($knowledge.PSObject.Properties['impact_possible']) { $impactPossible = [string]$knowledge.impact_possible }
+
+            if ($knowledge.PSObject.Properties['recommended_checks_fr']) {
+                $savAdvice = @($knowledge.recommended_checks_fr | ForEach-Object { [string]$_ })
+            }
+            elseif ($knowledge.PSObject.Properties['sav_advice']) {
+                $savAdvice = @($knowledge.sav_advice | ForEach-Object { [string]$_ })
+            }
+
+            if ($knowledge.PSObject.Properties['client_summary']) { $clientSummary = [string]$knowledge.client_summary }
+        }
+
+        $eventObj = [pscustomobject]@{
+            timestamp = $timestampText
+            level_fr = $levelFr
+            importance = $importance
+            family = $family
+            provider = $providerText
+            event_id = $eventIdText
+            channel = $channelText
+            message = $messageSingleLine
+            message_full = $messageText
+            source_file = $sourceFileText
+            useful = $isUseful
+            explanation = $explanation
+            cause_probable = $causeProbable
+            impact_possible = $impactPossible
+            sav_advice = @($savAdvice)
+            client_summary = $clientSummary
+            repeat_count = $repeatCount
+            near_crash = $nearCrash
+        }
+        $enrichedRows += $eventObj
+    }
+
+    $top10 = @($enrichedRows | Sort-Object @{ Expression = { [int]$_.importance }; Descending = $true }, @{ Expression = { [int]$_.repeat_count }; Descending = $true }, @{ Expression = { [string]$_.timestamp }; Descending = $true } | Select-Object -First 10)
+
+    $topRowsHtml = @()
+    $topIndex = 0
+    foreach ($item in @($top10)) {
+        $topIndex++
+        $filterRef = ConvertTo-DanewReportHtmlText ($item.provider + '|' + $item.event_id)
+        $topRowsHtml += @"
+<tr data-search-row="$(ConvertTo-DanewReportHtmlText ($item.provider + ' ' + $item.event_id + ' ' + $item.family + ' ' + $item.message))">
+<td>$topIndex</td>
+<td><button type="button" class="link-button" data-focus-event="$filterRef">$(ConvertTo-DanewReportHtmlText $item.provider) $(ConvertTo-DanewReportHtmlText $item.event_id)</button></td>
+<td>$([System.Security.SecurityElement]::Escape([string]$item.level_fr))</td>
+<td>$([System.Security.SecurityElement]::Escape([string]$item.importance))</td>
+<td>$([System.Security.SecurityElement]::Escape([string]$item.family))</td>
+<td>$([System.Security.SecurityElement]::Escape([string]$item.timestamp))</td>
 </tr>
 "@
     }
-
-    $notice = ''
-    if (@($Events).Count -gt 4000) {
-        $notice = '<p><b>Note:</b> HTML view truncated to first 4000 events. Full data is available in timeline-raw.json.</p>'
+    if (@($topRowsHtml).Count -eq 0) {
+        $topRowsHtml += '<tr data-search-row="vide"><td colspan="6">Aucun evenement prioritaire detecte.</td></tr>'
     }
 
+    $rowIndex = 0
+    foreach ($item in @($enrichedRows)) {
+        $rowIndex++
+        $eventKey = 'evt-' + [string]$rowIndex
+        $searchBlob = ConvertTo-DanewReportHtmlText ($item.timestamp, $item.level_fr, $item.importance, $item.family, $item.provider, $item.event_id, $item.channel, $item.message, $item.source_file -join ' ')
+        $messagePreview = [string]$item.message
+        if ($messagePreview.Length -gt 180) {
+            $messagePreview = $messagePreview.Substring(0, 180) + ' ...'
+        }
+
+        $messageCollapsed = '<div class="msg-preview">' + (ConvertTo-DanewReportHtmlText $messagePreview) + '</div><div class="msg-full" hidden>' + (ConvertTo-DanewReportHtmlText $item.message_full) + '</div><button type="button" class="link-button" data-toggle-message>Afficher plus</button>'
+
+        $rowsHtml += @"
+<tr class="evtx-row" data-evtx-row data-search-row="$searchBlob" data-row-index="$rowIndex" data-ts="$(ConvertTo-DanewReportHtmlText $item.timestamp)" data-level="$(ConvertTo-DanewReportHtmlText $item.level_fr)" data-importance="$([int]$item.importance)" data-family="$(ConvertTo-DanewReportHtmlText $item.family)" data-provider="$(ConvertTo-DanewReportHtmlText $item.provider)" data-event-id="$(ConvertTo-DanewReportHtmlText $item.event_id)" data-channel="$(ConvertTo-DanewReportHtmlText $item.channel)" data-source-file="$(ConvertTo-DanewReportHtmlText $item.source_file)" data-useful="$(if ($item.useful) { '1' } else { '0' })" data-event-ref="$(ConvertTo-DanewReportHtmlText ($item.provider + '|' + $item.event_id))">
+<td>$([System.Security.SecurityElement]::Escape([string]$item.timestamp))</td>
+<td><span class="badge-level badge-level-$(ConvertTo-DanewReportToken $item.level_fr)">$([System.Security.SecurityElement]::Escape([string]$item.level_fr))</span></td>
+<td>$([System.Security.SecurityElement]::Escape([string]$item.importance))</td>
+<td>$([System.Security.SecurityElement]::Escape([string]$item.family))</td>
+<td>$([System.Security.SecurityElement]::Escape([string]$item.provider))</td>
+<td>$([System.Security.SecurityElement]::Escape([string]$item.event_id))</td>
+<td>$([System.Security.SecurityElement]::Escape([string]$item.channel))</td>
+<td>$messageCollapsed</td>
+<td>$([System.Security.SecurityElement]::Escape([string]$item.source_file))</td>
+</tr>
+"@
+
+        $relatedPayload = @()
+        try {
+            $eventTime = [datetime]::Parse([string]$item.timestamp)
+            foreach ($peer in @($enrichedRows)) {
+                if ([string]::IsNullOrWhiteSpace([string]$peer.timestamp)) { continue }
+                $peerTime = $null
+                try { $peerTime = [datetime]::Parse([string]$peer.timestamp) } catch { $peerTime = $null }
+                if ($null -eq $peerTime) { continue }
+                $deltaMin = [math]::Round(($peerTime - $eventTime).TotalMinutes, 2)
+                if ([math]::Abs($deltaMin) -le 5.0 -and -not ($peer.timestamp -eq $item.timestamp -and $peer.provider -eq $item.provider -and $peer.event_id -eq $item.event_id)) {
+                    $relatedPayload += [pscustomobject]@{ delta_min = $deltaMin; label = ($peer.provider + ' ' + $peer.event_id + ' - ' + $peer.level_fr) }
+                }
+            }
+        }
+        catch {
+            $relatedPayload = @()
+        }
+
+        $eventLinks += [pscustomobject]@{
+            key = $eventKey
+            provider_id = ($item.provider + '|' + $item.event_id)
+            data = [pscustomobject]@{
+                timestamp = $item.timestamp
+                level = $item.level_fr
+                importance = $item.importance
+                family = $item.family
+                provider = $item.provider
+                event_id = $item.event_id
+                channel = $item.channel
+                source_file = $item.source_file
+                message_full = $item.message_full
+                explanation = $item.explanation
+                cause_probable = $item.cause_probable
+                impact_possible = $item.impact_possible
+                sav_advice = @($item.sav_advice)
+                client_summary = $item.client_summary
+                related = @($relatedPayload | Sort-Object delta_min)
+            }
+        }
+    }
+
+    $lastCrashText = 'Aucun crash majeur detecte'
+    $lastCrashWindowStart = ''
+    $lastCrashWindowEnd = ''
+    if ($lastCrash) {
+        $lastCrashText = [string]$lastCrash.timestamp + ' - ' + [string]$lastCrash.provider + ' ' + [string]$lastCrash.event_id
+        try {
+            $lastCrashTs = [datetime]::Parse([string]$lastCrash.timestamp)
+            $lastCrashWindowStart = $lastCrashTs.AddMinutes(-30).ToString('s')
+            $lastCrashWindowEnd = $lastCrashTs.ToString('s')
+        }
+        catch {
+            $lastCrashWindowStart = ''
+            $lastCrashWindowEnd = ''
+        }
+    }
+
+    $usefulCount = @($enrichedRows | Where-Object { $_.useful }).Count
+
+    $loopRows = @()
+    $loopSignals = @(
+        [pscustomobject]@{ name = 'Boucle Kernel-Power 41'; pattern = { param($e) ([string]$e.provider -match 'Kernel-Power') -and ([string]$e.event_id -eq '41') }; threshold = 3; explanation = 'Boucle de redemarrage suspectee.'; severity = 'Critique' }
+        [pscustomobject]@{ name = 'Boucle BugCheck 1001'; pattern = { param($e) ([string]$e.event_id -eq '1001') -or ([string]$e.provider -match 'WER-SystemErrorReporting|BugCheck') }; threshold = 2; explanation = 'Crash BSOD repete.'; severity = 'Critique' }
+        [pscustomobject]@{ name = 'Boucle erreurs disque'; pattern = { param($e) ([string]$e.provider -match '^Disk$') -and ([string]$e.event_id -in @('7', '51', '153')) }; threshold = 3; explanation = 'Instabilite stockage repetee.'; severity = 'Critique' }
+        [pscustomobject]@{ name = 'Boucle erreurs NTFS'; pattern = { param($e) ([string]$e.provider -match 'Ntfs') -and ([string]$e.event_id -eq '55') }; threshold = 2; explanation = 'Corruption NTFS repetee.'; severity = 'Critique' }
+        [pscustomobject]@{ name = 'Boucle echec Windows Update'; pattern = { param($e) ([string]$e.provider -match 'WindowsUpdateClient') -and ([string]$e.level_fr -in @('Erreur', 'Critique')) }; threshold = 3; explanation = 'Mises a jour en echec a repetition.'; severity = 'Alerte' }
+        [pscustomobject]@{ name = 'Boucle echec services critiques'; pattern = { param($e) ([string]$e.provider -match 'Service Control Manager') -and ([string]$e.level_fr -in @('Erreur', 'Critique')) }; threshold = 3; explanation = 'Services critiques en echec repetitif.'; severity = 'Alerte' }
+    )
+
+    foreach ($rule in @($loopSignals)) {
+        $matches = @($enrichedRows | Where-Object { & $rule.pattern $_ })
+        if (@($matches).Count -ge [int]$rule.threshold) {
+            $ordered = @($matches | Sort-Object timestamp)
+            $loopRows += [pscustomobject]@{
+                loop_type = [string]$rule.name
+                occurrences = @($matches).Count
+                period = ([string]$ordered[0].timestamp + ' -> ' + [string]$ordered[-1].timestamp)
+                severity = [string]$rule.severity
+                explanation = [string]$rule.explanation
+            }
+        }
+    }
+
+    foreach ($kv in $repeatMap.GetEnumerator()) {
+        if ([int]$kv.Value -ge 6) {
+            $parts = [string]$kv.Key -split '\|', 2
+            $pName = if (@($parts).Count -gt 0) { $parts[0] } else { 'Provider inconnu' }
+            $eventIdPart = if (@($parts).Count -gt 1) { $parts[1] } else { '-' }
+            $loopRows += [pscustomobject]@{
+                loop_type = 'Repetition Event ID'
+                occurrences = [int]$kv.Value
+                period = 'Voir la chronologie filtrable'
+                severity = 'Alerte'
+                explanation = ('Evenement repete : ' + $pName + ' ' + $eventIdPart)
+            }
+        }
+    }
+
+    $loopRows = @($loopRows | Sort-Object @{ Expression = { [int]$_.occurrences }; Descending = $true }, loop_type)
+    $loopRowsHtml = @()
+    foreach ($loop in @($loopRows)) {
+        $loopRowsHtml += @"
+<tr data-search-row="$(ConvertTo-DanewReportHtmlText ($loop.loop_type + ' ' + $loop.explanation + ' ' + $loop.severity))">
+<td>$([System.Security.SecurityElement]::Escape([string]$loop.loop_type))</td>
+<td>$([System.Security.SecurityElement]::Escape([string]$loop.occurrences))</td>
+<td>$([System.Security.SecurityElement]::Escape([string]$loop.period))</td>
+<td>$([System.Security.SecurityElement]::Escape([string]$loop.severity))</td>
+<td>$([System.Security.SecurityElement]::Escape([string]$loop.explanation))</td>
+</tr>
+"@
+    }
+    if (@($loopRowsHtml).Count -eq 0) {
+        $loopRowsHtml += '<tr data-search-row="aucune boucle"><td colspan="5">Aucune boucle significative detectee.</td></tr>'
+    }
+
+    $notice = ''
+    if (@($eventsArray).Count -gt 4000) {
+        $notice = '<p><b>Note :</b> la vue HTML est limitee aux 4000 premiers evenements. Les donnees completes restent disponibles dans timeline-raw.json.</p>'
+    }
+
+    $mainTable = New-DanewReportTableHtml -Headers @('Date/heure', 'Niveau', 'Importance SAV', 'Famille', 'Source', 'ID evenement', 'Journal', 'Message', 'Fichier EVTX source') -Rows $rowsHtml -EmptyMessage 'Aucun evenement ne correspond au filtre courant.'
+    $top10Table = New-DanewReportTableHtml -Headers @('#', 'Evenement', 'Niveau', 'Importance SAV', 'Famille', 'Date/heure') -Rows $topRowsHtml -EmptyMessage 'Aucun evenement prioritaire a afficher.'
+    $loopTable = New-DanewReportTableHtml -Headers @('Type de boucle', 'Occurrences', 'Periode', 'Gravite', 'Explication SAV') -Rows $loopRowsHtml -EmptyMessage 'Aucune boucle detectee.'
+
+    $eventsJson = @($eventLinks | ForEach-Object {
+            [pscustomobject]@{
+                key = $_.key
+                provider_id = $_.provider_id
+                payload = $_.data
+            }
+        }) | ConvertTo-Json -Depth 30 -Compress
+
+    $providerOptionsHtml = @('<option value="">Tous</option>')
+    foreach ($p in @($providerList)) {
+        $providerOptionsHtml += '<option value="' + (ConvertTo-DanewReportHtmlText $p) + '">' + (ConvertTo-DanewReportHtmlText $p) + '</option>'
+    }
+    $idOptionsHtml = @('<option value="">Tous</option>')
+    foreach ($id in @($idList)) {
+        $idOptionsHtml += '<option value="' + (ConvertTo-DanewReportHtmlText $id) + '">' + (ConvertTo-DanewReportHtmlText $id) + '</option>'
+    }
+    $journalOptionsHtml = @('<option value="">Tous</option>')
+    foreach ($j in @($journalList)) {
+        $journalOptionsHtml += '<option value="' + (ConvertTo-DanewReportHtmlText $j) + '">' + (ConvertTo-DanewReportHtmlText $j) + '</option>'
+    }
+
+    $additionalToolbarHtml = @"
+<select data-filter-level>
+<option value="">Tous niveaux</option>
+<option value="Critique">Critique</option>
+<option value="Erreur">Erreur</option>
+<option value="Avertissement">Avertissement</option>
+<option value="Information">Information</option>
+</select>
+<select data-filter-family>
+<option value="">Toutes familles</option>
+<option value="Demarrage / boot">Demarrage / boot</option>
+<option value="Crash / BSOD">Crash / BSOD</option>
+<option value="Disque / NTFS">Disque / NTFS</option>
+<option value="Pilotes">Pilotes</option>
+<option value="Windows Update">Windows Update</option>
+<option value="Materiel / WHEA">Materiel / WHEA</option>
+<option value="Services">Services</option>
+<option value="Securite">Securite</option>
+<option value="Autres">Autres</option>
+</select>
+<select data-filter-provider>
+$(($providerOptionsHtml -join ''))
+</select>
+<select data-filter-event-id>
+$(($idOptionsHtml -join ''))
+</select>
+<select data-filter-channel>
+$(($journalOptionsHtml -join ''))
+</select>
+<select data-filter-period>
+<option value="all">Tout afficher</option>
+<option value="24h">Dernieres 24h</option>
+<option value="7d">7 derniers jours</option>
+<option value="30d">30 derniers jours</option>
+</select>
+<button type="button" data-action="useful-only">Afficher uniquement les evenements utiles au diagnostic</button>
+<button type="button" data-action="before-last-crash">Voir les evenements avant le dernier crash</button>
+<button type="button" data-action="reset-evtx-filters">Reinitialiser les filtres</button>
+<button type="button" data-action="copy-sav-summary">Copier le resume SAV</button>
+<button type="button" data-action="export-visible-csv">Exporter les evenements filtres en CSV</button>
+<button type="button" data-action="export-critical-csv">Exporter uniquement les evenements critiques</button>
+<button type="button" data-action="export-crash-csv">Exporter la chronologie de panne</button>
+<button type="button" data-action="export-sav-summary">Exporter le resume SAV</button>
+<button type="button" data-action="mode-technicien" class="primary-button">Mode Technicien</button>
+<button type="button" data-action="mode-client">Mode Client</button>
+<span class="inline-chip" data-visible-counter>0 ligne visible</span>
+"@
+
+    $primaryCause = if (@($top10).Count -gt 0) { [string]$top10[0].cause_probable } else { 'Cause principale a confirmer selon les filtres.' }
+    $savSeverity = if ($criticalCount -gt 0) { 'Critique' } elseif ($errorCount -gt 0) { 'Erreur' } elseif ($warnCount -gt 0) { 'Avertissement' } else { 'Information' }
+    $savSummaryText = @"
+Resume SAV :
+Le PC presente des evenements critiques autour du stockage, du demarrage ou des crashs.
+Cause probable : $primaryCause
+Gravite : $savSeverity
+Action recommandee : sauvegarder les donnees, verifier le stockage, puis poursuivre le diagnostic en lecture seule.
+"@.Trim()
+
+    $additionalContentHtml = @"
+<aside class="evtx-detail-panel" data-evtx-detail>
+<h2>Detail evenement</h2>
+<div class="detail-grid">
+<div><b>Date/heure :</b> <span data-detail-ts>-</span></div>
+<div><b>Niveau :</b> <span data-detail-level>-</span></div>
+<div><b>Source :</b> <span data-detail-provider>-</span></div>
+<div><b>ID evenement :</b> <span data-detail-id>-</span></div>
+<div><b>Journal :</b> <span data-detail-channel>-</span></div>
+<div><b>Importance SAV :</b> <span data-detail-importance>-</span></div>
+</div>
+<h3>Message complet</h3>
+<pre data-detail-message>-</pre>
+<h3>Explication</h3>
+<p data-detail-explanation>-</p>
+<h3>Cause probable</h3>
+<p data-detail-cause>-</p>
+<h3>Impact possible</h3>
+<p data-detail-impact>-</p>
+<h3>Conseils SAV</h3>
+<ul data-detail-advice><li>-</li></ul>
+<h3>Evenements lies</h3>
+<ul data-detail-related><li>-</li></ul>
+</aside>
+<section class="report-card" data-client-summary-panel hidden>
+<div class="section-head"><div><h2>Mode Client</h2><p class="section-caption">Resume simplifie non technique de la situation.</p></div></div>
+<div class="section-body">
+<p data-client-summary>Selectionner un evenement pour afficher un resume simplifie.</p>
+<textarea data-sav-summary-box rows="7" style="width:100%;font-family:Consolas,""Cascadia Mono"",monospace;">$(ConvertTo-DanewReportHtmlText $savSummaryText)</textarea>
+</div>
+</section>
+"@
+
+    $additionalStyleHtml = @"
+<style>
+.badge-level-good { background: #dcfce7; color: #166534; padding: 4px 8px; border-radius: 10px; font-weight: 700; }
+.badge-level-warn { background: #ffedd5; color: #9a3412; padding: 4px 8px; border-radius: 10px; font-weight: 700; }
+.badge-level-danger { background: #fee2e2; color: #991b1b; padding: 4px 8px; border-radius: 10px; font-weight: 700; }
+.badge-level-neutral { background: #dbeafe; color: #1e3a8a; padding: 4px 8px; border-radius: 10px; font-weight: 700; }
+.inline-chip { padding: 8px 10px; border: 1px solid var(--line); border-radius: 999px; background: #fff; font-size: 12px; }
+.link-button { border: 0; background: transparent; color: #0f4f9f; cursor: pointer; text-decoration: underline; padding: 0; font: inherit; }
+.msg-preview { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 540px; }
+.msg-full { white-space: pre-wrap; margin-top: 6px; max-height: 140px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 6px; background: #f8fafc; }
+.evtx-row { cursor: pointer; }
+.evtx-row.row-selected { outline: 2px solid #115e59; outline-offset: -2px; }
+.evtx-detail-panel { position: sticky; bottom: 0; margin-top: 14px; border: 1px solid var(--line); border-radius: 18px; background: #ffffff; padding: 14px 16px; box-shadow: var(--shadow); }
+.evtx-detail-panel h2, .evtx-detail-panel h3 { margin: 6px 0; }
+.evtx-detail-panel pre { max-height: 160px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 8px; background: #f8fafc; white-space: pre-wrap; }
+.detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
+[data-client-mode="1"] [data-tech-only="1"] { display: none !important; }
+@media print {
+    .evtx-detail-panel, [data-action="copy-sav-summary"], [data-action="export-visible-csv"], [data-action="export-critical-csv"], [data-action="export-crash-csv"], [data-action="export-sav-summary"], [data-action="reset-evtx-filters"] { display: none !important; }
+}
+</style>
+"@
+
+    $additionalScriptHtml = @"
+<script>
+(function () {
+    var eventDb = $eventsJson;
+    var mapByRef = {};
+    for (var i = 0; i < eventDb.length; i++) {
+        mapByRef[eventDb[i].provider_id + '::' + eventDb[i].payload.timestamp] = eventDb[i].payload;
+    }
+
+    var root = document.querySelector('[data-report-shell="danew"]');
+    if (!root) { return; }
+
+    var rows = Array.prototype.slice.call(document.querySelectorAll('[data-evtx-row]'));
+    var searchBox = document.querySelector('[data-report-search]');
+    var levelFilter = document.querySelector('[data-filter-level]');
+    var familyFilter = document.querySelector('[data-filter-family]');
+    var providerFilter = document.querySelector('[data-filter-provider]');
+    var eventIdFilter = document.querySelector('[data-filter-event-id]');
+    var channelFilter = document.querySelector('[data-filter-channel]');
+    var periodFilter = document.querySelector('[data-filter-period]');
+    var visibleCounter = document.querySelector('[data-visible-counter]');
+    var usefulToggle = document.querySelector('[data-action="useful-only"]');
+    var beforeCrashButton = document.querySelector('[data-action="before-last-crash"]');
+    var resetButton = document.querySelector('[data-action="reset-evtx-filters"]');
+    var copySummaryButton = document.querySelector('[data-action="copy-sav-summary"]');
+    var exportVisibleButton = document.querySelector('[data-action="export-visible-csv"]');
+    var exportCriticalButton = document.querySelector('[data-action="export-critical-csv"]');
+    var exportCrashButton = document.querySelector('[data-action="export-crash-csv"]');
+    var exportSummaryButton = document.querySelector('[data-action="export-sav-summary"]');
+    var modeTechButton = document.querySelector('[data-action="mode-technicien"]');
+    var modeClientButton = document.querySelector('[data-action="mode-client"]');
+    var clientPanel = document.querySelector('[data-client-summary-panel]');
+    var clientSummary = document.querySelector('[data-client-summary]');
+    var summaryBox = document.querySelector('[data-sav-summary-box]');
+
+    var detailTs = document.querySelector('[data-detail-ts]');
+    var detailLevel = document.querySelector('[data-detail-level]');
+    var detailProvider = document.querySelector('[data-detail-provider]');
+    var detailId = document.querySelector('[data-detail-id]');
+    var detailChannel = document.querySelector('[data-detail-channel]');
+    var detailImportance = document.querySelector('[data-detail-importance]');
+    var detailMessage = document.querySelector('[data-detail-message]');
+    var detailExplanation = document.querySelector('[data-detail-explanation]');
+    var detailCause = document.querySelector('[data-detail-cause]');
+    var detailImpact = document.querySelector('[data-detail-impact]');
+    var detailAdvice = document.querySelector('[data-detail-advice]');
+    var detailRelated = document.querySelector('[data-detail-related]');
+
+    var showUsefulOnly = false;
+    var beforeCrashMode = false;
+    var crashWindowStart = $(if ([string]::IsNullOrWhiteSpace($lastCrashWindowStart)) { 'null' } else { '"' + (ConvertTo-DanewReportHtmlText $lastCrashWindowStart) + '"' });
+    var crashWindowEnd = $(if ([string]::IsNullOrWhiteSpace($lastCrashWindowEnd)) { 'null' } else { '"' + (ConvertTo-DanewReportHtmlText $lastCrashWindowEnd) + '"' });
+
+    function normalize(v) { return (v || '').toString().toLowerCase(); }
+    function parseDate(v) {
+        var d = new Date(v);
+        return isNaN(d.getTime()) ? null : d;
+    }
+
+    function downloadTextFile(fileName, content, mimeType) {
+        var blob = new Blob([content], { type: mimeType || 'text/plain;charset=utf-8' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    function rowPassesFilters(row) {
+        var term = searchBox ? normalize(searchBox.value) : '';
+        if (term) {
+            var searchText = normalize(row.getAttribute('data-search-row'));
+            if (searchText.indexOf(term) === -1) { return false; }
+        }
+
+        if (levelFilter && levelFilter.value && row.getAttribute('data-level') !== levelFilter.value) { return false; }
+        if (familyFilter && familyFilter.value && row.getAttribute('data-family') !== familyFilter.value) { return false; }
+        if (providerFilter && providerFilter.value && row.getAttribute('data-provider') !== providerFilter.value) { return false; }
+        if (eventIdFilter && eventIdFilter.value && row.getAttribute('data-event-id') !== eventIdFilter.value) { return false; }
+        if (channelFilter && channelFilter.value && row.getAttribute('data-channel') !== channelFilter.value) { return false; }
+
+        if (showUsefulOnly && row.getAttribute('data-useful') !== '1') { return false; }
+
+        var ts = parseDate(row.getAttribute('data-ts'));
+        if (periodFilter && periodFilter.value !== 'all' && ts) {
+            var now = new Date();
+            var limit = null;
+            if (periodFilter.value === '24h') { limit = 24 * 60 * 60 * 1000; }
+            if (periodFilter.value === '7d') { limit = 7 * 24 * 60 * 60 * 1000; }
+            if (periodFilter.value === '30d') { limit = 30 * 24 * 60 * 60 * 1000; }
+            if (limit !== null && (now.getTime() - ts.getTime()) > limit) { return false; }
+        }
+
+        if (beforeCrashMode && crashWindowStart && crashWindowEnd && ts) {
+            var start = parseDate(crashWindowStart);
+            var end = parseDate(crashWindowEnd);
+            if (start && end && (ts < start || ts > end)) { return false; }
+        }
+
+        return true;
+    }
+
+    function updateVisibleCounter(count) {
+        if (visibleCounter) {
+            visibleCounter.textContent = count + (count > 1 ? ' lignes visibles' : ' ligne visible');
+        }
+    }
+
+    function applyAllFilters() {
+        var visible = 0;
+        rows.forEach(function (row) {
+            var ok = rowPassesFilters(row);
+            row.hidden = !ok;
+            if (ok) { visible++; }
+        });
+        updateVisibleCounter(visible);
+    }
+
+    function getVisibleRows() {
+        return rows.filter(function (r) { return !r.hidden; });
+    }
+
+    function rowsToCsv(targetRows) {
+        var header = ['Date/heure','Niveau','Importance SAV','Famille','Source','ID evenement','Journal','Message','Fichier EVTX source'];
+        var lines = [header.join(';')];
+        targetRows.forEach(function (row) {
+            var values = [
+                row.getAttribute('data-ts') || '',
+                row.getAttribute('data-level') || '',
+                row.getAttribute('data-importance') || '',
+                row.getAttribute('data-family') || '',
+                row.getAttribute('data-provider') || '',
+                row.getAttribute('data-event-id') || '',
+                row.getAttribute('data-channel') || '',
+                (row.querySelector('.msg-full') ? row.querySelector('.msg-full').textContent : ''),
+                row.getAttribute('data-source-file') || ''
+            ].map(function (v) {
+                var safe = (v || '').toString().replace(/"/g, '""');
+                return '"' + safe + '"';
+            });
+            lines.push(values.join(';'));
+        });
+        return lines.join('\r\n');
+    }
+
+    function setDetail(payload) {
+        if (!payload) { return; }
+        detailTs.textContent = payload.timestamp || '-';
+        detailLevel.textContent = payload.level || '-';
+        detailProvider.textContent = payload.provider || '-';
+        detailId.textContent = payload.event_id || '-';
+        detailChannel.textContent = payload.channel || '-';
+        detailImportance.textContent = payload.importance || '-';
+        detailMessage.textContent = payload.message_full || '-';
+        detailExplanation.textContent = payload.explanation || '-';
+        detailCause.textContent = payload.cause_probable || '-';
+        detailImpact.textContent = payload.impact_possible || '-';
+
+        detailAdvice.innerHTML = '';
+        (payload.sav_advice || []).forEach(function (line) {
+            var li = document.createElement('li');
+            li.textContent = line;
+            detailAdvice.appendChild(li);
+        });
+        if (!detailAdvice.children.length) {
+            var li = document.createElement('li');
+            li.textContent = '-';
+            detailAdvice.appendChild(li);
+        }
+
+        detailRelated.innerHTML = '';
+        (payload.related || []).forEach(function (item) {
+            var li = document.createElement('li');
+            var delta = item.delta_min;
+            var prefix = delta < 0 ? Math.abs(delta) + ' min avant' : (delta > 0 ? delta + ' min apres' : 'Meme minute');
+            li.textContent = prefix + ' : ' + item.label;
+            detailRelated.appendChild(li);
+        });
+        if (!detailRelated.children.length) {
+            var liR = document.createElement('li');
+            liR.textContent = 'Aucun evenement lie dans la fenetre +/-5 minutes.';
+            detailRelated.appendChild(liR);
+        }
+
+        if (clientSummary) {
+            clientSummary.textContent = payload.client_summary || payload.explanation || 'Resume non disponible.';
+        }
+    }
+
+    function selectRow(row) {
+        rows.forEach(function (r) { r.classList.remove('row-selected'); });
+        row.classList.add('row-selected');
+        var ref = row.getAttribute('data-event-ref') + '::' + row.getAttribute('data-ts');
+        setDetail(mapByRef[ref]);
+    }
+
+    rows.forEach(function (row) {
+        row.addEventListener('click', function (event) {
+            if (event.target && event.target.hasAttribute('data-toggle-message')) {
+                return;
+            }
+            selectRow(row);
+        });
+
+        var toggle = row.querySelector('[data-toggle-message]');
+        if (toggle) {
+            toggle.addEventListener('click', function (event) {
+                event.stopPropagation();
+                var full = row.querySelector('.msg-full');
+                if (!full) { return; }
+                var hidden = full.hasAttribute('hidden');
+                if (hidden) {
+                    full.removeAttribute('hidden');
+                    toggle.textContent = 'Afficher moins';
+                } else {
+                    full.setAttribute('hidden', 'hidden');
+                    toggle.textContent = 'Afficher plus';
+                }
+            });
+        }
+    });
+
+    document.querySelectorAll('[data-focus-event]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var target = btn.getAttribute('data-focus-event');
+            rows.forEach(function (row) {
+                if (row.getAttribute('data-event-ref') === target) {
+                    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    selectRow(row);
+                }
+            });
+        });
+    });
+
+    [searchBox, levelFilter, familyFilter, providerFilter, eventIdFilter, channelFilter, periodFilter].forEach(function (ctrl) {
+        if (ctrl) { ctrl.addEventListener('input', applyAllFilters); ctrl.addEventListener('change', applyAllFilters); }
+    });
+
+    if (usefulToggle) {
+        usefulToggle.addEventListener('click', function () {
+            showUsefulOnly = !showUsefulOnly;
+            usefulToggle.textContent = showUsefulOnly ? 'Afficher tous les evenements' : 'Afficher uniquement les evenements utiles au diagnostic';
+            applyAllFilters();
+        });
+    }
+
+    if (beforeCrashButton) {
+        beforeCrashButton.addEventListener('click', function () {
+            beforeCrashMode = !beforeCrashMode;
+            beforeCrashButton.textContent = beforeCrashMode ? 'Afficher toute la chronologie' : 'Voir les evenements avant le dernier crash';
+            applyAllFilters();
+        });
+    }
+
+    if (resetButton) {
+        resetButton.addEventListener('click', function () {
+            if (searchBox) { searchBox.value = ''; }
+            if (levelFilter) { levelFilter.value = ''; }
+            if (familyFilter) { familyFilter.value = ''; }
+            if (providerFilter) { providerFilter.value = ''; }
+            if (eventIdFilter) { eventIdFilter.value = ''; }
+            if (channelFilter) { channelFilter.value = ''; }
+            if (periodFilter) { periodFilter.value = 'all'; }
+            showUsefulOnly = false;
+            beforeCrashMode = false;
+            if (usefulToggle) { usefulToggle.textContent = 'Afficher uniquement les evenements utiles au diagnostic'; }
+            if (beforeCrashButton) { beforeCrashButton.textContent = 'Voir les evenements avant le dernier crash'; }
+            applyAllFilters();
+        });
+    }
+
+    if (copySummaryButton) {
+        copySummaryButton.addEventListener('click', function () {
+            var text = summaryBox ? summaryBox.value : '';
+            if (!text) { return; }
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).catch(function () {});
+            }
+            if (summaryBox) {
+                summaryBox.focus();
+                summaryBox.select();
+            }
+        });
+    }
+
+    if (exportVisibleButton) {
+        exportVisibleButton.addEventListener('click', function () {
+            downloadTextFile('timeline-visible-events.csv', rowsToCsv(getVisibleRows()), 'text/csv;charset=utf-8');
+        });
+    }
+
+    if (exportCriticalButton) {
+        exportCriticalButton.addEventListener('click', function () {
+            var subset = getVisibleRows().filter(function (row) {
+                var level = row.getAttribute('data-level');
+                return level === 'Critique' || level === 'Erreur';
+            });
+            downloadTextFile('timeline-critical-events.csv', rowsToCsv(subset), 'text/csv;charset=utf-8');
+        });
+    }
+
+    if (exportCrashButton) {
+        exportCrashButton.addEventListener('click', function () {
+            var subset = rows.filter(function (row) {
+                var p = normalize(row.getAttribute('data-provider'));
+                var id = row.getAttribute('data-event-id') || '';
+                return id === '41' || id === '1001' || p.indexOf('kernel-power') !== -1 || p.indexOf('bugcheck') !== -1 || p.indexOf('wer-systemerrorreporting') !== -1;
+            });
+            downloadTextFile('timeline-crash-events.csv', rowsToCsv(subset), 'text/csv;charset=utf-8');
+        });
+    }
+
+    if (exportSummaryButton) {
+        exportSummaryButton.addEventListener('click', function () {
+            var text = summaryBox ? summaryBox.value : '';
+            downloadTextFile('timeline-sav-summary.txt', text, 'text/plain;charset=utf-8');
+        });
+    }
+
+    if (modeTechButton) {
+        modeTechButton.addEventListener('click', function () {
+            root.removeAttribute('data-client-mode');
+            if (clientPanel) { clientPanel.hidden = true; }
+        });
+    }
+
+    if (modeClientButton) {
+        modeClientButton.addEventListener('click', function () {
+            root.setAttribute('data-client-mode', '1');
+            if (clientPanel) { clientPanel.hidden = false; }
+        });
+    }
+
+    applyAllFilters();
+    if (rows.length > 0) {
+        selectRow(rows[0]);
+    }
+}());
+</script>
+"@
+
     $metrics = @(
-        (New-DanewMetricCardHtml -Label 'Total events' -Value $Summary.total_events -Tone 'info')
-        (New-DanewMetricCardHtml -Label 'Missing required logs' -Value $Summary.missing_required_logs -Tone $(if ([int]$Summary.missing_required_logs -gt 0) { 'warning' } else { 'pass' }))
-        (New-DanewMetricCardHtml -Label 'Parse issues' -Value $Summary.parse_issue_count -Tone $(if ([int]$Summary.parse_issue_count -gt 0) { 'warning' } else { 'pass' }))
-        (New-DanewMetricCardHtml -Label 'Rendered rows' -Value @($rows).Count -Tone 'ready')
+        (New-DanewMetricCardHtml -Label 'Total evenements' -Value $Summary.total_events -Tone 'info')
+        (New-DanewMetricCardHtml -Label 'Critiques' -Value $criticalCount -Tone 'danger')
+        (New-DanewMetricCardHtml -Label 'Erreurs' -Value $errorCount -Tone 'warn')
+        (New-DanewMetricCardHtml -Label 'Avertissements' -Value $warnCount -Tone 'warn')
+        (New-DanewMetricCardHtml -Label 'Informations' -Value $infoCount -Tone 'neutral')
+        (New-DanewMetricCardHtml -Label 'Evenements utiles au diagnostic' -Value $usefulCount -Tone 'good')
     ) -join ''
 
     $meta = New-DanewReportMetaListHtml -Items @(
-        [pscustomobject]@{ label = 'Timeline source'; value = 'timeline-raw.json' }
-        [pscustomobject]@{ label = 'HTML cap'; value = '4000 rows' }
-        [pscustomobject]@{ label = 'Offline mode'; value = 'embedded CSS and JS only' }
+        [pscustomobject]@{ label = 'Periode couverte'; value = $(if ($startTime -and $endTime) { $startTime + ' -> ' + $endTime } else { 'Indisponible' }) }
+        [pscustomobject]@{ label = 'Journaux analyses'; value = $(if (@($journalList).Count -gt 0) { (@($journalList) -join ', ') } else { 'Indisponible' }) }
+        [pscustomobject]@{ label = 'Dernier crash detecte'; value = $lastCrashText }
+        [pscustomobject]@{ label = 'Cause probable principale'; value = $primaryCause }
+        [pscustomobject]@{ label = 'Source JSON complete'; value = 'timeline-raw.json' }
+        [pscustomobject]@{ label = 'Export CSV complet'; value = 'evtx-events.csv' }
     )
 
-    $overviewBody = '<div class="split-grid">' + (New-DanewMetricCardHtml -Label 'Event stream status' -Value $(if ([int]$Summary.parse_issue_count -gt 0) { 'warning' } else { 'stable' }) -Tone $(if ([int]$Summary.parse_issue_count -gt 0) { 'warning' } else { 'pass' })) + (New-DanewMetricCardHtml -Label 'Log coverage' -Value $(if ([int]$Summary.missing_required_logs -gt 0) { 'partial' } else { 'complete' }) -Tone $(if ([int]$Summary.missing_required_logs -gt 0) { 'warning' } else { 'pass' })) + '</div>' + $notice
+    $overviewBody = '<p><b>Vue d ensemble de la chronologie</b></p>' +
+        '<div class="split-grid">' +
+        (New-DanewMetricCardHtml -Label 'Etat du flux EVTX' -Value $(if ([int]$Summary.parse_issue_count -gt 0) { 'Alerte' } else { 'Stable' }) -Tone $(if ([int]$Summary.parse_issue_count -gt 0) { 'warning' } else { 'pass' })) +
+        (New-DanewMetricCardHtml -Label 'Couverture des journaux' -Value $(if ([int]$Summary.missing_required_logs -gt 0) { 'Partielle' } else { 'Complete' }) -Tone $(if ([int]$Summary.missing_required_logs -gt 0) { 'warning' } else { 'pass' })) +
+        '</div>' + $notice +
+        '<p><b>Resume technicien :</b> Utiliser les filtres pour isoler les evenements critiques, puis ouvrir une ligne pour la vue detaillee SAV et la correlation +/-5 minutes.</p>'
+
+    $eventsTableBody = '<p><b>Evenements de la chronologie</b></p>' + $mainTable
+
     $sections = @(
-        (New-DanewReportSectionHtml -Title 'Timeline Overview' -Caption 'Use the filter box to narrow by provider, level, source file, or message text.' -SearchText 'timeline overview total events missing logs parse issues' -BodyHtml $overviewBody)
-        (New-DanewReportSectionHtml -Title 'Timeline Events' -Caption 'The HTML report renders the first 4000 events. The JSON artifact remains the full source of truth.' -SearchText 'timeline events provider level event id message source file' -BodyHtml (New-DanewReportTableHtml -Headers @('Timestamp', 'Level', 'Provider', 'Event ID', 'Channel', 'Source File', 'Message') -Rows $rows -EmptyMessage 'No events match the current filter.'))
+        (New-DanewReportSectionHtml -Title 'Resume SAV exploitable' -Caption 'Synthese directe pour lecture technicien, sans action destructive.' -SearchText 'resume sav critique erreurs avertissements information' -BodyHtml $overviewBody)
+        (New-DanewReportSectionHtml -Title 'Evenements importants a regarder en priorite' -Caption 'Top 10 selon severite, importance SAV, proximite crash et repetition.' -SearchText 'top 10 evenements prioritaires crash bugcheck disk ntfs whea update' -BodyHtml $top10Table)
+        (New-DanewReportSectionHtml -Title 'Tableau interactif des evenements Windows' -Caption 'Recherche globale, tri, filtres, detail au clic, export cible et modes de lecture.' -SearchText 'tableau interactif evenements windows filtres tri export detail' -BodyHtml $eventsTableBody)
+        (New-DanewReportSectionHtml -Title 'Boucles et repetitions detectees' -Caption 'Detection de redemarrages, crashs, erreurs disque, services et updates en boucle.' -SearchText 'boucles repetitions kernel power bugcheck disk ntfs update services' -BodyHtml $loopTable -Collapsed $true)
     )
 
-    $html = New-DanewInteractiveReportHtml -Title 'Danew Offline Timeline' -Subtitle 'Searchable event chronology for offline EVTX analysis with print-safe output.' -Status $(if ([int]$Summary.parse_issue_count -gt 0 -or [int]$Summary.missing_required_logs -gt 0) { 'WARNING' } else { 'PASS' }) -Eyebrow 'Timeline raw view' -HeroMetricsHtml ('<div class="hero-metrics">' + $metrics + '</div>') -MetaHtml $meta -Sections $sections -SearchPlaceholder 'Filter events by provider, level, event id, source file, or message'
+    $html = New-DanewInteractiveReportHtml -Title 'Chronologie hors ligne Danew' -Subtitle 'Rapport EVTX interactif pour diagnostic SAV: tri, filtres, scoring, correlation et detail explicatif.' -Status $(if ([int]$Summary.parse_issue_count -gt 0 -or [int]$Summary.missing_required_logs -gt 0) { 'WARNING' } else { 'PASS' }) -Eyebrow 'Diagnostic evenements Windows' -HeroMetricsHtml ('<div class="hero-metrics">' + $metrics + '</div>') -MetaHtml $meta -Sections $sections -SearchPlaceholder 'Rechercher un evenement, un provider, un id, un message ou une famille' -AdditionalToolbarHtml $additionalToolbarHtml -AdditionalContentHtml $additionalContentHtml -AdditionalStyleHtml $additionalStyleHtml -AdditionalScriptHtml $additionalScriptHtml
 
     $html | Set-Content -Path $Path -Encoding UTF8
+
+    $evtxEventsHtmlPath = Join-Path (Split-Path -Parent $Path) 'evtx-events.html'
+    $html | Set-Content -Path $evtxEventsHtmlPath -Encoding UTF8
+
     Update-DanewInteractiveReportsIndex -ReportsPath (Split-Path -Parent $Path) | Out-Null
 }
 
@@ -2286,8 +3689,8 @@ function Write-DanewOfflineFailureReportHtml {
     foreach ($cause in @($FailureReport.probable_causes)) {
         $causeRows += @"
 <tr>
-<td>$([System.Security.SecurityElement]::Escape([string]$cause.cause))</td>
-<td>$([System.Security.SecurityElement]::Escape([string]$cause.confidence))</td>
+<td>$([System.Security.SecurityElement]::Escape((Get-DanewLocalizedCauseText $cause.cause)))</td>
+<td>$([System.Security.SecurityElement]::Escape((Get-DanewLocalizedConfidenceText $cause.confidence)))</td>
 <td>$([System.Security.SecurityElement]::Escape([string]$cause.evidence))</td>
 </tr>
 "@
@@ -2301,7 +3704,7 @@ function Write-DanewOfflineFailureReportHtml {
     $html = @"
 <html>
 <head>
-<title>Danew Offline Windows Failure Report</title>
+<title>Rapport d echec Windows hors ligne Danew</title>
 <style>
 body { font-family: Segoe UI, Arial, sans-serif; background: #f8fafc; color: #1f2937; margin: 22px; }
 .card { background: #ffffff; border: 1px solid #dbe3ea; border-radius: 12px; padding: 16px; margin-bottom: 14px; }
@@ -2312,28 +3715,28 @@ th { background: #eef3f7; }
 </head>
 <body>
 <div class="card">
-<h2>Offline Windows installation not detected</h2>
-<p><b>Confidence:</b> $([System.Security.SecurityElement]::Escape([string]$FailureReport.confidence))</p>
-<p><b>Detection details:</b></p>
+<h2>Installation Windows hors ligne non detectee</h2>
+<p><b>Confiance :</b> $([System.Security.SecurityElement]::Escape((Get-DanewLocalizedConfidenceText $FailureReport.confidence)))</p>
+<p><b>Details de detection :</b></p>
 <ul>
-<li>EFI partition detected: $([System.Security.SecurityElement]::Escape([string]$FailureReport.detection_details.efi_partition_detected))</li>
-<li>Windows SYSTEM hive accessible: $([System.Security.SecurityElement]::Escape([string]$FailureReport.detection_details.system_hive_accessible))</li>
-<li>EVTX logs accessible: $([System.Security.SecurityElement]::Escape([string]$FailureReport.detection_details.evtx_accessible))</li>
-<li>Storage device visible: $([System.Security.SecurityElement]::Escape([string]$FailureReport.detection_details.storage_device_visible))</li>
-<li>Partition mounted: $([System.Security.SecurityElement]::Escape([string]$FailureReport.detection_details.partition_mounted))</li>
+<li>Partition EFI detectee : $([System.Security.SecurityElement]::Escape((Get-DanewLocalizedBooleanText $FailureReport.detection_details.efi_partition_detected)))</li>
+<li>Ruche SYSTEM Windows accessible : $([System.Security.SecurityElement]::Escape((Get-DanewLocalizedBooleanText $FailureReport.detection_details.system_hive_accessible)))</li>
+<li>Journaux EVTX accessibles : $([System.Security.SecurityElement]::Escape((Get-DanewLocalizedBooleanText $FailureReport.detection_details.evtx_accessible)))</li>
+<li>Peripherique de stockage visible : $([System.Security.SecurityElement]::Escape((Get-DanewLocalizedBooleanText $FailureReport.detection_details.storage_device_visible)))</li>
+<li>Partition montee : $([System.Security.SecurityElement]::Escape((Get-DanewLocalizedBooleanText $FailureReport.detection_details.partition_mounted)))</li>
 </ul>
 </div>
 <div class="card">
-<h3>Possible causes</h3>
+<h3>Causes possibles</h3>
 <table>
-<thead><tr><th>Cause</th><th>Confidence</th><th>Evidence</th></tr></thead>
+<thead><tr><th>Cause</th><th>Confiance</th><th>Preuves</th></tr></thead>
 <tbody>
 $causeRows
 </tbody>
 </table>
 </div>
 <div class="card">
-<h3>Evidence</h3>
+<h3>Preuves</h3>
 <ul>
 $evidenceList
 </ul>
@@ -2415,6 +3818,10 @@ function Invoke-DanewOfflineLogsAnalysis {
     $discoveryPath = Join-Path $Config.reports_path 'evtx-discovery.json'
     $eventsPath = Join-Path $Config.reports_path 'evtx-events.json'
     $eventsCsvPath = Join-Path $Config.reports_path 'evtx-events.csv'
+    $evtxFilteredEventsCsvPath = Join-Path $Config.reports_path 'evtx-filtered-events.csv'
+    $evtxCriticalEventsCsvPath = Join-Path $Config.reports_path 'evtx-critical-events.csv'
+    $evtxCrashWindowCsvPath = Join-Path $Config.reports_path 'evtx-crash-window.csv'
+    $evtxSavSummaryTxtPath = Join-Path $Config.reports_path 'evtx-sav-summary.txt'
     $summaryPath = Join-Path $Config.reports_path 'evtx-summary.json'
     $timelineJsonPath = Join-Path $Config.reports_path 'timeline-raw.json'
     $timelineHtmlPath = Join-Path $Config.reports_path 'timeline-raw.html'
@@ -2702,6 +4109,9 @@ function Invoke-DanewOfflineLogsAnalysis {
 
     $summary | ConvertTo-Json -Depth 20 | Set-Content -Path $summaryPath -Encoding UTF8
     $timeline | ConvertTo-Json -Depth 40 | Set-Content -Path $timelineJsonPath -Encoding UTF8
+
+    $targetedExports = Write-DanewEvtxTargetedExports -RootPath $RootPath -ReportsPath $Config.reports_path -Events $events -Summary $summary
+
     Write-DanewOfflineAnalysisProgress -ProgressCallback $ProgressCallback -StartedAt $analysisStartedAt -Step 11 -TotalSteps $totalProgressSteps -Message 'Write timeline HTML and failure report'
     Write-DanewTimelineHtml -Path $timelineHtmlPath -Events $events -Summary $summary
 
@@ -2753,12 +4163,17 @@ function Invoke-DanewOfflineLogsAnalysis {
             evtx_discovery = $discoveryPath
             evtx_events_json = $eventsPath
             evtx_events_csv = $eventsCsvPath
+            evtx_filtered_events_csv = $evtxFilteredEventsCsvPath
+            evtx_critical_events_csv = $evtxCriticalEventsCsvPath
+            evtx_crash_window_csv = $evtxCrashWindowCsvPath
+            evtx_sav_summary_txt = $evtxSavSummaryTxtPath
             evtx_summary = $summaryPath
             timeline_raw_json = $timelineJsonPath
             timeline_raw_html = $timelineHtmlPath
             offline_windows_failure_report_json = if ($failureNeeded) { $failureJsonPath } else { '' }
             offline_windows_failure_report_html = if ($failureNeeded) { $failureHtmlPath } else { '' }
         }
+        evtx_targeted_exports = $targetedExports
         failure_report = $failureReport
     }
 }
