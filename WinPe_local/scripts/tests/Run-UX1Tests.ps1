@@ -79,7 +79,6 @@ $forbiddenMainWords = @(
     'Open Last Report',
     'View Last Report',
     'START DIAGNOSTIC',
-    'Runtime:',
     'Create Bootable USB'
 )
 $forbiddenFound = @($forbiddenMainWords | Where-Object { $content -match [regex]::Escape($_) })
@@ -96,7 +95,7 @@ $reportHandlers = @(
 )
 $results += Add-UX1Result -Name 'main_report_buttons_functional' -Passed (Test-UX1PatternSet -Content $content -Patterns $reportHandlers) -Details 'SAV, timeline, and storage open handlers are present.'
 
-$layoutFits = ($content -match 'ClientSize\s*=\s*New-Object System\.Drawing\.Size\(900,\s*720\)') -and ($content -match 'MinimumSize\s*=\s*New-Object System\.Drawing\.Size\(900,\s*700\)') -and ($content -match '\$togglePanel\.Top\s*=\s*654')
+$layoutFits = ($content -match 'ClientSize\s*=\s*New-Object System\.Drawing\.Size\(900,\s*720\)') -and ($content -match 'MinimumSize\s*=\s*New-Object System\.Drawing\.Size\(900,\s*700\)') -and ($content -match '\$togglePanel\.Top\s*=\s*662')
 $results += Add-UX1Result -Name 'layout_fits_1366x768' -Passed $layoutFits -Details 'Collapsed layout uses 900x720 client area.'
 
 $requiredHandlers = @(

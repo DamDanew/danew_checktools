@@ -91,7 +91,7 @@ $priorityOk = $primaryTopMatch.Success -and $summaryTopMatch.Success -and $repor
 $results += Add-UX2Result -Name 'analyze_buttons_visually_prioritized' -Passed $priorityOk -Details 'Primary diagnostics appear before summary and reports.'
 
 $summaryVisible = ($content -match "Text = 'SAV Summary'") -and
-    ($content -match '\$statusGroup\.Top\s*=\s*258') -and
+    ($content -match '\$statusGroup\.Top\s*=\s*250') -and
     (Test-UX2PatternSet -Content $content -Patterns @('Probable cause', 'Confidence', 'Severity', 'Windows detection', 'Storage visibility', 'Critical events'))
 $results += Add-UX2Result -Name 'sav_summary_visible_immediately' -Passed $summaryVisible -Details 'SAV summary card remains on the first screen.'
 

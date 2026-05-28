@@ -39,6 +39,11 @@ $probableCauseValueLabel = $null
 $confidenceValueLabel = $null
 $severityValueLabel = $null
 $recommendedActionValueLabel = $null
+$runtimeChipLabel = $null
+$windowsChipLabel = $null
+$usbChipLabel = $null
+$openSavReportButton = $null
+$toolTip = $null
 $offlineProgressBar = $null
 $offlineOperationLabel = $null
 $offlineTimingLabel = $null
@@ -164,8 +169,13 @@ function Set-DanewSummaryVisual {
         $badgeFore = [System.Drawing.Color]::White
     }
     elseif ($normalized -eq 'RUNNING') {
-        $badgeBack = [System.Drawing.Color]::FromArgb(37, 99, 235)
-        $badgeFore = [System.Drawing.Color]::White
+        $badgeBack = [System.Drawing.Color]::FromArgb(245, 158, 11)
+        $badgeFore = [System.Drawing.Color]::FromArgb(17, 24, 39)
+    }
+    elseif ($normalized -eq 'READY' -or $normalized -eq 'WAITING') {
+        $badgeText = 'Waiting'
+        $badgeBack = [System.Drawing.Color]::FromArgb(226, 232, 240)
+        $badgeFore = [System.Drawing.Color]::FromArgb(30, 41, 59)
     }
 
     if ($overallBadgeLabel) {
@@ -547,6 +557,23 @@ function Open-DanewSpecificReport {
     return (Open-DanewReportFile -Path $path -Title $title)
 }
 
+function Update-DanewReportAvailability {
+    $button = $openSavReportButton
+    if (-not $button) {
+        return
+    }
+
+    $path = Get-DanewFirstExistingReportPath -Names @('sav-diagnostic-report.html', 'REPORTS_INDEX.html', 'reports-index.html', 'one-click-diagnostic-report.html', 'offline-windows-failure-report.html')
+    if ([string]::IsNullOrWhiteSpace($path)) {
+        $button.Enabled = $false
+        $button.Text = 'Open SAV Report (not available)'
+        return
+    }
+
+    $button.Enabled = $true
+    $button.Text = 'Open SAV Diagnostic Report'
+}
+
 function Set-DanewValueLabel {
     param(
         [AllowNull()]
@@ -574,7 +601,7 @@ function Set-DanewValueLabel {
 
 function Get-DanewSavSummary {
     $summary = [ordered]@{
-        overall = 'INFO'
+        overall = 'READY'
         probable_cause = 'Run analysis to identify the probable cause.'
         confidence = 'UNKNOWN'
         severity = 'INFO'
@@ -644,13 +671,9 @@ function Get-DanewSavSummary {
             }
         }
 
-        $storageCase = Get-DanewObjectValue -Object $offline -Name 'storage_visibility_case' -Default ''
         $diskStatus = Get-DanewObjectValue -Object $offline -Name 'primary_disk_status' -Default ''
         if (-not [string]::IsNullOrWhiteSpace([string]$diskStatus)) {
             $summary.storage_status = [string]$diskStatus
-        }
-        if (-not [string]::IsNullOrWhiteSpace([string]$storageCase)) {
-            $summary.storage_status = ([string]$summary.storage_status + ' / case ' + [string]$storageCase).Trim()
         }
     }
 
@@ -688,7 +711,8 @@ function Get-DanewSavSummary {
 
 function Update-DanewSavSummaryCard {
     $summary = Get-DanewSavSummary
-    Set-DanewSummaryVisual -Status ([string]$summary.overall) -Text ('Diagnostic result: ' + [string]$summary.overall)
+    $statusText = if ([string]$summary.overall -eq 'READY') { 'Status: Waiting for analysis' } else { 'Status: ' + [string]$summary.overall }
+    Set-DanewSummaryVisual -Status ([string]$summary.overall) -Text $statusText
     $criticalTone = 'OK'
     $criticalCount = 0
     if ([int]::TryParse([string]$summary.critical_events, [ref]$criticalCount) -and $criticalCount -gt 0) {
@@ -698,9 +722,13 @@ function Update-DanewSavSummaryCard {
     Set-DanewValueLabel -Label $confidenceValueLabel -Text ([string]$summary.confidence) -Tone ([string]$summary.confidence)
     Set-DanewValueLabel -Label $severityValueLabel -Text ([string]$summary.severity) -Tone ([string]$summary.severity)
     Set-DanewValueLabel -Label $windowsStatusValueLabel -Text ([string]$summary.windows_status)
-    Set-DanewValueLabel -Label $storageStatusValueLabel -Text ([string]$summary.storage_status) -Tone ([string]$summary.severity)
+    $storageDisplay = Normalize-DanewStorageStatusDisplay -RawValue ([string]$summary.storage_status)
+    Set-DanewValueLabel -Label $storageStatusValueLabel -Text $storageDisplay -Tone ([string]$summary.severity)
     Set-DanewValueLabel -Label $criticalEventsValueLabel -Text ([string]$summary.critical_events) -Tone $criticalTone
     Set-DanewValueLabel -Label $recommendedActionValueLabel -Text ([string]$summary.recommended_action)
+    if ($toolTip -and $recommendedActionValueLabel) {
+        $toolTip.SetToolTip($recommendedActionValueLabel, $recommendedActionValueLabel.Text)
+    }
     return $summary
 }
 
@@ -907,6 +935,7 @@ function Update-DanewStatusPanel {
     Set-DanewStatusText -Name 'usb_media_ready' -Value (Get-DanewUsbMediaReadyDisplay)
     Set-DanewStatusText -Name 'logs_folder_path' -Value ([string]$snapshot.logs_folder_path)
     Update-DanewRecentActivity
+    Update-DanewSummaryChips -Snapshot $snapshot
 
     return $snapshot
 }
@@ -1014,30 +1043,7 @@ function Invoke-GuiAction {
             if ($offlineTimingLabel) {
                 $offlineTimingLabel.Text = 'Elapsed: complete    ETA: 00:00'
             }
-            $message = 'Offline logs analysis complete.' + [Environment]::NewLine +
-                'Overall: ' + [string]$offline.overall_status + [Environment]::NewLine +
-                'Discovery case: ' + [string]$offline.discovery_case + [Environment]::NewLine +
-                'Discovery summary: ' + [string]$offline.discovery_case_message + [Environment]::NewLine +
-                'Primary disk status: ' + [string]$offline.primary_disk_status + [Environment]::NewLine +
-                'Storage visibility case: ' + [string]$offline.storage_visibility_case + [Environment]::NewLine +
-                'Confidence: ' + [string]$failure.confidence + [Environment]::NewLine +
-                'Events: ' + [string]$summary.total_events + [Environment]::NewLine +
-                'Missing required logs: ' + [string]$summary.missing_required_logs + [Environment]::NewLine +
-                'Summary report: ' + [string]$offline.artifacts.evtx_summary
-
-            if ($offline.preferred_windows_volume) {
-                $message += [Environment]::NewLine + 'Preferred Windows volume: ' + [string]$offline.preferred_windows_volume.path
-            }
-
-            if ([string]$failure.status -eq 'generated') {
-                $topCause = @($failure.probable_causes | Select-Object -First 1)
-                if (@($topCause).Count -gt 0) {
-                    $message += [Environment]::NewLine + 'Possible cause: ' + [string]$topCause[0].cause
-                }
-                $message += [Environment]::NewLine + 'SAV failure report: ' + [string]$offline.artifacts.offline_windows_failure_report_html
-            }
-
-            [System.Windows.Forms.MessageBox]::Show($message, 'Danew SAV Diagnostic Tool') | Out-Null
+            Add-DiagnosticProgressLine -Line 'Offline logs finished. Review SAV summary for details.'
 
             if ([string]$failure.status -eq 'generated' -and -not [string]::IsNullOrWhiteSpace([string]$offline.artifacts.offline_windows_failure_report_html)) {
                 $askOpen = [System.Windows.Forms.MessageBox]::Show('Open SAV failure report now?', 'Danew SAV Diagnostic Tool', [System.Windows.Forms.MessageBoxButtons]::YesNo)
@@ -1097,6 +1103,7 @@ function Invoke-GuiAction {
     finally {
         $script:IsActionRunning = $false
         Set-DanewActionButtonsEnabled -Enabled $true
+        Update-DanewReportAvailability
     }
 }
 
@@ -1370,7 +1377,7 @@ $titleLabel.Font = New-Object System.Drawing.Font('Segoe UI', 14, [System.Drawin
 $titleLabel.Text = 'Danew SAV Diagnostic Tool'
 
 $subtitleLabel = New-Object System.Windows.Forms.Label
-$subtitleLabel.Left = 16
+$subtitleLabel.Left = 72
 $subtitleLabel.Top = 42
 $subtitleLabel.Width = 820
 $subtitleLabel.Height = 20
@@ -1385,9 +1392,9 @@ $subtitleLabel.Text = 'OEM offline crash, boot, and storage diagnosis assistant'
 $statusGroup = New-Object System.Windows.Forms.GroupBox
 $statusGroup.Text = 'SAV Summary'
 $statusGroup.Left = 14
-$statusGroup.Top = 258
+$statusGroup.Top = 250
 $statusGroup.Width = 872
-$statusGroup.Height = 246
+$statusGroup.Height = 276
 $statusGroup.Anchor = 'Top,Left,Right'
 $statusGroup.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
 $statusGroup.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
@@ -1445,30 +1452,30 @@ foreach ($row in $statusRows) {
 
 $resultTitleLabel = New-Object System.Windows.Forms.Label
 $resultTitleLabel.Left = 16
-$resultTitleLabel.Top = 28
+$resultTitleLabel.Top = 24
 $resultTitleLabel.Width = 380
 $resultTitleLabel.Height = 28
-$resultTitleLabel.Text = 'Probable Cause and Severity'
+$resultTitleLabel.Text = 'Diagnostic Summary'
 $resultTitleLabel.ForeColor = [System.Drawing.Color]::FromArgb(15, 23, 42)
 $resultTitleLabel.Font = New-Object System.Drawing.Font('Segoe UI', 13, [System.Drawing.FontStyle]::Bold)
 
 $overallBadgeLabel = New-Object System.Windows.Forms.Label
 $overallBadgeLabel.Left = 720
-$overallBadgeLabel.Top = 26
-$overallBadgeLabel.Width = 128
-$overallBadgeLabel.Height = 32
-$overallBadgeLabel.Text = 'INFO'
+$overallBadgeLabel.Top = 24
+$overallBadgeLabel.Width = 110
+$overallBadgeLabel.Height = 26
+$overallBadgeLabel.Text = 'Waiting'
 $overallBadgeLabel.TextAlign = 'MiddleCenter'
-$overallBadgeLabel.BackColor = [System.Drawing.Color]::FromArgb(37, 99, 235)
-$overallBadgeLabel.ForeColor = [System.Drawing.Color]::White
-$overallBadgeLabel.Font = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
+$overallBadgeLabel.BackColor = [System.Drawing.Color]::FromArgb(226, 232, 240)
+$overallBadgeLabel.ForeColor = [System.Drawing.Color]::FromArgb(30, 41, 59)
+$overallBadgeLabel.Font = New-Object System.Drawing.Font('Segoe UI', 9.5, [System.Drawing.FontStyle]::Bold)
 
 $summaryLabel = New-Object System.Windows.Forms.Label
 $summaryLabel.Left = 16
-$summaryLabel.Top = 60
+$summaryLabel.Top = 56
 $summaryLabel.Width = 832
 $summaryLabel.Height = 24
-$summaryLabel.Text = 'Diagnostic result: waiting for analysis'
+$summaryLabel.Text = 'Status: Waiting for analysis'
 $summaryLabel.ForeColor = [System.Drawing.Color]::FromArgb(30, 64, 175)
 $summaryLabel.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
 
@@ -1515,37 +1522,141 @@ function New-DanewSummaryValueLabel {
     return $label
 }
 
+function New-DanewChipLabel {
+    param(
+        [string]$Text,
+        [int]$Left,
+        [int]$Top,
+        [int]$Width = 176
+    )
+
+    $label = New-Object System.Windows.Forms.Label
+    $label.Left = $Left
+    $label.Top = $Top
+    $label.Width = $Width
+    $label.Height = 20
+    $label.Text = $Text
+    $label.TextAlign = 'MiddleCenter'
+    $label.BackColor = [System.Drawing.Color]::FromArgb(226, 232, 240)
+    $label.ForeColor = [System.Drawing.Color]::FromArgb(30, 41, 59)
+    $label.BorderStyle = 'FixedSingle'
+    $label.Font = New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Bold)
+    return $label
+}
+
+function Update-DanewSummaryChips {
+    param(
+        [AllowNull()]
+        [object]$Snapshot
+    )
+
+    if (-not $runtimeChipLabel -and -not $windowsChipLabel -and -not $usbChipLabel) {
+        return
+    }
+
+    $runtimeText = 'Runtime: ' + $runtimeTitle
+    if ($Snapshot -and $Snapshot.PSObject.Properties['runtime_mode']) {
+        $modeVal = [string]$Snapshot.runtime_mode
+        if (-not [string]::IsNullOrWhiteSpace($modeVal)) {
+            $runtimeText = 'Runtime: ' + $modeVal
+        }
+    }
+
+    $windowsState = 'Unknown'
+    if ($Snapshot -and $Snapshot.PSObject.Properties['offline_windows_detected']) {
+        $raw = [string]$Snapshot.offline_windows_detected
+        if ($raw -match '(?i)not\s+detected|no\s+windows|missing') {
+            $windowsState = 'Not detected'
+        }
+        elseif ($raw -match '(?i)detected|found|windows') {
+            $windowsState = 'Detected'
+        }
+    }
+    $windowsText = 'Windows: ' + $windowsState
+
+    $usbText = 'USB: Unknown'
+    if ($Snapshot -and $Snapshot.PSObject.Properties['selected_usb_disk']) {
+        $disk = [string]$Snapshot.selected_usb_disk
+        if (-not [string]::IsNullOrWhiteSpace($disk) -and $disk -ne 'Unknown') {
+            if ($disk -match '(?i)disk') {
+                $usbText = 'USB: ' + $disk
+            }
+            else {
+                $usbText = 'USB: Disk ' + $disk
+            }
+        }
+    }
+
+    if ($runtimeChipLabel) { $runtimeChipLabel.Text = $runtimeText }
+    if ($windowsChipLabel) { $windowsChipLabel.Text = $windowsText }
+    if ($usbChipLabel) { $usbChipLabel.Text = $usbText }
+}
+
+function Normalize-DanewStorageStatusDisplay {
+    param(
+        [string]$RawValue
+    )
+
+    if ([string]::IsNullOrWhiteSpace($RawValue)) {
+        return 'Unknown'
+    }
+
+    $clean = $RawValue
+    $clean = $clean -replace '\s*/\s*case\s*[A-Z]', ''
+    $clean = $clean.Trim()
+
+    if ($clean -match '(?i)^internal-visible') { return 'Internal disk visible' }
+    if ($clean -match '(?i)^internal-hidden') { return 'Internal disk not visible' }
+    if ($clean -match '(?i)^external-visible') { return 'External disk visible' }
+    if ($clean -match '(?i)^external-hidden') { return 'External disk not visible' }
+    if ($clean -match '(?i)^no-disks') { return 'No disks detected' }
+    if ($clean -match '(?i)^unknown') { return 'Unknown' }
+
+    return $clean
+}
+
 [void]$statusGroup.Controls.Add($resultTitleLabel)
 [void]$statusGroup.Controls.Add($overallBadgeLabel)
 [void]$statusGroup.Controls.Add($summaryLabel)
 
-[void]$statusGroup.Controls.Add((New-DanewSummaryFieldLabel -Caption 'Probable cause' -Left 16 -Top 92 -Width 400))
-$probableCauseValueLabel = New-DanewSummaryValueLabel -Text 'Run analysis to identify the probable cause.' -Left 16 -Top 112 -Width 530 -Height 42
+[void]$statusGroup.Controls.Add((New-DanewSummaryFieldLabel -Caption 'Probable cause' -Left 16 -Top 102 -Width 400))
+$probableCauseValueLabel = New-DanewSummaryValueLabel -Text 'Run analysis to identify the probable cause.' -Left 16 -Top 120 -Width 530 -Height 38
 [void]$statusGroup.Controls.Add($probableCauseValueLabel)
 
-[void]$statusGroup.Controls.Add((New-DanewSummaryFieldLabel -Caption 'Confidence' -Left 566 -Top 92 -Width 130))
-$confidenceValueLabel = New-DanewSummaryValueLabel -Text 'UNKNOWN' -Left 566 -Top 112 -Width 130 -Height 42
+[void]$statusGroup.Controls.Add((New-DanewSummaryFieldLabel -Caption 'Confidence' -Left 566 -Top 102 -Width 130))
+$confidenceValueLabel = New-DanewSummaryValueLabel -Text 'UNKNOWN' -Left 566 -Top 120 -Width 130 -Height 38
 [void]$statusGroup.Controls.Add($confidenceValueLabel)
 
-[void]$statusGroup.Controls.Add((New-DanewSummaryFieldLabel -Caption 'Severity' -Left 712 -Top 92 -Width 136))
-$severityValueLabel = New-DanewSummaryValueLabel -Text 'INFO' -Left 712 -Top 112 -Width 136 -Height 42
+[void]$statusGroup.Controls.Add((New-DanewSummaryFieldLabel -Caption 'Severity' -Left 712 -Top 102 -Width 136))
+$severityValueLabel = New-DanewSummaryValueLabel -Text 'INFO' -Left 712 -Top 120 -Width 136 -Height 38
 [void]$statusGroup.Controls.Add($severityValueLabel)
 
 [void]$statusGroup.Controls.Add((New-DanewSummaryFieldLabel -Caption 'Windows detection' -Left 16 -Top 166 -Width 260))
-$windowsStatusValueLabel = New-DanewSummaryValueLabel -Text 'Unknown' -Left 16 -Top 186 -Width 260 -Height 34
+$windowsStatusValueLabel = New-DanewSummaryValueLabel -Text 'Unknown' -Left 16 -Top 184 -Width 260 -Height 34
 [void]$statusGroup.Controls.Add($windowsStatusValueLabel)
 
 [void]$statusGroup.Controls.Add((New-DanewSummaryFieldLabel -Caption 'Storage visibility' -Left 292 -Top 166 -Width 260))
-$storageStatusValueLabel = New-DanewSummaryValueLabel -Text 'Unknown' -Left 292 -Top 186 -Width 260 -Height 34
+$storageStatusValueLabel = New-DanewSummaryValueLabel -Text 'Unknown' -Left 292 -Top 184 -Width 260 -Height 34
 [void]$statusGroup.Controls.Add($storageStatusValueLabel)
 
-[void]$statusGroup.Controls.Add((New-DanewSummaryFieldLabel -Caption 'Critical events' -Left 568 -Top 166 -Width 120))
-$criticalEventsValueLabel = New-DanewSummaryValueLabel -Text '0' -Left 568 -Top 186 -Width 120 -Height 34
+[void]$statusGroup.Controls.Add((New-DanewSummaryFieldLabel -Caption 'Critical events' -Left 568 -Top 166 -Width 260))
+$criticalEventsValueLabel = New-DanewSummaryValueLabel -Text '0' -Left 568 -Top 184 -Width 260 -Height 34
 [void]$statusGroup.Controls.Add($criticalEventsValueLabel)
 
-[void]$statusGroup.Controls.Add((New-DanewSummaryFieldLabel -Caption 'Recommended next action' -Left 704 -Top 166 -Width 144))
-$recommendedActionValueLabel = New-DanewSummaryValueLabel -Text 'Analyze Windows logs first.' -Left 704 -Top 186 -Width 144 -Height 34
+$recommendedActionValueLabel = $null
+[void]$statusGroup.Controls.Add((New-DanewSummaryFieldLabel -Caption 'Recommended next action' -Left 16 -Top 222 -Width 832))
+$recommendedActionValueLabel = New-DanewSummaryValueLabel -Text 'Analyze Windows logs first.' -Left 16 -Top 240 -Width 832 -Height 36
+$recommendedActionValueLabel.AutoSize = $false
+$recommendedActionValueLabel.TextAlign = 'TopLeft'
+$recommendedActionValueLabel.AutoEllipsis = $false
 [void]$statusGroup.Controls.Add($recommendedActionValueLabel)
+
+$runtimeChipLabel = New-DanewChipLabel -Text ('Runtime: ' + $runtimeTitle) -Left 16 -Top 80 -Width 176
+$windowsChipLabel = New-DanewChipLabel -Text 'Windows: Unknown' -Left 208 -Top 80 -Width 176
+$usbChipLabel = New-DanewChipLabel -Text 'USB: Unknown' -Left 400 -Top 80 -Width 176
+[void]$statusGroup.Controls.Add($runtimeChipLabel)
+[void]$statusGroup.Controls.Add($windowsChipLabel)
+[void]$statusGroup.Controls.Add($usbChipLabel)
 
 $savSummaryLabel = $summaryLabel
 $savOverallBadgeLabel = $overallBadgeLabel
@@ -1581,7 +1692,7 @@ $offlineProgressBar.Style = 'Continuous'
 
 $offlineTimingLabel = New-Object System.Windows.Forms.Label
 $offlineTimingLabel.Left = 14
-$offlineTimingLabel.Top = 138
+$offlineTimingLabel.Top = 146
 $offlineTimingLabel.Width = 844
 $offlineTimingLabel.Height = 20
 $offlineTimingLabel.Text = 'Elapsed: 00:00    ETA: --:--'
@@ -1606,6 +1717,10 @@ $toolTip.AutoPopDelay = 12000
 $toolTip.InitialDelay = 250
 $toolTip.ReshowDelay = 150
 $toolTip.ShowAlways = $true
+
+if ($recommendedActionValueLabel) {
+    $toolTip.SetToolTip($recommendedActionValueLabel, $recommendedActionValueLabel.Text)
+}
 
 $analyzeWindowsLogsButton = New-DanewPrimaryDiagnosticButton -Name 'AnalyzeWindowsLogsButton' -Text 'ANALYZE WINDOWS LOGS' -Action 'analyze-offline-logs' -ToolTip $toolTip -Hint 'Primary SAV workflow: detect Windows, parse offline logs, and build timeline evidence.' -Tone 'blue'
 $analyzeWindowsLogsButton.Left = 22
@@ -1651,15 +1766,16 @@ foreach ($step in @(
 [void]$primaryGroup.Controls.Add($analyzeCrashCausesButton)
 [void]$primaryGroup.Controls.Add($offlineOperationLabel)
 [void]$primaryGroup.Controls.Add($offlineProgressBar)
+[void]$primaryGroup.Controls.Add($offlineTimingLabel)
 $summaryLabel = $savSummaryLabel
 $overallBadgeLabel = $savOverallBadgeLabel
 
 $simpleActionsGroup = New-Object System.Windows.Forms.GroupBox
 $simpleActionsGroup.Text = 'Reports and Actions'
 $simpleActionsGroup.Left = 14
-$simpleActionsGroup.Top = 514
+$simpleActionsGroup.Top = 538
 $simpleActionsGroup.Width = 872
-$simpleActionsGroup.Height = 120
+$simpleActionsGroup.Height = 112
 $simpleActionsGroup.Anchor = 'Top,Left,Right'
 $simpleActionsGroup.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
 $simpleActionsGroup.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
@@ -1668,15 +1784,16 @@ $simplePanel = New-Object System.Windows.Forms.FlowLayoutPanel
 $simplePanel.Left = 10
 $simplePanel.Top = 22
 $simplePanel.Width = 844
-$simplePanel.Height = 92
+$simplePanel.Height = 84
 $simplePanel.FlowDirection = 'LeftToRight'
 $simplePanel.WrapContents = $true
 $simplePanel.Padding = New-Object System.Windows.Forms.Padding(0)
 
-[void]$simplePanel.Controls.Add((New-DanewActionButton -Text 'Open SAV Diagnostic Report' -Action 'open-sav-report' -ToolTip $toolTip -Hint 'Open the main offline SAV diagnosis report.' -Tone 'primary'))
+$openSavReportButton = New-DanewActionButton -Text 'Open SAV Diagnostic Report' -Action 'open-sav-report' -ToolTip $toolTip -Hint 'Open the main offline SAV diagnosis report.' -Tone 'primary'
+[void]$simplePanel.Controls.Add($openSavReportButton)
 [void]$simplePanel.Controls.Add((New-DanewActionButton -Text 'Open Timeline Report' -Action 'open-timeline-report' -ToolTip $toolTip -Hint 'Open the offline event timeline report.' -Tone 'neutral'))
 [void]$simplePanel.Controls.Add((New-DanewActionButton -Text 'Export SAV Package' -Action 'export-diagnostic-package' -ToolTip $toolTip -Hint 'Bundle reports and artifacts for escalation.' -Tone 'neutral'))
-[void]$simplePanel.Controls.Add((New-DanewActionButton -Text 'Recommended Actions' -Action 'recommended-actions' -ToolTip $toolTip -Hint 'Show the next SAV action based on current evidence.' -Tone 'warn'))
+[void]$simplePanel.Controls.Add((New-DanewActionButton -Text 'Recommended Actions' -Action 'recommended-actions' -ToolTip $toolTip -Hint 'Show the next SAV action based on current evidence.' -Tone 'neutral'))
 
 $advancedToggleButton = New-Object System.Windows.Forms.Button
 $advancedToggleButton.Text = 'Show Advanced Tools'
@@ -1732,9 +1849,9 @@ $recentActivityBox.Text = 'Recent activity: idle'
 $togglePanel = New-Object System.Windows.Forms.FlowLayoutPanel
 $togglePanel.Name = 'CollapsedControlsPanel'
 $togglePanel.Left = 14
-$togglePanel.Top = 654
+$togglePanel.Top = 662
 $togglePanel.Width = 872
-$togglePanel.Height = 48
+$togglePanel.Height = 44
 $togglePanel.Anchor = 'Top,Left,Right'
 $togglePanel.FlowDirection = 'LeftToRight'
 $togglePanel.WrapContents = $false
@@ -1865,4 +1982,5 @@ Set-DanewAdvancedToolsVisible -Visible $false
 Set-DanewTechnicalDetailsVisible -Visible $false
 [void](Update-DanewStatusPanel)
 [void](Update-DanewSavSummaryCard)
+Update-DanewReportAvailability
 [void]$form.ShowDialog()
