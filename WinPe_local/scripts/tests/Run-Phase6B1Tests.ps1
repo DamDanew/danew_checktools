@@ -141,10 +141,10 @@ try {
     $aliasHtml = Get-Content -Path $indexAlias -Raw -Encoding UTF8
 
     $results += Add-Phase6B1Result -Name 'one_click_uses_interactive_shell' -Passed ($oneClickHtml -match 'data-report-shell="danew"' -and $oneClickHtml -match 'report-toolbar' -and $oneClickHtml -match 'data-report-search') -Details 'one-click-diagnostic-report.html shell markers'
-    $results += Add-Phase6B1Result -Name 'one_click_steps_are_filterable' -Passed ($oneClickHtml -match 'data-search-row=' -and $oneClickHtml -match 'Filter steps by label') -Details 'step rows carry searchable attributes'
-    $results += Add-Phase6B1Result -Name 'timeline_uses_interactive_shell' -Passed ($timelineHtml -match 'Danew Offline Timeline' -and $timelineHtml -match 'data-search-row=' -and $timelineHtml -match 'timeline-raw.json') -Details 'timeline report upgraded'
-    $results += Add-Phase6B1Result -Name 'sav_report_uses_interactive_shell' -Passed ($savHtml -match 'Danew SAV Diagnostic Report' -and $savHtml -match 'Recommended Next Steps' -and $savHtml -match 'data-section-toggle') -Details 'sav report upgraded'
-    $results += Add-Phase6B1Result -Name 'reports_index_written' -Passed ((Test-Path -Path $indexPrimary) -and (Test-Path -Path $indexAlias) -and $indexHtml -match 'Danew Reports Index' -and $indexHtml -match 'sav-diagnostic-report.html' -and $indexHtml -match 'timeline-raw.html') -Details 'index and alias created'
+    $results += Add-Phase6B1Result -Name 'one_click_steps_are_filterable' -Passed ($oneClickHtml -match 'data-search-row=' -and $oneClickHtml -match 'Filtrer les etapes par libelle') -Details 'step rows carry searchable attributes'
+    $results += Add-Phase6B1Result -Name 'timeline_uses_interactive_shell' -Passed ($timelineHtml -match 'Chronologie hors ligne Danew' -and $timelineHtml -match 'data-search-row=' -and $timelineHtml -match 'timeline-raw.json') -Details 'timeline report upgraded'
+    $results += Add-Phase6B1Result -Name 'sav_report_uses_interactive_shell' -Passed ($savHtml -match 'Rapport de diagnostic SAV Danew' -and $savHtml -match 'Prochaines actions recommandees' -and $savHtml -match 'data-section-toggle') -Details 'sav report upgraded'
+    $results += Add-Phase6B1Result -Name 'reports_index_written' -Passed ((Test-Path -Path $indexPrimary) -and (Test-Path -Path $indexAlias) -and $indexHtml -match 'Index des rapports Danew' -and $indexHtml -match 'sav-diagnostic-report.html' -and $indexHtml -match 'timeline-raw.html') -Details 'index and alias created'
     $results += Add-Phase6B1Result -Name 'reports_index_alias_matches' -Passed ($indexHtml -eq $aliasHtml) -Details 'primary and alias content identical'
     $results += Add-Phase6B1Result -Name 'noscript_fallback_present' -Passed ($oneClickHtml -match '<noscript>' -and $timelineHtml -match '<noscript>' -and $savHtml -match '<noscript>') -Details 'noscript readability notice present'
 }

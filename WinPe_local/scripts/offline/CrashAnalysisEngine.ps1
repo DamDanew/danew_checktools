@@ -459,8 +459,8 @@ function Write-DanewSavDiagnosticReportHtml {
         $rowSearch = ConvertTo-DanewReportHtmlText ($cause.cause, $cause.confidence, $cause.score, $cause.reason -join ' ')
         $causeRows += @"
     <tr data-search-row="$rowSearch">
-<td>$([System.Security.SecurityElement]::Escape([string]$cause.cause))</td>
-<td>$([System.Security.SecurityElement]::Escape([string]$cause.confidence))</td>
+<td>$([System.Security.SecurityElement]::Escape((Get-DanewLocalizedCauseText $cause.cause)))</td>
+<td>$([System.Security.SecurityElement]::Escape((Get-DanewLocalizedConfidenceText $cause.confidence)))</td>
 <td>$([System.Security.SecurityElement]::Escape([string]$cause.score))</td>
 <td>$([System.Security.SecurityElement]::Escape([string]$cause.reason))</td>
 </tr>
@@ -484,16 +484,16 @@ function Write-DanewSavDiagnosticReportHtml {
     $explanation = ''
     if ($CrashAnalysis.root_cause_analysis.primary_cause) {
         $explanation = @"
-<p><b>Probable Cause:</b> $([System.Security.SecurityElement]::Escape([string]$CrashAnalysis.root_cause_analysis.primary_cause.cause))</p>
-<p><b>Confidence:</b> $([System.Security.SecurityElement]::Escape([string]$CrashAnalysis.root_cause_analysis.primary_cause.confidence))</p>
-<p><b>Severity:</b> $([System.Security.SecurityElement]::Escape([string]$CrashAnalysis.severity_analysis.overall))</p>
-<p><b>Impact:</b> $([System.Security.SecurityElement]::Escape([string]$CrashAnalysis.impact))</p>
+<p><b>Cause probable :</b> $([System.Security.SecurityElement]::Escape((Get-DanewLocalizedCauseText $CrashAnalysis.root_cause_analysis.primary_cause.cause)))</p>
+<p><b>Confiance :</b> $([System.Security.SecurityElement]::Escape((Get-DanewLocalizedConfidenceText $CrashAnalysis.root_cause_analysis.primary_cause.confidence)))</p>
+<p><b>Severite :</b> $([System.Security.SecurityElement]::Escape((Get-DanewLocalizedStatusText $CrashAnalysis.severity_analysis.overall)))</p>
+<p><b>Impact :</b> $([System.Security.SecurityElement]::Escape((Get-DanewLocalizedImpactText $CrashAnalysis.impact)))</p>
 "@
     }
 
     $recommendations = @()
     foreach ($line in @($CrashAnalysis.recommendations)) {
-        $recommendations += '<li>' + [System.Security.SecurityElement]::Escape([string]$line) + '</li>'
+        $recommendations += '<li>' + [System.Security.SecurityElement]::Escape((Get-DanewLocalizedRecommendationText $line)) + '</li>'
     }
 
     $timelineRows = @()
@@ -502,37 +502,37 @@ function Write-DanewSavDiagnosticReportHtml {
         $timelineRows += @"
 <tr data-search-row="$rowSearch">
 <td>$([System.Security.SecurityElement]::Escape([string]$item.pattern))</td>
-<td>$([System.Security.SecurityElement]::Escape([string]$item.confidence))</td>
+<td>$([System.Security.SecurityElement]::Escape((Get-DanewLocalizedConfidenceText $item.confidence)))</td>
 <td>$([System.Security.SecurityElement]::Escape([string]$item.summary))</td>
 </tr>
 "@
     }
 
     $metrics = @(
-        (New-DanewMetricCardHtml -Label 'Severity' -Value $CrashAnalysis.severity_analysis.overall -Tone $CrashAnalysis.severity_analysis.overall)
-        (New-DanewMetricCardHtml -Label 'Primary confidence' -Value (Get-DanewCrashSafeProperty -Object $CrashAnalysis.root_cause_analysis.primary_cause -Name 'confidence' -DefaultValue 'Unknown') -Tone (Get-DanewCrashSafeProperty -Object $CrashAnalysis.root_cause_analysis.primary_cause -Name 'confidence' -DefaultValue 'neutral'))
-        (New-DanewMetricCardHtml -Label 'Tracked causes' -Value @($CrashAnalysis.root_cause_analysis.all_causes).Count -Tone 'info')
-        (New-DanewMetricCardHtml -Label 'Recommendations' -Value @($CrashAnalysis.recommendations).Count -Tone 'ready')
+        (New-DanewMetricCardHtml -Label 'Severite' -Value (Get-DanewLocalizedStatusText $CrashAnalysis.severity_analysis.overall) -Tone $CrashAnalysis.severity_analysis.overall)
+        (New-DanewMetricCardHtml -Label 'Confiance principale' -Value (Get-DanewLocalizedConfidenceText (Get-DanewCrashSafeProperty -Object $CrashAnalysis.root_cause_analysis.primary_cause -Name 'confidence' -DefaultValue 'Unknown')) -Tone (Get-DanewCrashSafeProperty -Object $CrashAnalysis.root_cause_analysis.primary_cause -Name 'confidence' -DefaultValue 'neutral'))
+        (New-DanewMetricCardHtml -Label 'Causes suivies' -Value @($CrashAnalysis.root_cause_analysis.all_causes).Count -Tone 'info')
+        (New-DanewMetricCardHtml -Label 'Recommandations' -Value @($CrashAnalysis.recommendations).Count -Tone 'ready')
     ) -join ''
 
     $meta = New-DanewReportMetaListHtml -Items @(
-        [pscustomobject]@{ label = 'Timestamp'; value = $CrashAnalysis.timestamp }
-        [pscustomobject]@{ label = 'Impact'; value = $CrashAnalysis.impact }
-        [pscustomobject]@{ label = 'Root path'; value = $CrashAnalysis.root_path }
-        [pscustomobject]@{ label = 'Detection confidence'; value = $CrashAnalysis.detection_confidence }
+        [pscustomobject]@{ label = 'Horodatage'; value = $CrashAnalysis.timestamp }
+        [pscustomobject]@{ label = 'Impact'; value = (Get-DanewLocalizedImpactText $CrashAnalysis.impact) }
+        [pscustomobject]@{ label = 'Chemin racine'; value = $CrashAnalysis.root_path }
+        [pscustomobject]@{ label = 'Confiance de detection'; value = (Get-DanewLocalizedConfidenceText $CrashAnalysis.detection_confidence) }
     )
 
-    $summaryBody = $explanation + '<div class="split-grid">' + (New-DanewMetricCardHtml -Label 'Primary cause' -Value (Get-DanewCrashSafeProperty -Object $CrashAnalysis.root_cause_analysis.primary_cause -Name 'cause' -DefaultValue 'Unknown') -Tone $CrashAnalysis.severity_analysis.overall) + (New-DanewMetricCardHtml -Label 'Impact' -Value $CrashAnalysis.impact -Tone 'warn') + '</div>'
+    $summaryBody = $explanation + '<div class="split-grid">' + (New-DanewMetricCardHtml -Label 'Cause principale' -Value (Get-DanewLocalizedCauseText (Get-DanewCrashSafeProperty -Object $CrashAnalysis.root_cause_analysis.primary_cause -Name 'cause' -DefaultValue 'Unknown')) -Tone $CrashAnalysis.severity_analysis.overall) + (New-DanewMetricCardHtml -Label 'Impact' -Value (Get-DanewLocalizedImpactText $CrashAnalysis.impact) -Tone 'warn') + '</div>'
     $recommendationBody = '<ul class="report-list">' + ($recommendations -join '') + '</ul>'
     $sections = @(
-        (New-DanewReportSectionHtml -Title 'Executive Summary' -Caption 'The hero summary reflects the strongest current root-cause chain without performing repair actions.' -SearchText ('summary primary cause severity impact ' + [string](Get-DanewCrashSafeProperty -Object $CrashAnalysis.root_cause_analysis.primary_cause -Name 'cause' -DefaultValue '')) -BodyHtml $summaryBody)
-        (New-DanewReportSectionHtml -Title 'Primary and Secondary Causes' -Caption 'Search by cause text, score, confidence, or reasoning.' -SearchText 'causes confidence score reason root cause analysis' -BodyHtml (New-DanewReportTableHtml -Headers @('Cause', 'Confidence', 'Score', 'Reason') -Rows $causeRows -EmptyMessage 'No causes match the current filter.'))
-        (New-DanewReportSectionHtml -Title 'Timeline Intelligence' -Caption 'Pattern synthesis extracted from the classified records.' -SearchText 'timeline intelligence patterns confidence summary' -BodyHtml (New-DanewReportTableHtml -Headers @('Pattern', 'Confidence', 'Summary') -Rows $timelineRows -EmptyMessage 'No timeline rows match the current filter.') -Collapsed $true)
-        (New-DanewReportSectionHtml -Title 'Event Classification' -Caption 'First 40 classified records for rapid triage.' -SearchText 'event classification provider category message' -BodyHtml (New-DanewReportTableHtml -Headers @('Timestamp', 'Event ID', 'Provider', 'Category', 'Message') -Rows $eventRows -EmptyMessage 'No classified events match the current filter.') -Collapsed $true)
-        (New-DanewReportSectionHtml -Title 'Recommended Next Steps' -Caption 'Read-only actions only. Repairs stay out of this phase.' -SearchText ('recommendations next steps ' + (@($CrashAnalysis.recommendations) -join ' ')) -BodyHtml $recommendationBody)
+        (New-DanewReportSectionHtml -Title 'Resume executif' -Caption 'Le bandeau de synthese reprend la chaine de cause racine la plus probable sans lancer de reparation.' -SearchText ('summary primary cause severity impact ' + [string](Get-DanewCrashSafeProperty -Object $CrashAnalysis.root_cause_analysis.primary_cause -Name 'cause' -DefaultValue '')) -BodyHtml $summaryBody)
+        (New-DanewReportSectionHtml -Title 'Causes principales et secondaires' -Caption 'Recherche par texte de cause, score, confiance ou justification.' -SearchText 'causes confidence score reason root cause analysis' -BodyHtml (New-DanewReportTableHtml -Headers @('Cause', 'Confiance', 'Score', 'Justification') -Rows $causeRows -EmptyMessage 'Aucune cause ne correspond au filtre courant.'))
+        (New-DanewReportSectionHtml -Title 'Intelligence de chronologie' -Caption 'Synthese de motifs extraite des enregistrements classes.' -SearchText 'timeline intelligence patterns confidence summary' -BodyHtml (New-DanewReportTableHtml -Headers @('Motif', 'Confiance', 'Resume') -Rows $timelineRows -EmptyMessage 'Aucune ligne de chronologie ne correspond au filtre courant.') -Collapsed $true)
+        (New-DanewReportSectionHtml -Title 'Classification des evenements' -Caption '40 premiers enregistrements classes pour un triage rapide.' -SearchText 'event classification provider category message' -BodyHtml (New-DanewReportTableHtml -Headers @('Horodatage', 'ID evenement', 'Fournisseur', 'Categorie', 'Message') -Rows $eventRows -EmptyMessage 'Aucun evenement classe ne correspond au filtre courant.') -Collapsed $true)
+        (New-DanewReportSectionHtml -Title 'Prochaines actions recommandees' -Caption 'Actions en lecture seule uniquement. Les reparations restent hors de cette phase.' -SearchText ('recommendations next steps ' + (@($CrashAnalysis.recommendations) -join ' ')) -BodyHtml $recommendationBody)
     )
 
-    $html = New-DanewInteractiveReportHtml -Title 'Danew SAV Diagnostic Report' -Subtitle 'Crash-focused offline report with searchable causes, timeline patterns, and scoped next steps.' -Status ([string]$CrashAnalysis.severity_analysis.overall) -Eyebrow 'SAV / Crash analysis' -HeroMetricsHtml ('<div class="hero-metrics">' + $metrics + '</div>') -MetaHtml $meta -Sections $sections -SearchPlaceholder 'Filter causes, timeline patterns, providers, or recommendations'
+    $html = New-DanewInteractiveReportHtml -Title 'Rapport de diagnostic SAV Danew' -Subtitle 'Rapport hors ligne oriente crash avec recherche sur les causes, motifs de chronologie et prochaines actions ciblees.' -Status ([string]$CrashAnalysis.severity_analysis.overall) -Eyebrow 'Analyse SAV / crash' -HeroMetricsHtml ('<div class="hero-metrics">' + $metrics + '</div>') -MetaHtml $meta -Sections $sections -SearchPlaceholder 'Filtrer les causes, motifs de chronologie, fournisseurs ou recommandations'
 
     $html | Set-Content -Path $Path -Encoding UTF8
     Update-DanewInteractiveReportsIndex -ReportsPath (Split-Path -Parent $Path) | Out-Null

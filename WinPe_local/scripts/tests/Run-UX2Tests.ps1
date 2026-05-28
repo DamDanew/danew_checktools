@@ -90,10 +90,23 @@ $priorityOk = $primaryTopMatch.Success -and $summaryTopMatch.Success -and $repor
     ($content -match "Text 'ANALYSER LES CAUSES DE CRASH'")
 $results += Add-UX2Result -Name 'analyze_buttons_visually_prioritized' -Passed $priorityOk -Details 'Primary diagnostics appear before summary and reports.'
 
-$summaryVisible = ($content -match "Text = 'Resume du diagnostic'") -and
+$summaryDynamic = ($content -match "Text = 'Resume du diagnostic'") -and
     ($content -match '\$statusGroup\.Top\s*=\s*250') -and
+    ($content -match 'function Set-DanewSavSummaryDetailsVisible') -and
+    ($content -match 'Set-DanewSavSummaryDetailsVisible\s+-Visible\s+\$false') -and
+    ($content -match 'Set-DanewSavSummaryDetailsVisible\s+-Visible\s+\$true') -and
     (Test-UX2PatternSet -Content $content -Patterns @('Cause probable', 'Confiance', 'Severite', 'Detection Windows', 'Visibilite du stockage', 'Evenements critiques'))
-$results += Add-UX2Result -Name 'sav_summary_visible_immediately' -Passed $summaryVisible -Details 'SAV summary card remains on the first screen.'
+$results += Add-UX2Result -Name 'sav_summary_details_dynamic_after_logs' -Passed $summaryDynamic -Details 'SAV summary shell stays on the first screen; detailed fields are collapsed until Windows logs analysis completes.'
+
+$windowsReleaseChip = Test-UX2PatternSet -Content $content -Patterns @(
+    'function Get-DanewWindowsDisplayFromOfflineReport',
+    'display_version',
+    'current_build',
+    "if (`$buildNumber -ge 26200) { return '25H2' }",
+    "if (`$buildNumber -ge 26100) { return '24H2' }",
+    'Windows : '
+)
+$results += Add-UX2Result -Name 'windows_chip_shows_release_version' -Passed $windowsReleaseChip -Details 'Windows chip can show ProductName plus DisplayVersion such as 24H2/25H2, with build fallback.'
 
 $usbIndex = $content.IndexOf("-Text 'OUTILS USB'")
 $advancedIndex = $content.IndexOf('$buttonGroup = New-Object System.Windows.Forms.GroupBox')

@@ -1,6 +1,152 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+function Get-DanewLocalizedStatusText {
+    param(
+        [AllowNull()]
+        [object]$Value
+    )
+
+    $text = [string]$Value
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return ''
+    }
+
+    switch ($text.Trim().ToUpperInvariant()) {
+        'PASS' { return 'OK' }
+        'OK' { return 'OK' }
+        'SUCCESS' { return 'SUCCES' }
+        'WARNING' { return 'ALERTE' }
+        'WARN' { return 'ALERTE' }
+        'FAIL' { return 'ECHEC' }
+        'ERROR' { return 'ERREUR' }
+        'CRITICAL' { return 'CRITIQUE' }
+        'INFO' { return 'INFO' }
+        'IDLE' { return 'INACTIF' }
+        'RUNNING' { return 'EN COURS' }
+        'READY' { return 'EN ATTENTE' }
+        'WAITING' { return 'EN ATTENTE' }
+        'GENERATED' { return 'GENERE' }
+        'NOT READY' { return 'NON PRET' }
+        default { return $text }
+    }
+}
+
+function Get-DanewLocalizedConfidenceText {
+    param(
+        [AllowNull()]
+        [object]$Value
+    )
+
+    $text = [string]$Value
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return ''
+    }
+
+    switch ($text.Trim().ToLowerInvariant()) {
+        'high' { return 'Elevee' }
+        'medium' { return 'Moyenne' }
+        'low' { return 'Faible' }
+        'unknown' { return 'Inconnue' }
+        default { return $text }
+    }
+}
+
+function Get-DanewLocalizedCauseText {
+    param(
+        [AllowNull()]
+        [object]$Value
+    )
+
+    $text = [string]$Value
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return ''
+    }
+
+    switch ($text) {
+        'Intel RST/VMD issue' { return 'Probleme Intel RST/VMD' }
+        'failing SSD' { return 'SSD en degradation' }
+        'inaccessible NVMe controller' { return 'Controleur NVMe inaccessible' }
+        'failed Windows Update' { return 'Echec de mise a jour Windows' }
+        'corrupted NTFS filesystem' { return 'Systeme de fichiers NTFS corrompu' }
+        'BitLocker lock state' { return 'Volume verrouille par BitLocker' }
+        'thermal instability' { return 'Instabilite thermique' }
+        'memory instability' { return 'Instabilite memoire' }
+        'inaccessible SYSTEM hive' { return 'Ruche SYSTEM inaccessible' }
+        'storage driver incompatibility' { return 'Incompatibilite de pilote de stockage' }
+        'corrupted BCD' { return 'BCD corrompu' }
+        'boot partition corruption' { return 'Partition de demarrage corrompue' }
+        default { return $text }
+    }
+}
+
+function Get-DanewLocalizedBooleanText {
+    param(
+        [AllowNull()]
+        [object]$Value
+    )
+
+    if ($Value -is [bool]) {
+        return $(if ($Value) { 'Oui' } else { 'Non' })
+    }
+
+    $text = [string]$Value
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return ''
+    }
+
+    switch ($text.Trim().ToLowerInvariant()) {
+        'true' { return 'Oui' }
+        'false' { return 'Non' }
+        default { return $text }
+    }
+}
+
+function Get-DanewLocalizedRecommendationText {
+    param(
+        [AllowNull()]
+        [object]$Value
+    )
+
+    $text = [string]$Value
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return ''
+    }
+
+    switch ($text) {
+        'Verify BIOS storage mode and inject the matching Intel RST/VMD driver if required.' { return 'Verifier le mode de stockage du BIOS et injecter le pilote Intel RST/VMD correspondant si necessaire.' }
+        'Run a non-destructive SSD health check and verify controller visibility.' { return 'Executer un controle non destructif de l etat du SSD et verifier la visibilite du controleur.' }
+        'Verify NVMe visibility in firmware and storage driver support in WinPE.' { return 'Verifier la visibilite du NVMe dans le firmware et la prise en charge du pilote de stockage dans WinPE.' }
+        'Review the last update window and compare it with the crash timeline.' { return 'Examiner la derniere fenetre de mise a jour et la comparer a la chronologie du crash.' }
+        'Inspect the NTFS corruption pattern and preserve the disk state for offline analysis.' { return 'Examiner le schema de corruption NTFS et preserver l etat du disque pour l analyse hors ligne.' }
+        'Confirm whether the target volume is intentionally locked and whether recovery metadata is available.' { return 'Confirmer si le volume cible est volontairement verrouille et si les informations de recuperation sont disponibles.' }
+        'Check thermal history and cooling/power stability around the crash window.' { return 'Verifier l historique thermique et la stabilite du refroidissement et de l alimentation autour du crash.' }
+        'Correlate the crash window with hardware memory diagnostics if available.' { return 'Croiser la fenetre du crash avec les diagnostics materiels memoire si disponibles.' }
+        'Correlate the primary cause with the offline storage and registry evidence.' { return 'Croiser la cause principale avec les preuves de stockage et de registre hors ligne.' }
+        'Review storage, driver, and timeline evidence for the strongest failure chain.' { return 'Examiner les preuves de stockage, de pilotes et de chronologie pour identifier la chaine de panne la plus probable.' }
+        'Do not perform repairs from this phase; keep the analysis read-only.' { return 'Ne pas lancer de reparation a cette etape ; conserver une analyse en lecture seule.' }
+        default { return $text }
+    }
+}
+
+function Get-DanewLocalizedImpactText {
+    param(
+        [AllowNull()]
+        [object]$Value
+    )
+
+    $text = [string]$Value
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return ''
+    }
+
+    switch ($text) {
+        'Windows may be unable to boot or may be crashing soon after boot.' { return 'Windows peut ne pas demarrer ou planter peu apres le demarrage.' }
+        'Windows volumes may be inaccessible until the lock state is resolved outside this phase.' { return 'Les volumes Windows peuvent rester inaccessibles tant que le verrouillage n est pas traite hors de cette phase.' }
+        default { return $text }
+    }
+}
+
 function ConvertTo-DanewReportHtmlText {
     param(
         [AllowNull()]
@@ -39,7 +185,7 @@ function New-DanewReportBadgeHtml {
         [string]$Tone = 'neutral'
     )
 
-    $safeText = ConvertTo-DanewReportHtmlText $Text
+    $safeText = ConvertTo-DanewReportHtmlText (Get-DanewLocalizedStatusText $Text)
     $safeTone = ConvertTo-DanewReportHtmlText (ConvertTo-DanewReportToken $Tone)
     return '<span class="report-badge report-badge-' + $safeTone + '">' + $safeText + '</span>'
 }
@@ -114,7 +260,7 @@ function New-DanewReportSectionHtml {
 <h2>$safeTitle</h2>
 $captionHtml
 </div>
-<button type="button" class="ghost-button" data-section-toggle aria-expanded="$expanded" aria-controls="$sectionId">Toggle</button>
+<button type="button" class="ghost-button" data-section-toggle aria-expanded="$expanded" aria-controls="$sectionId">Basculer</button>
 </div>
 <div id="$sectionId" class="section-body"$hidden>
 $BodyHtml
@@ -127,10 +273,10 @@ function New-DanewReportTableHtml {
     param(
         [Parameter(Mandatory = $true)]
         [string[]]$Headers,
-        [Parameter(Mandatory = $true)]
-        [string[]]$Rows,
+        [AllowEmptyCollection()]
+        [string[]]$Rows = @(),
         [int[]]$SortableColumns = @(),
-        [string]$EmptyMessage = 'No rows to display.'
+        [string]$EmptyMessage = 'Aucune ligne a afficher.'
     )
 
     $headerCells = @()
@@ -145,7 +291,9 @@ function New-DanewReportTableHtml {
         }
     }
     $headerHtml = $headerCells -join ''
-    $rowsHtml = $Rows -join "`n"
+    $rowItems = @($Rows)
+    $rowsHtml = $rowItems -join "`n"
+    $emptyStateHidden = if ($rowItems.Count -eq 0) { '' } else { ' hidden' }
 
     return @"
 <div class="table-wrap">
@@ -155,7 +303,7 @@ function New-DanewReportTableHtml {
 $rowsHtml
 </tbody>
 </table>
-<div class="empty-state" data-empty-state hidden>$(ConvertTo-DanewReportHtmlText $EmptyMessage)</div>
+<div class="empty-state" data-empty-state$emptyStateHidden>$(ConvertTo-DanewReportHtmlText $EmptyMessage)</div>
 </div>
 "@
 }
@@ -166,13 +314,17 @@ function New-DanewInteractiveReportHtml {
         [string]$Title,
         [string]$Subtitle = '',
         [string]$Status = '',
-        [string]$Eyebrow = 'Offline HTML5 report',
+        [string]$Eyebrow = 'Rapport HTML5 hors ligne',
         [string]$HeroMetricsHtml = '',
         [string]$MetaHtml = '',
         [Parameter(Mandatory = $true)]
         [string[]]$Sections,
-        [string]$SearchPlaceholder = 'Search in this report',
-        [string]$FooterNote = 'Offline report generated without external dependencies.'
+        [string]$SearchPlaceholder = 'Rechercher dans ce rapport',
+        [string]$FooterNote = 'Rapport hors ligne genere sans dependance externe.',
+        [string]$AdditionalToolbarHtml = '',
+        [string]$AdditionalContentHtml = '',
+        [string]$AdditionalStyleHtml = '',
+        [string]$AdditionalScriptHtml = ''
     )
 
     $safeTitle = ConvertTo-DanewReportHtmlText $Title
@@ -189,7 +341,7 @@ function New-DanewInteractiveReportHtml {
 
     return @"
 <!DOCTYPE html>
-<html lang="en">
+<html lang="fr">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -485,11 +637,12 @@ noscript .noscript-card {
     .toolbar { flex-direction: column; }
 }
 </style>
+$AdditionalStyleHtml
 </head>
 <body>
 <div class="report-shell" data-report-shell="danew">
 <noscript>
-<div class="noscript-card"><strong>Interactive features disabled.</strong> This report remains fully readable without JavaScript.</div>
+<div class="noscript-card"><strong>Fonctions interactives desactivees.</strong> Ce rapport reste entierement lisible sans JavaScript.</div>
 </noscript>
 <header class="hero">
 <div class="hero-top">
@@ -502,9 +655,10 @@ noscript .noscript-card {
 </div>
 <div class="toolbar report-toolbar">
 <input type="search" placeholder="$safeSearchPlaceholder" data-report-search>
-<button type="button" class="primary-button" data-action="expand-all">Expand all</button>
-<button type="button" data-action="collapse-all">Collapse all</button>
-<button type="button" data-action="print">Print</button>
+$AdditionalToolbarHtml
+<button type="button" class="primary-button" data-action="expand-all">Developper tout</button>
+<button type="button" data-action="collapse-all">Reduire tout</button>
+<button type="button" data-action="print">Imprimer</button>
 </div>
 $HeroMetricsHtml
 $MetaHtml
@@ -512,6 +666,7 @@ $MetaHtml
 <main class="report-content">
 $sectionHtml
 </main>
+$AdditionalContentHtml
 <div class="footer-note">$safeFooterNote</div>
 </div>
 <script>
@@ -672,6 +827,7 @@ $sectionHtml
     initSortableTables();
 }());
 </script>
+$AdditionalScriptHtml
 </body>
 </html>
 "@
@@ -679,9 +835,9 @@ $sectionHtml
 
 function Get-DanewInteractiveReportCatalog {
     return @{
-        'sav-diagnostic-report.html' = [pscustomobject]@{ title = 'SAV / Crash Diagnostic'; subtitle = 'Root cause synthesis, timeline intelligence, and recommended read-only next steps.'; rank = 10 }
-        'one-click-diagnostic-report.html' = [pscustomobject]@{ title = 'One-Click Diagnostic'; subtitle = 'Execution summary of launcher-driven checks and their outcomes.'; rank = 20 }
-        'timeline-raw.html' = [pscustomobject]@{ title = 'Offline Timeline'; subtitle = 'Raw event timeline with searchable provider, level, and message details.'; rank = 30 }
+        'sav-diagnostic-report.html' = [pscustomobject]@{ title = 'Diagnostic SAV / crash'; subtitle = 'Synthese des causes racines, chronologie et prochaines actions en lecture seule.'; rank = 10 }
+        'one-click-diagnostic-report.html' = [pscustomobject]@{ title = 'Diagnostic en un clic'; subtitle = 'Resume d execution des controles lances depuis le launcher et de leurs resultats.'; rank = 20 }
+        'timeline-raw.html' = [pscustomobject]@{ title = 'Chronologie hors ligne'; subtitle = 'Chronologie brute des evenements avec recherche par fournisseur, niveau et message.'; rank = 30 }
     }
 }
 
@@ -701,7 +857,7 @@ function Update-DanewInteractiveReportsIndex {
     foreach ($file in $htmlFiles) {
         $entry = $catalog[$file.Name]
         $title = if ($null -ne $entry) { [string]$entry.title } else { [System.IO.Path]::GetFileNameWithoutExtension($file.Name) }
-        $subtitle = if ($null -ne $entry) { [string]$entry.subtitle } else { 'Generated HTML artifact.' }
+        $subtitle = if ($null -ne $entry) { [string]$entry.subtitle } else { 'Artefact HTML genere.' }
         $rank = if ($null -ne $entry) { [int]$entry.rank } else { 1000 }
         $jsonCandidate = Join-Path $ReportsPath ($file.BaseName + '.json')
 
@@ -719,15 +875,15 @@ function Update-DanewInteractiveReportsIndex {
     $items = @($items | Sort-Object rank, name)
 
     $metrics = @(
-        (New-DanewMetricCardHtml -Label 'Reports detected' -Value @($items).Count -Tone 'info')
-        (New-DanewMetricCardHtml -Label 'Interactive shell' -Value 'offline ready' -Tone 'good')
-        (New-DanewMetricCardHtml -Label 'Updated' -Value (Get-Date).ToString('s') -Tone 'neutral')
+        (New-DanewMetricCardHtml -Label 'Rapports detectes' -Value @($items).Count -Tone 'info')
+        (New-DanewMetricCardHtml -Label 'Interface interactive' -Value 'prete hors ligne' -Tone 'good')
+        (New-DanewMetricCardHtml -Label 'Mise a jour' -Value (Get-Date).ToString('s') -Tone 'neutral')
     ) -join ''
 
     $rows = @()
     foreach ($item in $items) {
         $searchText = ConvertTo-DanewReportHtmlText ($item.title + ' ' + $item.subtitle + ' ' + $item.name + ' ' + $item.json_name)
-        $jsonLink = if ([string]::IsNullOrWhiteSpace($item.json_name)) { '<span class="inline-code">n/a</span>' } else { '<a href="' + (ConvertTo-DanewReportHtmlText $item.json_name) + '">' + (ConvertTo-DanewReportHtmlText $item.json_name) + '</a>' }
+        $jsonLink = if ([string]::IsNullOrWhiteSpace($item.json_name)) { '<span class="inline-code">n/d</span>' } else { '<a href="' + (ConvertTo-DanewReportHtmlText $item.json_name) + '">' + (ConvertTo-DanewReportHtmlText $item.json_name) + '</a>' }
         $rows += @"
 <tr data-search-row="$searchText">
 <td><strong><a href="$(ConvertTo-DanewReportHtmlText $item.html_name)">$(ConvertTo-DanewReportHtmlText $item.title)</a></strong><div class="section-caption">$(ConvertTo-DanewReportHtmlText $item.subtitle)</div></td>
@@ -739,20 +895,20 @@ function Update-DanewInteractiveReportsIndex {
     }
 
     if (@($rows).Count -eq 0) {
-        $rows += '<tr data-search-row="no reports"><td colspan="4">No HTML reports have been generated yet.</td></tr>'
+        $rows += '<tr data-search-row="no reports"><td colspan="4">Aucun rapport HTML n a encore ete genere.</td></tr>'
     }
 
     $meta = New-DanewReportMetaListHtml -Items @(
-        [pscustomobject]@{ label = 'Reports directory'; value = $ReportsPath }
-        [pscustomobject]@{ label = 'Primary index'; value = 'REPORTS_INDEX.html' }
-        [pscustomobject]@{ label = 'Shortcut copy'; value = 'reports-index.html' }
+        [pscustomobject]@{ label = 'Dossier des rapports'; value = $ReportsPath }
+        [pscustomobject]@{ label = 'Index principal'; value = 'REPORTS_INDEX.html' }
+        [pscustomobject]@{ label = 'Copie de raccourci'; value = 'reports-index.html' }
     )
 
     $sections = @(
-        (New-DanewReportSectionHtml -Title 'Available Reports' -Caption 'Open the HTML report directly or inspect the matching JSON artifact when available.' -SearchText 'reports index html json available reports' -BodyHtml (New-DanewReportTableHtml -Headers @('Report', 'HTML', 'JSON', 'Last Updated') -Rows $rows -EmptyMessage 'No matching reports for the current filter.'))
+        (New-DanewReportSectionHtml -Title 'Rapports disponibles' -Caption 'Ouvrir directement le rapport HTML ou consulter l artefact JSON associe lorsqu il est disponible.' -SearchText 'reports index html json available reports' -BodyHtml (New-DanewReportTableHtml -Headers @('Rapport', 'HTML', 'JSON', 'Derniere mise a jour') -Rows $rows -EmptyMessage 'Aucun rapport ne correspond au filtre courant.'))
     )
 
-    $html = New-DanewInteractiveReportHtml -Title 'Danew Reports Index' -Subtitle 'Offline launch point for generated HTML and JSON diagnostic artifacts.' -Status 'READY' -Eyebrow 'Report hub' -HeroMetricsHtml ('<div class="hero-metrics">' + $metrics + '</div>') -MetaHtml $meta -Sections $sections -SearchPlaceholder 'Filter reports by title, file name, or companion JSON artifact'
+    $html = New-DanewInteractiveReportHtml -Title 'Index des rapports Danew' -Subtitle 'Point d entree hors ligne pour les artefacts diagnostiques HTML et JSON generes.' -Status 'READY' -Eyebrow 'Centre de rapports' -HeroMetricsHtml ('<div class="hero-metrics">' + $metrics + '</div>') -MetaHtml $meta -Sections $sections -SearchPlaceholder 'Filtrer les rapports par titre, nom de fichier ou artefact JSON associe'
 
     $primaryPath = Join-Path $ReportsPath 'REPORTS_INDEX.html'
     $aliasPath = Join-Path $ReportsPath 'reports-index.html'

@@ -60,6 +60,11 @@ $results += Add-UX2BResult -Name 'sortable_table_js_present' -Passed $sortableJs
 $sortableMarkers = ($shell -match 'data-sortable="true"') -and ($shell -match 'data-sort-index=') -and ($shell -match 'data-sort-direction="none"')
 $results += Add-UX2BResult -Name 'sortable_table_header_markers_present' -Passed $sortableMarkers -Details 'Table headers emit sortable markers for all columns.'
 
+. $htmlShellPath
+$emptyTable = New-DanewReportTableHtml -Headers @('A', 'B') -Rows @() -EmptyMessage 'No rows test message.'
+$emptyRowsOk = ($emptyTable -match '<tbody>\s*</tbody>') -and ($emptyTable -match 'No rows test message\.') -and ($emptyTable -notmatch 'data-empty-state hidden')
+$results += Add-UX2BResult -Name 'empty_table_rows_allowed' -Passed $emptyRowsOk -Details 'Shared report tables accept empty row arrays and show the empty-state message.'
+
 $summary = [pscustomobject]@{
     total = @($results).Count
     passed = @($results | Where-Object { $_.passed }).Count

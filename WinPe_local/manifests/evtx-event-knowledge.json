@@ -1,0 +1,367 @@
+[
+  {
+    "provider": "Microsoft-Windows-Kernel-Power",
+    "event_ids": [41],
+    "family": "Crash / BSOD",
+    "importance_sav": 92,
+    "explanation_fr": "Windows a redemarre sans arret propre.",
+    "probable_cause_fr": "Coupure brutale, freeze, BSOD, alimentation instable, batterie faible ou surchauffe.",
+    "impact_fr": "Risque de redemarrages repetes, corruption de donnees et perte de confiance SAV.",
+    "recommended_checks_fr": [
+      "Verifier si un BugCheck 1001 existe dans les minutes proches.",
+      "Croiser avec erreurs Disk, Ntfs et Storport avant le reboot.",
+      "Verifier temperature, alimentation, RAM et etat SSD/NVMe."
+    ]
+  },
+  {
+    "provider": "Microsoft-Windows-WER-SystemErrorReporting",
+    "event_ids": [1001],
+    "family": "Crash / BSOD",
+    "importance_sav": 95,
+    "explanation_fr": "Windows a enregistre un crash de type BugCheck.",
+    "probable_cause_fr": "Pilote noyau instable, memoire, stockage, chipset ou firmware.",
+    "impact_fr": "Pannes recurrentes et risque de systeme non demarrable.",
+    "recommended_checks_fr": [
+      "Corriger la chronologie avec Kernel-Power 41.",
+      "Identifier le contexte pilote/maj autour du crash.",
+      "Conserver les preuves avant toute action corrective."
+    ]
+  },
+  {
+    "provider": "Disk",
+    "event_ids": [7],
+    "family": "Disque / NTFS",
+    "importance_sav": 92,
+    "explanation_fr": "Bloc defaillant detecte sur le stockage.",
+    "probable_cause_fr": "Support SSD/HDD degrade ou controleur instable.",
+    "impact_fr": "Perte de donnees et erreurs de lecture ecriture.",
+    "recommended_checks_fr": [
+      "Verifier SMART ou equivalent constructeur.",
+      "Sauvegarder en priorite les donnees critiques.",
+      "Verifier cablage/slot et firmware stockage."
+    ]
+  },
+  {
+    "provider": "Disk",
+    "event_ids": [11],
+    "family": "Disque / NTFS",
+    "importance_sav": 88,
+    "explanation_fr": "Erreur controleur detectee pendant acces disque.",
+    "probable_cause_fr": "Controleur SATA/NVMe, pilote RST/VMD, firmware, connectique.",
+    "impact_fr": "Instabilite I/O et risques de freezes.",
+    "recommended_checks_fr": [
+      "Verifier mode BIOS (AHCI / RST / VMD).",
+      "Verifier pilotes stockage presents hors ligne.",
+      "Croiser avec Storport 129/153 et Ntfs."
+    ]
+  },
+  {
+    "provider": "Disk",
+    "event_ids": [51],
+    "family": "Disque / NTFS",
+    "importance_sav": 86,
+    "explanation_fr": "Erreur de pagination pendant operation I/O.",
+    "probable_cause_fr": "Timeout stockage, support degrade, pilote ou lien instable.",
+    "impact_fr": "Lenteurs, blocages et corruption logique potentielle.",
+    "recommended_checks_fr": [
+      "Verifier recurrence dans la chronologie.",
+      "Comparer avec erreurs applicatives et services.",
+      "Verifier sante du volume source."
+    ]
+  },
+  {
+    "provider": "Disk",
+    "event_ids": [129],
+    "family": "Disque / NTFS",
+    "importance_sav": 89,
+    "explanation_fr": "Reset du peripherique de stockage suite a timeout.",
+    "probable_cause_fr": "Pilote/controleur stockage, firmware SSD/NVMe, lien instable.",
+    "impact_fr": "Micro-coupures I/O, freezes, redemarrages.",
+    "recommended_checks_fr": [
+      "Verifier Storport et Disk autour de l evenement.",
+      "Verifier firmware du SSD/NVMe.",
+      "Verifier configuration Intel RST / VMD."
+    ]
+  },
+  {
+    "provider": "Disk",
+    "event_ids": [153],
+    "family": "Disque / NTFS",
+    "importance_sav": 90,
+    "explanation_fr": "Operation disque repetee suite a timeout ou erreur transitoire.",
+    "probable_cause_fr": "Chemin I/O instable: support, controleur, pilote, firmware.",
+    "impact_fr": "Degradation performance et risque de corruption.",
+    "recommended_checks_fr": [
+      "Verifier si les retries precede un crash.",
+      "Comparer avec Ntfs 55/140.",
+      "Verifier logs fournisseur stockage."
+    ]
+  },
+  {
+    "provider": "Disk",
+    "event_ids": [157],
+    "family": "Disque / NTFS",
+    "importance_sav": 82,
+    "explanation_fr": "Le disque a ete retire ou perdu temporairement.",
+    "probable_cause_fr": "Lien materiel instable, alimentation ou peripherique externe.",
+    "impact_fr": "Perte temporaire du volume et risques de corruption.",
+    "recommended_checks_fr": [
+      "Verifier connectique et alimentation.",
+      "Verifier si boitier USB ou adaptateur est en cause.",
+      "Verifier recurrence apres redemarrage."
+    ]
+  },
+  {
+    "provider": "Ntfs",
+    "event_ids": [55],
+    "family": "Disque / NTFS",
+    "importance_sav": 90,
+    "explanation_fr": "Corruption du systeme de fichiers detectee.",
+    "probable_cause_fr": "Arret brutal ou erreurs I/O recurrentes.",
+    "impact_fr": "Incoherence fichiers et risque de non-demarrage.",
+    "recommended_checks_fr": [
+      "Verifier erreurs Disk/Storport avant Ntfs.",
+      "Preserver image avant tentative de correction.",
+      "Evaluer etat physique du support."
+    ]
+  },
+  {
+    "provider": "Ntfs",
+    "event_ids": [98],
+    "family": "Disque / NTFS",
+    "importance_sav": 80,
+    "explanation_fr": "Ntfs signale un etat de volume necessitant attention.",
+    "probable_cause_fr": "Integrite metadata degradee ou volume mal termine.",
+    "impact_fr": "Lenteurs, erreurs d acces et operations interrompues.",
+    "recommended_checks_fr": [
+      "Confirmer recurrence avec autres ID Ntfs.",
+      "Verifier sequence arret/redemarrage.",
+      "Documenter volume concerne."
+    ]
+  },
+  {
+    "provider": "Ntfs",
+    "event_ids": [140],
+    "family": "Disque / NTFS",
+    "importance_sav": 84,
+    "explanation_fr": "Anomalie structure volume ou metadata detectee.",
+    "probable_cause_fr": "Corruption logique ou support instable.",
+    "impact_fr": "Erreurs de fichiers et possible perte de donnees.",
+    "recommended_checks_fr": [
+      "Verifier historique erreurs I/O.",
+      "Prioriser sauvegarde donnees critiques.",
+      "Confirmer etat stockage avant remediations."
+    ]
+  },
+  {
+    "provider": "Storport",
+    "family": "Disque / NTFS",
+    "importance_sav": 88,
+    "explanation_fr": "Le pilote Storport signale des timeout ou reset de chemin I/O.",
+    "probable_cause_fr": "Controleur stockage, pilote, firmware ou lien PCIe/SATA.",
+    "impact_fr": "Ralentissements severes, retries et crashs possibles.",
+    "recommended_checks_fr": [
+      "Comparer avec Disk 129/153 et Ntfs.",
+      "Verifier version pilote controleur.",
+      "Verifier firmware disque et BIOS."
+    ]
+  },
+  {
+    "provider": "Microsoft-Windows-WHEA-Logger",
+    "family": "Materiel / WHEA",
+    "importance_sav": 86,
+    "explanation_fr": "Windows remonte une erreur materielle WHEA.",
+    "probable_cause_fr": "CPU, RAM, PCIe, carte mere, NVMe ou alimentation.",
+    "impact_fr": "Instabilite materielle et plantages aleatoires.",
+    "recommended_checks_fr": [
+      "Verifier temperatures et alimentation.",
+      "Croiser avec crashs et erreurs stockage.",
+      "Executer tests memoire et stabilite."
+    ]
+  },
+  {
+    "provider": "WindowsUpdateClient",
+    "event_ids": [20],
+    "family": "Windows Update",
+    "importance_sav": 78,
+    "explanation_fr": "Echec d installation de mise a jour Windows.",
+    "probable_cause_fr": "Interruption update, corruption systeme, pilote incompatible.",
+    "impact_fr": "Instabilite post-update et possibles incidents de boot.",
+    "recommended_checks_fr": [
+      "Verifier proximite temporelle avec crashs.",
+      "Verifier changements pilotes recents.",
+      "Conserver chronologie avant rollback."
+    ]
+  },
+  {
+    "provider": "Service Control Manager",
+    "event_ids": [7000, 7001, 7023, 7031, 7034],
+    "family": "Services",
+    "importance_sav": 74,
+    "explanation_fr": "Un service critique ne demarre pas ou se termine brutalement.",
+    "probable_cause_fr": "Dependance absente, pilote/service corrompu, update incomplet.",
+    "impact_fr": "Demarrage partiel ou fonctions systeme indisponibles.",
+    "recommended_checks_fr": [
+      "Identifier le service exact et sa dependance.",
+      "Verifier relation avec pilotes et updates.",
+      "Verifier si l echec est en boucle."
+    ]
+  },
+  {
+    "provider": "Microsoft-Windows-DriverFrameworks-UserMode",
+    "family": "Pilotes",
+    "importance_sav": 72,
+    "explanation_fr": "Erreur de pilote/peripherique en mode utilisateur.",
+    "probable_cause_fr": "Pilote incompatible ou peripherique instable.",
+    "impact_fr": "Peripheriques indisponibles, freezes, erreurs applicatives.",
+    "recommended_checks_fr": [
+      "Identifier le peripherique associe.",
+      "Verifier derniere mise a jour pilote.",
+      "Croiser avec erreurs Kernel-Mode."
+    ]
+  },
+  {
+    "provider": "Microsoft-Windows-DriverFrameworks-KernelMode",
+    "family": "Pilotes",
+    "importance_sav": 74,
+    "explanation_fr": "Erreur pilote/peripherique dans la couche noyau.",
+    "probable_cause_fr": "Pilote bas niveau instable ou materiel defectueux.",
+    "impact_fr": "Instabilite systeme et crashs potentiels.",
+    "recommended_checks_fr": [
+      "Verifier peripheriques critiques (stockage/chipset).",
+      "Verifier correspondance version pilote/OS.",
+      "Verifier recurrence autour des BSOD."
+    ]
+  },
+  {
+    "provider": "Microsoft-Windows-BitLocker",
+    "family": "BitLocker / Chiffrement",
+    "importance_sav": 78,
+    "explanation_fr": "Evenement de protection/chiffrement BitLocker detecte.",
+    "probable_cause_fr": "Volume protege verrouille, changement TPM/boot, politique chiffrement.",
+    "impact_fr": "Volume inaccessible sans cle et diagnostic bloque.",
+    "recommended_checks_fr": [
+      "Verifier etat protection volume.",
+      "Verifier disponibilite cle de recuperation.",
+      "Verifier modifications recentes BIOS/TPM."
+    ]
+  },
+  {
+    "provider": "FVE",
+    "family": "BitLocker / Chiffrement",
+    "importance_sav": 78,
+    "explanation_fr": "Journal FVE indique un etat de chiffrement/protection.",
+    "probable_cause_fr": "Etat BitLocker bloque ou verification pre-boot.",
+    "impact_fr": "Acces volume limite tant que l etat n est pas valide.",
+    "recommended_checks_fr": [
+      "Verifier statut verrouillage volume.",
+      "Verifier cle de recuperation disponible.",
+      "Verifier erreurs boot associees."
+    ]
+  },
+  {
+    "provider": "Microsoft-Windows-Kernel-Boot",
+    "family": "Demarrage / boot",
+    "importance_sav": 82,
+    "explanation_fr": "Anomalie detectee dans la sequence de demarrage noyau.",
+    "probable_cause_fr": "Probleme BCD, pilote boot-critical, stockage ou firmware.",
+    "impact_fr": "Demarrage lent, boucle de boot ou echec de chargement.",
+    "recommended_checks_fr": [
+      "Verifier coherence BCD et partition EFI.",
+      "Verifier pilotes stockage boot-critical.",
+      "Croiser avec Disk/Storport autour du boot."
+    ]
+  },
+  {
+    "provider": "Microsoft-Windows-BootUX",
+    "family": "Demarrage / boot",
+    "importance_sav": 70,
+    "explanation_fr": "Evenement BootUX indiquant une sequence de boot anormale.",
+    "probable_cause_fr": "Demarrage interrompu ou composant boot non disponible.",
+    "impact_fr": "Experience boot degradee et suspicion de panne au demarrage.",
+    "recommended_checks_fr": [
+      "Verifier coherence avec Kernel-Boot.",
+      "Verifier etat EFI/BCD.",
+      "Verifier presence erreurs stockage."
+    ]
+  },
+  {
+    "provider": "Microsoft-Windows-BCD",
+    "family": "Demarrage / boot",
+    "importance_sav": 84,
+    "explanation_fr": "Evenement lie a la base de configuration de demarrage (BCD).",
+    "probable_cause_fr": "Entrees BCD invalides, corruption EFI, migration disque incomplete.",
+    "impact_fr": "Echec de boot ou mauvais OS selectionne.",
+    "recommended_checks_fr": [
+      "Verifier structure EFI et fichiers BCD.",
+      "Verifier historique clonage/migration disque.",
+      "Verifier coherence chemin winload."
+    ]
+  },
+  {
+    "provider": "stornvme",
+    "family": "Disque / NTFS",
+    "importance_sav": 88,
+    "explanation_fr": "Anomalie pilote NVMe detectee.",
+    "probable_cause_fr": "Firmware NVMe, pilote, temperature ou lien PCIe.",
+    "impact_fr": "Timeout I/O, freezes et pertes temporaires disque.",
+    "recommended_checks_fr": [
+      "Verifier firmware SSD NVMe.",
+      "Verifier erreurs WHEA et Storport associees.",
+      "Verifier temperature SSD et throttling."
+    ]
+  },
+  {
+    "provider": "iaStor",
+    "family": "Disque / NTFS",
+    "importance_sav": 86,
+    "explanation_fr": "Evenement du pilote Intel RST detecte.",
+    "probable_cause_fr": "Mismatch mode BIOS RST/AHCI, pilote manquant ou obsolete.",
+    "impact_fr": "Stockage non visible ou instable, erreurs boot possibles.",
+    "recommended_checks_fr": [
+      "Verifier mode controleur dans BIOS.",
+      "Verifier disponibilite pilote Intel RST dans WinPE.",
+      "Verifier coherence avec Disk 11/129/153."
+    ]
+  },
+  {
+    "provider": "VMD",
+    "family": "Disque / NTFS",
+    "importance_sav": 84,
+    "explanation_fr": "Evenement Intel VMD detecte sur la chaine stockage.",
+    "probable_cause_fr": "Pilote VMD absent/incompatible ou configuration BIOS non coherente.",
+    "impact_fr": "SSD/NVMe non detecte ou I/O degradees.",
+    "recommended_checks_fr": [
+      "Verifier option VMD active ou non dans BIOS.",
+      "Verifier presence pilote VMD adequat.",
+      "Comparer avec inventaire disques detectes."
+    ]
+  },
+  {
+    "provider": "BugCheck",
+    "event_ids": [1001],
+    "family": "Crash / BSOD",
+    "importance_sav": 95,
+    "explanation_fr": "Evenement BugCheck detecte dans le journal systeme.",
+    "probable_cause_fr": "Pilote noyau, memoire, stockage ou firmware instable.",
+    "impact_fr": "Risque de redemarrages en boucle et indisponibilite du poste.",
+    "recommended_checks_fr": [
+      "Croiser avec Kernel-Power 41 autour du crash.",
+      "Verifier pilotes critiques et dernieres mises a jour.",
+      "Preserver les preuves avant toute remediation."
+    ]
+  },
+  {
+    "provider": "Intel RST",
+    "family": "Disque / NTFS",
+    "importance_sav": 86,
+    "explanation_fr": "Pattern Intel RST detecte sur la chaine stockage.",
+    "probable_cause_fr": "Mode BIOS RST/AHCI non coherent ou pilote RST manquant.",
+    "impact_fr": "Disque non visible, erreurs I/O ou echec de demarrage.",
+    "recommended_checks_fr": [
+      "Verifier le mode BIOS RST/VMD/AHCI.",
+      "Verifier presence du pilote Intel RST adapte.",
+      "Comparer avec erreurs Disk 11/129/153 et iaStor."
+    ]
+  }
+]

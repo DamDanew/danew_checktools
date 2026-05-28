@@ -53,8 +53,8 @@ $results += Add-UX2EResult -Name 'summary_fits_1366x768' -Passed $fitsScreen -De
 $noScroll = ($launcher -match '\$form\.AutoScroll\s*=\s*\$false')
 $results += Add-UX2EResult -Name 'no_main_scroll' -Passed $noScroll -Details 'Main form has no scrollbars.'
 
-$primaryButtons = ($launcher -match 'ANALYZE WINDOWS LOGS') -and ($launcher -match 'ANALYZE CRASH CAUSES')
-$reportsVisible = ($launcher -match '\$simpleActionsGroup\.Top\s*=\s*538') -and ($launcher -match 'Reports and Actions')
+$primaryButtons = ($launcher -match 'ANALYSER LES JOURNAUX WINDOWS') -and ($launcher -match 'ANALYSER LES CAUSES DE CRASH')
+$reportsVisible = ($launcher -match '\$simpleActionsGroup\.Top\s*=\s*538') -and ($launcher -match 'Rapports et actions')
 $results += Add-UX2EResult -Name 'primary_and_reports_visible' -Passed ($primaryButtons -and $reportsVisible) -Details 'Primary buttons and report actions remain visible.'
 
 $summary = [pscustomobject]@{

@@ -57,6 +57,8 @@ $offlineTimingLabel = $null
 $stepLabels = @{}
 $recentActivityBox = $null
 $simpleActionsGroup = $null
+$statusGroup = $null
+$togglePanel = $null
 $advancedToggleButton = $null
 $technicalToggleButton = $null
 $buttonGroup = $null
@@ -65,6 +67,8 @@ $script:ActionButtons = New-Object System.Collections.ArrayList
 $script:IsActionRunning = $false
 $script:AdvancedToolsVisible = $false
 $script:TechnicalDetailsVisible = $false
+$script:SavSummaryDetailsVisible = $false
+$script:SavSummaryDetailControls = @()
 
 $script:StatusColorDefault = $null
 $script:StatusColorPass = $null
@@ -396,7 +400,12 @@ function Set-DanewAdvancedToolsVisible {
         $buttonGroup.Visible = $Visible
     }
     if ($advancedToggleButton) {
-        $advancedToggleButton.Text = Convert-DanewUiText -Text (if ($Visible) { 'MASQUER LES OUTILS AVANCES' } else { 'AFFICHER LES OUTILS AVANCES' })
+        if ($Visible) {
+            $advancedToggleText = 'MASQUER LES OUTILS AVANCES'
+        } else {
+            $advancedToggleText = 'AFFICHER LES OUTILS AVANCES'
+        }
+        $advancedToggleButton.Text = Convert-DanewUiText -Text $advancedToggleText
     }
     if ($Visible -and $buttonGroup) {
         Show-DanewSecondaryPanelDialog -Title 'Outils avances' -Panel $buttonGroup -Width 900 -Height 330
@@ -422,7 +431,12 @@ function Set-DanewTechnicalDetailsVisible {
         $technicalDetailsGroup.Visible = $Visible
     }
     if ($technicalToggleButton) {
-        $technicalToggleButton.Text = Convert-DanewUiText -Text (if ($Visible) { 'MASQUER LES DETAILS TECHNIQUES' } else { 'AFFICHER LES DETAILS TECHNIQUES' })
+        if ($Visible) {
+            $technicalToggleText = 'MASQUER LES DETAILS TECHNIQUES'
+        } else {
+            $technicalToggleText = 'AFFICHER LES DETAILS TECHNIQUES'
+        }
+        $technicalToggleButton.Text = Convert-DanewUiText -Text $technicalToggleText
     }
     if ($Visible -and $technicalDetailsGroup) {
         Show-DanewSecondaryPanelDialog -Title 'DETAILS TECHNIQUES' -Panel $technicalDetailsGroup -Width 900 -Height 330
@@ -434,6 +448,45 @@ function Set-DanewTechnicalDetailsVisible {
     }
     if ($form) {
         $form.AutoScrollMinSize = New-Object System.Drawing.Size(900, 720)
+    }
+}
+
+function Set-DanewSavSummaryDetailsVisible {
+    param(
+        [Parameter(Mandatory = $true)]
+        [bool]$Visible
+    )
+
+    $script:SavSummaryDetailsVisible = $Visible
+
+    foreach ($control in @($script:SavSummaryDetailControls)) {
+        if ($control) {
+            $control.Visible = $Visible
+        }
+    }
+
+    if ($statusGroup) {
+        $statusGroup.Height = if ($Visible) { 276 } else { 108 }
+    }
+
+    if ($simpleActionsGroup) {
+        $simpleActionsGroup.Top = if ($Visible) { 538 } else { 370 }
+    }
+    if ($togglePanel) {
+        $togglePanel.Top = if ($Visible) { 662 } else { 494 }
+    }
+    if ($buttonGroup) {
+        $buttonGroup.Top = if ($Visible) { 710 } else { 542 }
+    }
+    if ($technicalDetailsGroup) {
+        $technicalDetailsGroup.Top = if ($Visible) { 710 } else { 542 }
+    }
+    if ($form) {
+        $form.AutoScrollMinSize = if ($Visible) {
+            New-Object System.Drawing.Size(900, 720)
+        } else {
+            New-Object System.Drawing.Size(900, 560)
+        }
     }
 }
 
@@ -853,7 +906,7 @@ function Get-DanewSavSummary {
 
 function Update-DanewSavSummaryCard {
     $summary = Get-DanewSavSummary
-    $statusText = if ([string]$summary.overall -eq 'READY') { 'Statut : En attente d analyse' } else { 'Statut : ' + (Get-DanewLocalizedStatusText [string]$summary.overall) }
+    $statusText = if ([string]$summary.overall -eq 'READY') { 'Statut : En attente d analyse' } else { 'Statut : ' + (Get-DanewLocalizedStatusText ([string]$summary.overall)) }
     Set-DanewSummaryVisual -Status ([string]$summary.overall) -Text $statusText
     $criticalTone = 'OK'
     $criticalCount = 0
@@ -861,8 +914,8 @@ function Update-DanewSavSummaryCard {
         $criticalTone = 'CRITICAL'
     }
     Set-DanewValueLabel -Label $probableCauseValueLabel -Text ([string]$summary.probable_cause)
-    Set-DanewValueLabel -Label $confidenceValueLabel -Text (Get-DanewLocalizedConfidenceText [string]$summary.confidence) -Tone ([string]$summary.confidence)
-    Set-DanewValueLabel -Label $severityValueLabel -Text (Get-DanewLocalizedStatusText [string]$summary.severity) -Tone ([string]$summary.severity)
+    Set-DanewValueLabel -Label $confidenceValueLabel -Text (Get-DanewLocalizedConfidenceText ([string]$summary.confidence)) -Tone ([string]$summary.confidence)
+    Set-DanewValueLabel -Label $severityValueLabel -Text (Get-DanewLocalizedStatusText ([string]$summary.severity)) -Tone ([string]$summary.severity)
     Set-DanewValueLabel -Label $windowsStatusValueLabel -Text ([string]$summary.windows_status)
     $storageDisplay = Normalize-DanewStorageStatusDisplay -RawValue ([string]$summary.storage_status)
     Set-DanewValueLabel -Label $storageStatusValueLabel -Text $storageDisplay -Tone ([string]$summary.severity)
@@ -877,9 +930,9 @@ function Update-DanewSavSummaryCard {
 function Show-DanewRecommendedActions {
     $summary = Update-DanewSavSummaryCard
     $message = 'Actions recommandees' + [Environment]::NewLine + [Environment]::NewLine +
-        'Cause probable : ' + (Get-DanewLocalizedCauseText [string]$summary.probable_cause) + [Environment]::NewLine +
-        'Severite : ' + (Get-DanewLocalizedStatusText [string]$summary.severity) + [Environment]::NewLine +
-        'Confiance : ' + (Get-DanewLocalizedConfidenceText [string]$summary.confidence) + [Environment]::NewLine + [Environment]::NewLine +
+        'Cause probable : ' + (Get-DanewLocalizedCauseText ([string]$summary.probable_cause)) + [Environment]::NewLine +
+        'Severite : ' + (Get-DanewLocalizedStatusText ([string]$summary.severity)) + [Environment]::NewLine +
+        'Confiance : ' + (Get-DanewLocalizedConfidenceText ([string]$summary.confidence)) + [Environment]::NewLine + [Environment]::NewLine +
         [string]$summary.recommended_action + [Environment]::NewLine + [Environment]::NewLine +
         'Utiliser "OUVRIR LE RAPPORT SAV" pour le detail et "EXPORTER LE DOSSIER SAV" pour l escalade.'
 
@@ -1136,6 +1189,7 @@ function Invoke-GuiAction {
         if ($Action -eq 'analyze-offline-logs') {
             $script:OfflineProgressStart = Get-Date
             $script:OfflineProgressUpdates = 0
+            Set-DanewSavSummaryDetailsVisible -Visible $false
             if ($progressBox) {
                 $progressBox.Text = ''
             }
@@ -1186,9 +1240,9 @@ function Invoke-GuiAction {
                 $offlineProgressBar.Value = 100
             }
             if ($summaryLabel) {
-                $summaryLabel.Text = 'Analyse des journaux Windows hors ligne terminee. Global=' + (Get-DanewLocalizedStatusText [string]$offline.overall_status)
+                $summaryLabel.Text = 'Analyse des journaux Windows hors ligne terminee. Global=' + (Get-DanewLocalizedStatusText ([string]$offline.overall_status))
             }
-            Set-DanewSummaryVisual -Status ([string]$offline.overall_status) -Text ('Analyse hors ligne terminee : ' + (Get-DanewLocalizedStatusText [string]$offline.overall_status))
+            Set-DanewSummaryVisual -Status ([string]$offline.overall_status) -Text ('Analyse hors ligne terminee : ' + (Get-DanewLocalizedStatusText ([string]$offline.overall_status)))
             if ($offlineOperationLabel) {
                 $offlineOperationLabel.Text = 'Operation en cours : terminee'
             }
@@ -1210,6 +1264,7 @@ function Invoke-GuiAction {
             }
             [void](Update-DanewStatusPanel)
             [void](Update-DanewSavSummaryCard)
+            Set-DanewSavSummaryDetailsVisible -Visible $true
         }
         elseif ($Action -eq 'analyze-crash-causes') {
             $crash = $res.output
@@ -1220,9 +1275,9 @@ function Invoke-GuiAction {
                 $topEvidenceSummary = [string]$topEvidence[0].summary
             }
             $message = 'Analyse des causes de crash terminee.' + [Environment]::NewLine +
-                'Severite : ' + (Get-DanewLocalizedStatusText [string]$crash.severity) + [Environment]::NewLine +
-                'Cause principale : ' + (Get-DanewLocalizedCauseText [string]$primary.cause) + [Environment]::NewLine +
-                'Confiance : ' + (Get-DanewLocalizedConfidenceText [string]$primary.confidence) + [Environment]::NewLine +
+                'Severite : ' + (Get-DanewLocalizedStatusText ([string]$crash.severity)) + [Environment]::NewLine +
+                'Cause principale : ' + (Get-DanewLocalizedCauseText ([string]$primary.cause)) + [Environment]::NewLine +
+                'Confiance : ' + (Get-DanewLocalizedConfidenceText ([string]$primary.confidence)) + [Environment]::NewLine +
                 'Preuve principale : ' + $topEvidenceSummary + [Environment]::NewLine +
                 'Rapport : ' + [string]$crash.report_paths.sav_diagnostic_report_html
             [System.Windows.Forms.MessageBox]::Show($message, 'Outil de diagnostic SAV Danew') | Out-Null
@@ -1238,7 +1293,7 @@ function Invoke-GuiAction {
         }
         elseif ($Action -eq 'check-browser') {
             $browser = $res.output.detection
-            Set-DanewSummaryVisual -Status ([string]$browser.status) -Text ('Navigateur HTML : ' + (Get-DanewLocalizedStatusText [string]$browser.status))
+            Set-DanewSummaryVisual -Status ([string]$browser.status) -Text ('Navigateur HTML : ' + (Get-DanewLocalizedStatusText ([string]$browser.status)))
             [System.Windows.Forms.MessageBox]::Show(([string]$browser.message + [Environment]::NewLine + [Environment]::NewLine + 'Chemin : ' + [string]$browser.browser_path), 'Verification navigateur HTML') | Out-Null
             [void](Update-DanewStatusPanel)
             [void](Update-DanewSavSummaryCard)
@@ -1427,6 +1482,7 @@ function Invoke-StartDiagnostic {
         }
         Set-DanewSummaryVisual -Status ([string]$diag.summary.overall_status) -Text $summaryText
         [void](Update-DanewSavSummaryCard)
+        Set-DanewSavSummaryDetailsVisible -Visible $true
 
         $dataReportRoot = Copy-DanewReportToDataVolume -HtmlPath ([string]$result.output.artifacts.report_html_path) -JsonPath ([string]$result.output.artifacts.report_json_path)
         Add-DiagnosticProgressLine -Line ('Resume final : ' + $summaryText)
@@ -1435,9 +1491,10 @@ function Invoke-StartDiagnostic {
         if (-not [string]::IsNullOrWhiteSpace($dataReportRoot)) {
             Add-DiagnosticProgressLine -Line ('Dernier rapport copie vers : ' + $dataReportRoot)
         }
-        [System.Windows.Forms.MessageBox]::Show('Diagnostic termine. Global : ' + (Get-DanewLocalizedStatusText [string]$diag.summary.overall_status), 'Outil de diagnostic SAV Danew') | Out-Null
+        [System.Windows.Forms.MessageBox]::Show('Diagnostic termine. Global : ' + (Get-DanewLocalizedStatusText ([string]$diag.summary.overall_status)), 'Outil de diagnostic SAV Danew') | Out-Null
         [void](Update-DanewStatusPanel)
         [void](Update-DanewSavSummaryCard)
+        Set-DanewSavSummaryDetailsVisible -Visible $true
     }
     catch {
         if ($summaryLabel) {
@@ -1720,6 +1777,94 @@ function New-DanewChipLabel {
     return $label
 }
 
+function Get-DanewWindowsReleaseFromBuild {
+    param(
+        [AllowNull()]
+        [object]$Build
+    )
+
+    $buildText = [string]$Build
+    if ([string]::IsNullOrWhiteSpace($buildText)) {
+        return ''
+    }
+
+    $buildNumber = 0
+    if (-not [int]::TryParse(($buildText -replace '[^\d].*$', ''), [ref]$buildNumber)) {
+        return ''
+    }
+
+    if ($buildNumber -ge 26200) { return '25H2' }
+    if ($buildNumber -ge 26100) { return '24H2' }
+    if ($buildNumber -ge 22631) { return '23H2' }
+    if ($buildNumber -ge 22621) { return '22H2' }
+    if ($buildNumber -ge 22000) { return '21H2' }
+    if ($buildNumber -ge 19045) { return '22H2' }
+    if ($buildNumber -ge 19044) { return '21H2' }
+    if ($buildNumber -ge 19043) { return '21H1' }
+    if ($buildNumber -ge 19042) { return '20H2' }
+    if ($buildNumber -ge 19041) { return '2004' }
+
+    return ''
+}
+
+function Get-DanewWindowsDisplayFromOfflineReport {
+    $offline = Get-DanewReportJson -Name 'offline-windows-analysis.json'
+    if (-not $offline) {
+        return 'Windows : Inconnu'
+    }
+
+    $registry = Get-DanewObjectValue -Object $offline -Name 'registry_metadata' -Default $null
+    $productName = [string](Get-DanewObjectValue -Object $registry -Name 'product_name' -Default '')
+    $displayVersion = [string](Get-DanewObjectValue -Object $registry -Name 'display_version' -Default '')
+    $releaseId = [string](Get-DanewObjectValue -Object $registry -Name 'release_id' -Default '')
+    $currentBuild = [string](Get-DanewObjectValue -Object $registry -Name 'current_build' -Default '')
+
+    if ([string]::IsNullOrWhiteSpace($displayVersion)) {
+        $displayVersion = Get-DanewWindowsReleaseFromBuild -Build $currentBuild
+    }
+    if ([string]::IsNullOrWhiteSpace($displayVersion) -and -not [string]::IsNullOrWhiteSpace($releaseId)) {
+        $displayVersion = $releaseId
+    }
+
+    $windowsName = ''
+    if ($productName -match '(?i)Windows\s+11') {
+        $windowsName = 'Windows 11'
+    }
+    elseif ($productName -match '(?i)Windows\s+10') {
+        $windowsName = 'Windows 10'
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($productName)) {
+        $windowsName = $productName
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($currentBuild)) {
+        $buildNumber = 0
+        if ([int]::TryParse(($currentBuild -replace '[^\d].*$', ''), [ref]$buildNumber) -and $buildNumber -ge 22000) {
+            $windowsName = 'Windows 11'
+        } else {
+            $windowsName = 'Windows'
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($windowsName)) {
+        $preferredWindows = Get-DanewObjectValue -Object $offline -Name 'preferred_windows_volume' -Default $null
+        $preferredPath = [string](Get-DanewObjectValue -Object $preferredWindows -Name 'path' -Default '')
+        if (-not [string]::IsNullOrWhiteSpace($preferredPath)) {
+            return 'Windows : Detecte'
+        }
+        return 'Windows : Inconnu'
+    }
+
+    $parts = @($windowsName)
+    if (-not [string]::IsNullOrWhiteSpace($displayVersion)) {
+        $parts += $displayVersion
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($currentBuild)) {
+        $parts += ('build ' + $currentBuild)
+    }
+
+    return ('Windows : ' + ($parts -join ' '))
+}
+
 function Update-DanewSummaryChips {
     param(
         [AllowNull()]
@@ -1738,17 +1883,18 @@ function Update-DanewSummaryChips {
         }
     }
 
-    $windowsState = 'Inconnu'
+    $windowsText = Get-DanewWindowsDisplayFromOfflineReport
     if ($Snapshot -and $Snapshot.PSObject.Properties['offline_windows_detected']) {
         $raw = [string]$Snapshot.offline_windows_detected
-        if ($raw -match '(?i)not\s+detected|no\s+windows|missing') {
-            $windowsState = 'Non detecte'
-        }
-        elseif ($raw -match '(?i)detected|found|windows') {
-            $windowsState = 'Detecte'
+        if ($windowsText -eq 'Windows : Inconnu') {
+            if ($raw -match '(?i)not\s+detected|no\s+windows|missing') {
+                $windowsText = 'Windows : Non detecte'
+            }
+            elseif ($raw -match '(?i)detected|found|windows') {
+                $windowsText = 'Windows : Detecte'
+            }
         }
     }
-    $windowsText = 'Windows : ' + $windowsState
 
     $usbText = 'USB : Inconnu'
     if ($Snapshot -and $Snapshot.PSObject.Properties['selected_usb_disk']) {
@@ -1795,41 +1941,65 @@ function Normalize-DanewStorageStatusDisplay {
 [void]$statusGroup.Controls.Add($overallBadgeLabel)
 [void]$statusGroup.Controls.Add($summaryLabel)
 
-[void]$statusGroup.Controls.Add((New-DanewSummaryFieldLabel -Caption 'Cause probable' -Left 16 -Top 102 -Width 400))
+$probableCauseCaptionLabel = New-DanewSummaryFieldLabel -Caption 'Cause probable' -Left 16 -Top 102 -Width 400
+[void]$statusGroup.Controls.Add($probableCauseCaptionLabel)
 $probableCauseValueLabel = New-DanewSummaryValueLabel -Text 'Lancer l analyse pour identifier la cause probable.' -Left 16 -Top 120 -Width 530 -Height 38
 [void]$statusGroup.Controls.Add($probableCauseValueLabel)
 
-[void]$statusGroup.Controls.Add((New-DanewSummaryFieldLabel -Caption 'Confiance' -Left 566 -Top 102 -Width 130))
+$confidenceCaptionLabel = New-DanewSummaryFieldLabel -Caption 'Confiance' -Left 566 -Top 102 -Width 130
+[void]$statusGroup.Controls.Add($confidenceCaptionLabel)
 $confidenceValueLabel = New-DanewSummaryValueLabel -Text 'INCONNUE' -Left 566 -Top 120 -Width 130 -Height 38
 [void]$statusGroup.Controls.Add($confidenceValueLabel)
 
-[void]$statusGroup.Controls.Add((New-DanewSummaryFieldLabel -Caption 'Severite' -Left 712 -Top 102 -Width 136))
+$severityCaptionLabel = New-DanewSummaryFieldLabel -Caption 'Severite' -Left 712 -Top 102 -Width 136
+[void]$statusGroup.Controls.Add($severityCaptionLabel)
 $severityValueLabel = New-DanewSummaryValueLabel -Text 'INFO' -Left 712 -Top 120 -Width 136 -Height 38
 [void]$statusGroup.Controls.Add($severityValueLabel)
 
-[void]$statusGroup.Controls.Add((New-DanewSummaryFieldLabel -Caption 'Detection Windows' -Left 16 -Top 166 -Width 260))
+$windowsStatusCaptionLabel = New-DanewSummaryFieldLabel -Caption 'Detection Windows' -Left 16 -Top 166 -Width 260
+[void]$statusGroup.Controls.Add($windowsStatusCaptionLabel)
 $windowsStatusValueLabel = New-DanewSummaryValueLabel -Text 'Inconnu' -Left 16 -Top 184 -Width 260 -Height 34
 [void]$statusGroup.Controls.Add($windowsStatusValueLabel)
 
-[void]$statusGroup.Controls.Add((New-DanewSummaryFieldLabel -Caption 'Visibilite du stockage' -Left 292 -Top 166 -Width 260))
+$storageStatusCaptionLabel = New-DanewSummaryFieldLabel -Caption 'Visibilite du stockage' -Left 292 -Top 166 -Width 260
+[void]$statusGroup.Controls.Add($storageStatusCaptionLabel)
 $storageStatusValueLabel = New-DanewSummaryValueLabel -Text 'Inconnu' -Left 292 -Top 184 -Width 260 -Height 34
 [void]$statusGroup.Controls.Add($storageStatusValueLabel)
 
-[void]$statusGroup.Controls.Add((New-DanewSummaryFieldLabel -Caption 'Evenements critiques' -Left 568 -Top 166 -Width 260))
+$criticalEventsCaptionLabel = New-DanewSummaryFieldLabel -Caption 'Evenements critiques' -Left 568 -Top 166 -Width 260
+[void]$statusGroup.Controls.Add($criticalEventsCaptionLabel)
 $criticalEventsValueLabel = New-DanewSummaryValueLabel -Text '0' -Left 568 -Top 184 -Width 260 -Height 34
 [void]$statusGroup.Controls.Add($criticalEventsValueLabel)
 
 $recommendedActionValueLabel = $null
-[void]$statusGroup.Controls.Add((New-DanewSummaryFieldLabel -Caption 'Prochaine action recommandee' -Left 16 -Top 222 -Width 832))
+$recommendedActionCaptionLabel = New-DanewSummaryFieldLabel -Caption 'Prochaine action recommandee' -Left 16 -Top 222 -Width 832
+[void]$statusGroup.Controls.Add($recommendedActionCaptionLabel)
 $recommendedActionValueLabel = New-DanewSummaryValueLabel -Text 'Analyser d abord les journaux Windows.' -Left 16 -Top 240 -Width 832 -Height 36
 $recommendedActionValueLabel.AutoSize = $false
 $recommendedActionValueLabel.TextAlign = 'TopLeft'
 $recommendedActionValueLabel.AutoEllipsis = $false
 [void]$statusGroup.Controls.Add($recommendedActionValueLabel)
 
+$script:SavSummaryDetailControls = @(
+    $probableCauseCaptionLabel,
+    $probableCauseValueLabel,
+    $confidenceCaptionLabel,
+    $confidenceValueLabel,
+    $severityCaptionLabel,
+    $severityValueLabel,
+    $windowsStatusCaptionLabel,
+    $windowsStatusValueLabel,
+    $storageStatusCaptionLabel,
+    $storageStatusValueLabel,
+    $criticalEventsCaptionLabel,
+    $criticalEventsValueLabel,
+    $recommendedActionCaptionLabel,
+    $recommendedActionValueLabel
+)
+
 $runtimeChipLabel = New-DanewChipLabel -Text ('Execution : ' + $runtimeTitle) -Left 16 -Top 80 -Width 176
-$windowsChipLabel = New-DanewChipLabel -Text 'Windows : Inconnu' -Left 208 -Top 80 -Width 176
-$usbChipLabel = New-DanewChipLabel -Text 'USB : Inconnu' -Left 400 -Top 80 -Width 176
+$windowsChipLabel = New-DanewChipLabel -Text 'Windows : Inconnu' -Left 208 -Top 80 -Width 260
+$usbChipLabel = New-DanewChipLabel -Text 'USB : Inconnu' -Left 484 -Top 80 -Width 176
 [void]$statusGroup.Controls.Add($runtimeChipLabel)
 [void]$statusGroup.Controls.Add($windowsChipLabel)
 [void]$statusGroup.Controls.Add($usbChipLabel)
@@ -2166,5 +2336,6 @@ Set-DanewAdvancedToolsVisible -Visible $false
 Set-DanewTechnicalDetailsVisible -Visible $false
 [void](Update-DanewStatusPanel)
 [void](Update-DanewSavSummaryCard)
+Set-DanewSavSummaryDetailsVisible -Visible $false
 Update-DanewReportAvailability
 [void]$form.ShowDialog()

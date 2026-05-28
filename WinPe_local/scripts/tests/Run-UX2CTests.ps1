@@ -38,19 +38,19 @@ $errors = $null
 [System.Management.Automation.Language.Parser]::ParseFile($launcherPath, [ref]$tokens, [ref]$errors) | Out-Null
 $results += Add-UX2CResult -Name 'launcher_parser_ok' -Passed (-not $errors) -Details ($(if ($errors) { ($errors | Select-Object -First 1).Message } else { 'PowerShell parser clean' }))
 
-$reportDisabled = ($launcher -match 'Open SAV Report \(not available\)') -and ($launcher -match '\$button\.Enabled\s*=\s*\$false')
+$reportDisabled = ($launcher -match 'Ouvrir le rapport SAV \(indisponible\)') -and ($launcher -match '\$button\.Enabled\s*=\s*\$false')
 $results += Add-UX2CResult -Name 'sav_report_button_disabled_when_missing' -Passed $reportDisabled -Details 'Open SAV Report disabled and relabeled when report is absent.'
 
-$reportEnabled = ($launcher -match 'Open SAV Diagnostic Report') -and ($launcher -match '\$button\.Enabled\s*=\s*\$true')
+$reportEnabled = ($launcher -match 'OUVRIR LE RAPPORT SAV') -and ($launcher -match '\$button\.Enabled\s*=\s*\$true')
 $results += Add-UX2CResult -Name 'sav_report_button_enabled_when_present' -Passed $reportEnabled -Details 'Open SAV Report enabled with standard label when report exists.'
 
-$readyBadge = ($launcher -match '\$overallBadgeLabel\.Text\s*=\s*''Waiting''') -and ($launcher -notmatch '\$overallBadgeLabel\.Text\s*=\s*''INFO''')
+$readyBadge = ($launcher -match '\$overallBadgeLabel\.Text\s*=\s*''En attente''') -and ($launcher -notmatch '\$overallBadgeLabel\.Text\s*=\s*''INFO''')
 $results += Add-UX2CResult -Name 'initial_badge_ready_not_info' -Passed $readyBadge -Details 'Initial overall badge shows Waiting instead of INFO.'
 
 $subtitleOk = $launcher -match '\$subtitleLabel\.Left\s*=\s*72'
 $results += Add-UX2CResult -Name 'subtitle_aligned_with_logo' -Passed $subtitleOk -Details 'Subtitle offset aligns with logo and title.'
 
-$chipsOk = ($launcher -match 'Runtime:') -and ($launcher -match 'Windows:') -and ($launcher -match 'USB:')
+$chipsOk = ($launcher -match 'Execution :') -and ($launcher -match 'Windows :') -and ($launcher -match 'USB :')
 $results += Add-UX2CResult -Name 'runtime_chips_visible' -Passed $chipsOk -Details 'Runtime/Windows/USB chips rendered in SAV summary.'
 
 $timingLabelOk = $launcher -match '\$primaryGroup\.Controls\.Add\(\$offlineTimingLabel\)'
@@ -60,7 +60,7 @@ $infoColor = $launcher -match '(?s)INFO.*FromArgb\(37, 99, 235\)'
 $runningColor = $launcher -match '(?s)RUNNING.*FromArgb\(245, 158, 11\)'
 $results += Add-UX2CResult -Name 'running_color_differs_from_info' -Passed ($infoColor -and $runningColor) -Details 'RUNNING uses orange while INFO stays blue.'
 
-$noVerbosePopup = ($launcher -notmatch 'Offline logs analysis complete\.') -and ($launcher -match 'Offline logs finished\. Review SAV summary for details\.')
+$noVerbosePopup = ($launcher -notmatch 'Offline logs analysis complete\.') -and ($launcher -match 'Analyse des journaux hors ligne terminee\. Consulter le resume SAV pour le detail\.')
 $results += Add-UX2CResult -Name 'offline_logs_popup_removed' -Passed $noVerbosePopup -Details 'Verbose completion popup removed and replaced with short progress line.'
 
 $summary = [pscustomobject]@{

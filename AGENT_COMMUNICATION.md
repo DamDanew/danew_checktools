@@ -258,6 +258,152 @@ Classement non destructif des rapports cree sur la cle:
 - Copie raccourci: `E:\DANEW_REPORTS\reports-index.html`
 - Aide texte: `E:\reports\REPORTS_README.txt`
 - Les rapports n'ont pas ete deplaces pour ne pas casser les chemins existants du launcher.
+
+### 2026-05-28 Codex tooltip USB sync + full recreation
+
+Fichiers notes dans cette phase:
+- `WinPe_local/scripts/Invoke-DanewCreateUsbMedia.ps1`
+- `WinPe_local/scripts/Invoke-DanewRealWinPEValidation.ps1`
+- `WinPe_local/scripts/tests/Invoke-RealWinPETooltipValidation.ps1`
+- `WinPe_local/scripts/tests/Run-UXTooltipRealValidationTests.ps1`
+- `AGENT_COMMUNICATION.md`
+
+### 2026-05-28 17:10:03 +02:00 Codex verification script creation cle
+
+Verification non destructive du script de creation de cle:
+- `Invoke-DanewCreateUsbMedia.ps1` et `usb/UsbProvisioning.ps1` parses sans erreur.
+- Mode `Analyze` relance sur le disque 4 (`Realtek RTL9210 NVME`) sans formatage: safety PASS, boot.wim package validation PASS, boot validation PASS, statut global WARNING attendu car mode analyse uniquement.
+- Point corrige: le script copiait `manifests` uniquement vers DATA. Or la validation finale attend aussi `D:\manifests\evtx-event-knowledge.json` sur BOOT.
+- Correction appliquee dans `UsbProvisioning.ps1`: `manifests` est maintenant copie dans le `bootMap` vers `DANEW_BOOT` en plus de `DANEW_DATA`.
+- Script corrige synchronise sur la cle:
+  - `D:\scripts\usb\UsbProvisioning.ps1`
+  - `E:\scripts\usb\UsbProvisioning.ps1`
+- Validation finale USB relancee apres correction: `post-final-usb-validation.txt` = 44/44 PASS.
+
+### 2026-05-28 17:14:14 +02:00 Codex verification launcher
+
+Verification du launcher:
+- `launcher.ps1`, `LauncherCore.ps1` et `DanewCheckTool.CLI.ps1` parses sans erreur.
+- Hash `launcher.ps1` synchronise local / BOOT / DATA:
+  - local `WinPe_local\scripts\launcher.ps1`
+  - `D:\scripts\launcher.ps1`
+  - `E:\scripts\launcher.ps1`
+- Correction mineure appliquee: `launcher.ps1` accepte maintenant aussi `refresh-status`, `show-status` et `view-last-report` dans `-CliFallbackCommand`, pour aligner le fallback GUI -> CLI avec `DanewCheckTool.CLI.ps1`.
+- Test fallback force: `launcher.ps1 -FallbackToCli -ForceGuiInitFailure -CliFallbackCommand show-status` OK.
+- `Run-UX2FTests.ps1` etait obsolète apres francisation de l UI; mise a jour des attentes en francais (`Resume du diagnostic`, `ACTIONS RECOMMANDEES`, boutons `ANALYSER...`).
+- Tests relances:
+  - `Run-UX2Tests.ps1`: PASS
+  - `Run-UX2CTests.ps1`: PASS
+  - `Run-UX2ETests.ps1`: PASS
+  - `Run-UX2FTests.ps1`: PASS
+  - `Run-UXEncodingTests.ps1`: PASS
+  - `Run-UXTooltipTests.ps1`: PASS
+- Validation finale USB relancee apres sync launcher: `post-final-usb-validation.txt` = 44/44 PASS.
+
+### 2026-05-28 17:21:48 +02:00 Codex support navigateur portable rapports WinPE
+
+Decision:
+- Ne pas embarquer Chrome installe dans l image WinPE.
+- Ajouter un point d integration pour navigateur portable offline dans `tools\browser`.
+
+Changements:
+- `SetHtmlAssociation.cmd` detecte maintenant en priorite:
+  - `%DANEW_ROOT%\tools\browser\chrome.exe`
+  - `%DANEW_ROOT%\tools\browser\chromium.exe`
+  - `%DANEW_ROOT%\tools\browser\msedge.exe`
+  - fallback `E:\tools\browser\chrome.exe` / `chromium.exe`
+  - puis Chrome/Edge/IE installes si presents.
+- `OpenReportsIndex.cmd` utilise le meme ordre de detection.
+- `launcher.ps1` ajoute `Get-DanewPortableBrowserPath` et ouvre les `.html/.htm` avec le navigateur portable s il existe; sinon conserve `Start-Process` par association Windows.
+- Les auto-ouvertures apres analyse offline/crash utilisent maintenant le meme fallback navigateur portable.
+- Ajout du slot documentaire `tools\browser\README.txt` pour deposer un navigateur portable offline.
+
+Synchronisation USB:
+- `launcher.ps1`, `SetHtmlAssociation.cmd`, `OpenReportsIndex.cmd`, `Run-UX2Tests.ps1`, et `tools\browser\README.txt` copies sur `D:` et `E:`.
+
+Validation:
+- Parse `launcher.ps1`: 0 erreur.
+- `Run-UX2Tests.ps1`: 12/12 PASS.
+- `Run-UX2FTests.ps1`: PASS.
+- `Run-UXEncodingTests.ps1`: PASS.
+- `Run-UXTooltipTests.ps1`: PASS.
+- `Run-PostFinalUsbValidation.ps1`: 44/44 PASS.
+
+### 2026-05-28 17:34:05 +02:00 Codex BROWSER-INTEGRATION-1
+
+Objectif:
+- Finaliser la prise en charge navigateur portable pour rapports HTML WinPE, sans telechargement automatique ni redistribution Chrome.
+
+Changements principaux:
+- `LauncherCore.ps1` ajoute:
+  - `Get-DanewBrowserCandidatePaths`
+  - `Get-DanewPortableBrowserDetection`
+  - `Export-DanewBrowserDetection`
+  - action launcher `check-browser`
+- Generation:
+  - `browser-detection.json`
+  - `browser-detection.txt`
+- `DanewCheckTool.CLI.ps1` ajoute la commande:
+  - `-Command check-browser`
+- `launcher.ps1`:
+  - accepte `check-browser` dans `-CliFallbackCommand`
+  - affiche `Browser HTML` et `Chemin navigateur` dans les details techniques uniquement
+  - conserve le message clair si navigateur absent:
+    `Navigateur HTML non disponible. Consultez les rapports TXT/CSV dans le dossier reports.`
+  - les boutons rapports ne plantent pas si aucun navigateur n est present
+- `SetHtmlAssociation.cmd` et `OpenReportsIndex.cmd` detectent en priorite:
+  - `%DANEW_ROOT%\tools\browser\chrome.exe`
+  - `%DANEW_ROOT%\tools\browser\chromium.exe`
+  - `%DANEW_ROOT%\tools\browser\msedge.exe`
+  - puis fallback `E:\tools\browser\...`
+  - puis Chrome/Edge/IE installes si presents
+- `OpenReportsIndex.cmd` sort proprement sans erreur dure si aucun navigateur n est disponible.
+- Ajout fallback texte:
+  - `REPORTS_README.txt`
+  - `evtx-sav-summary.txt`
+  - `winpe-real-run-summary.txt`
+- Ajout documentation slot navigateur:
+  - `tools\browser\README.txt`
+
+Tests ajoutes:
+- `Run-BrowserIntegrationTests.ps1`
+  - 10/10 PASS
+  - couvre absence navigateur, `chromium.exe`, `chrome.exe`, `msedge.exe`, commande d ouverture, fallback TXT, absence internet et chemins rapports inchanges.
+- `Run-PostBrowserUsbValidation.ps1`
+  - 34/34 PASS
+  - verifie sync D/E, dossier `tools\browser`, scripts browser et absence obligatoire de binaire navigateur.
+
+Validation supplementaire:
+- `DanewCheckTool.CLI.ps1 -Command check-browser` execute localement et depuis `E:\scripts`.
+- Statut actuel attendu: WARNING car aucun navigateur portable n est fourni.
+- `Run-UX2Tests.ps1`: PASS
+- `Run-UX2FTests.ps1`: PASS
+- `Run-UXEncodingTests.ps1`: PASS
+- `Run-UXTooltipTests.ps1`: PASS
+- `Run-PostFinalUsbValidation.ps1`: 44/44 PASS
+
+USB:
+- Fichiers synchronises sur `D:` et `E:`.
+- Aucun navigateur telecharge ou ajoute automatiquement.
+
+Resultat final:
+- Cle WinPE recreee completement sur le disque 4 avec repartitionnement, formatage FAT32/NTFS, puis recopie des fichiers.
+- Partition BOOT sur `D:` et partition DATA sur `E:` apres provision.
+- Sync USB des scripts tooltip/real validation verifiee par hash sur `D:` et `E:`.
+- Validation finale post-provision: `post-final-usb-validation.json/txt` au vert avec `44/44 PASS`.
+- Le manifeste EVTX `evtx-event-knowledge.json` a ete restaure sur la partition BOOT pour satisfaire la validation finale.
+- Le flux real WinPE tooltip genere bien `real-winpe-tooltip-validation.json/txt` et `real-winpe-tooltip-checklist.txt`.
+
+Commandes de validation executees:
+1. `powershell -NoProfile -ExecutionPolicy Bypass -File "h:\Danew_CheckTool\WinPe_local\scripts\Invoke-DanewCreateUsbMedia.ps1" -RootPath "h:\Danew_CheckTool\WinPe_local" -Mode Provision -TargetDiskNumber 4 -NonInteractive -ConfirmDiskNumber 4 -ConfirmToken "DANEW-FORMAT-DISK-4"`
+	- Resultat: PASS.
+2. `powershell -NoProfile -ExecutionPolicy Bypass -File "h:\Danew_CheckTool\WinPe_local\scripts\tests\Run-PostFinalUsbValidation.ps1" -RootPath "h:\Danew_CheckTool\WinPe_local" -OutputDirectory "h:\Danew_CheckTool\WinPe_local\reports" -DiskNumber 4`
+	- Resultat final: PASS, `44/44`.
+3. `powershell -NoProfile -ExecutionPolicy Bypass -File "h:\Danew_CheckTool\WinPe_local\scripts\Invoke-DanewRealWinPEValidation.ps1" -RootPath "h:\Danew_CheckTool\WinPe_local"`
+	- Resultat: PASS, avec artefacts tooltip produits.
+
+Note:
+- Aucun changement de backend moteur n'a ete introduit pour cette phase; uniquement ajout du validateur tooltip, synchronisation USB et verification de la recreation complete.
 - Categories dans l'index:
 	1. A ouvrir en premier
 	2. Analyse panne / SAV
@@ -396,6 +542,25 @@ Correction locale:
 - UX-2 mis a jour: 12/12 PASS. UX-1: 11/11 PASS. Fallback CLI launcher OK.
 - Cle WinPE non resynchronisee apres cette correction locale.
 
+### 2026-05-28 Codex hotfix empty rows HTML report
+
+Contexte:
+- Erreur utilisateur en WinPE sur `ANALYZE CRASH CAUSES`: `Cannot bind argument to parameter 'Rows' because it is an empty array.`
+
+Correction:
+- `scripts/report/HtmlReportShell.ps1`: `New-DanewReportTableHtml` accepte maintenant `-Rows @()` et affiche l'etat vide.
+- Test UX-2B etendu avec `empty_table_rows_allowed`.
+- Correction copiee sur la cle dans:
+  - `D:\scripts\report\HtmlReportShell.ps1`
+  - `E:\scripts\report\HtmlReportShell.ps1`
+  - tests UX-2B copies sur D/E.
+
+Validation:
+- Local UX-2B: 9/9 PASS.
+- Phase 6B.1: 7/7 PASS.
+- UX-2B depuis `E:\scripts`: 9/9 PASS.
+- Hash `HtmlReportShell.ps1` identique local/D/E.
+
 ### 2026-05-28 GitHub Copilot (GPT-5.4) WinPE HTML association on USB
 
 Intervention effectuee pour ouvrir les rapports HTML depuis la cle en contexte WinPE:
@@ -433,3 +598,145 @@ Execution / resultats:
 - `ux2b-tests-report.txt`: total 8, passed 8, failed 0.
 - `post-ux2b-usb-validation.txt`: total 9, passed 9, failed 0.
 - Verification sync launcher USB: SHA256 local = `D:\scripts\launcher.ps1` = `E:\scripts\launcher.ps1`.
+
+### 2026-05-28 Codex hotfix WinPE launcher toggle syntax
+
+Contexte:
+- Erreur utilisateur au demarrage WinPE: `Set-DanewAdvancedToolsVisible : The term 'if' is not recognized...`
+- Source confirmee dans `WinPe_local/scripts/launcher.ps1`: deux appels `Convert-DanewUiText -Text (if (...))`, non compatibles Windows PowerShell/WinPE.
+- Le launcher basculait correctement en CLI fallback, mais la GUI SAV ne s'initialisait pas.
+
+Correction:
+- Remplacement des deux expressions `if` inline par affectation explicite avant appel:
+  - bouton `AFFICHER/MASQUER LES OUTILS AVANCES`
+  - bouton `AFFICHER/MASQUER LES DETAILS TECHNIQUES`
+- Aucun changement backend, aucun changement rapport, aucun changement handlers.
+
+Sync USB:
+- `launcher.ps1` copie sur `D:\scripts\launcher.ps1` et `E:\scripts\launcher.ps1`.
+- Hash SHA256 identique local/D/E: `248C1EA32E6D5981BFEF64B70BF0B8FBDDFEFDC9CCFBD3DB0D328D7839FD9F02`.
+
+Validation:
+- Parser `launcher.ps1`: OK.
+- Recherche syntaxe fautive dans launcher: aucune occurrence.
+- UX-2: 12/12 PASS.
+- UX-2F: 8/8 PASS.
+- UX Encoding: 7/7 PASS.
+- UX Tooltip: 11/11 PASS.
+- Browser Integration: 10/10 PASS.
+- Post Browser USB validation: 34/34 PASS.
+- Post Final USB validation: 44/44 PASS.
+
+### 2026-05-28 Codex hotfix UI summary localized values
+
+Contexte:
+- Validation visuelle UI locale: les champs `Confiance` et `Severite` affichaient `[string]@{overall=...}` au lieu de valeurs lisibles.
+- Cause: appels PowerShell du type `Get-DanewLocalizedStatusText [string]$summary.severity`.
+- En mode argument PowerShell, ce cast inline n'etait pas applique comme attendu et envoyait une representation de l'objet resume.
+
+Correction:
+- `WinPe_local/scripts/launcher.ps1`: parenthesage explicite des casts avant appels de localisation:
+  - `Get-DanewLocalizedStatusText ([string]...)`
+  - `Get-DanewLocalizedConfidenceText ([string]...)`
+  - `Get-DanewLocalizedCauseText ([string]...)`
+- Impact limite a l'affichage UI/messages launcher; backend et rapports inchanges.
+
+Validation:
+- Recherche appels localises non parenthesises: aucune occurrence restante dans `launcher.ps1`.
+- Parser `launcher.ps1`: OK.
+- UX-2: 12/12 PASS.
+- Interface locale relancee avec le correctif: PID `31068`.
+- USB non resynchronisee dans cette intervention car les volumes `D:`/`E:` n'etaient plus visibles depuis le poste.
+
+### 2026-05-28 Codex UX hotfix dynamic SAV summary details
+
+Demande:
+- Ne plus afficher au demarrage le bloc detaille `Cause probable / Confiance / Severite / Detection Windows / Stockage / Evenements critiques / Prochaine action`.
+- Afficher ce bloc dynamiquement uniquement apres l'analyse des journaux Windows.
+
+Correction:
+- `WinPe_local/scripts/launcher.ps1`
+  - Ajout `Set-DanewSavSummaryDetailsVisible`.
+  - Champs detailles masques au demarrage.
+  - Carte SAV compactee au demarrage; `Rapports et actions` remonte automatiquement.
+  - Champs detailles affiches apres `analyze-offline-logs` et apres `start-diagnostic`.
+- `WinPe_local/scripts/tests/Run-UX2Tests.ps1`
+  - Test UX-2 mis a jour: `sav_summary_details_dynamic_after_logs`.
+
+Validation:
+- Parser `launcher.ps1`: OK.
+- UX-2: 12/12 PASS.
+- UX-2F: 8/8 PASS.
+- UX Encoding: 7/7 PASS.
+- UX Tooltip: 11/11 PASS.
+- Interface locale relancee: PID `8800`.
+- USB non resynchronisee: volumes `D:`/`E:` absents au moment de la verification.
+
+### 2026-05-28 Codex UX hotfix Windows release chip
+
+Demande:
+- Afficher dans le chip Windows la version/release utile, ex. `Windows 11 24H2` ou `Windows 11 25H2`, au lieu de seulement `Windows : Inconnu`.
+
+Correction:
+- `WinPe_local/scripts/launcher.ps1`
+  - Ajout `Get-DanewWindowsDisplayFromOfflineReport`.
+  - Lecture de `offline-windows-analysis.json > registry_metadata`:
+    - `product_name`
+    - `display_version`
+    - `release_id`
+    - `current_build`
+  - Priorite a `DisplayVersion` quand disponible.
+  - Fallback build:
+    - build `26200+` -> `25H2`
+    - build `26100+` -> `24H2`
+    - builds Windows 11/10 precedents mappes en fallback.
+  - Chip Windows elargi de 176 a 260 px.
+- `WinPe_local/scripts/tests/Run-UX2Tests.ps1`
+  - Ajout test `windows_chip_shows_release_version`.
+
+Sync USB:
+- `launcher.ps1` copie sur `D:\scripts\launcher.ps1` et `E:\scripts\launcher.ps1`.
+- Hash SHA256 identique local/D/E: `706F5A78AC14DB6416678D25EDBB5399FF1757DBE1381C0A77AF15019CB91D98`.
+
+Validation:
+- Parser `launcher.ps1`: OK.
+- UX-2: 13/13 PASS.
+- UX-2F: 8/8 PASS.
+- UX Encoding: 7/7 PASS.
+- UX Tooltip: 11/11 PASS.
+- Post Final USB validation: 44/44 PASS.
+- Post Browser USB validation: 34/34 PASS.
+- Interface locale relancee: PID `20320`.
+
+### 2026-05-28 Codex hotfix logo Danew absent en WinPE
+
+Contexte:
+- Logo Danew visible en lancement local, absent en boot WinPE.
+- Cause confirmee: `launcher.ps1` charge `Assets_danew\danew_line_black.png` depuis `$RootPath`, mais le dossier `Assets_danew` n'etait pas copie sur les partitions USB `D:\` / `E:\`.
+- Au boot, `main.cmd` peut choisir `D:\` comme root car `D:\scripts\launcher.ps1` existe; le logo doit donc etre present sur BOOT et DATA.
+
+Correction:
+- `WinPe_local/scripts/usb/UsbProvisioning.ps1`
+  - Ajout `Assets_danew` aux racines de build.
+  - Ajout `Assets_danew` au contenu DATA.
+  - Copie `Assets_danew` vers BOOT et DATA pendant `Invoke-DanewUsbExport`.
+- `WinPe_local/scripts/tests/Run-PostFinalUsbValidation.ps1`
+  - Ajout validation presence/hash:
+    - `Assets_danew\danew_line_black.png`
+    - `Assets_danew\danew_brand_line_blue.ico`
+
+Sync USB:
+- Dossier `Assets_danew` copie sur:
+  - `D:\Assets_danew`
+  - `E:\Assets_danew`
+- `UsbProvisioning.ps1` copie sur:
+  - `D:\scripts\usb\UsbProvisioning.ps1`
+  - `E:\scripts\usb\UsbProvisioning.ps1`
+
+Validation:
+- Parser `launcher.ps1`: OK.
+- Parser `UsbProvisioning.ps1`: OK.
+- Parser `Run-PostFinalUsbValidation.ps1`: OK.
+- UX-2: 13/13 PASS.
+- Post Final USB validation: 52/52 PASS.
+- Hash logo PNG et ICO identique local/D/E.

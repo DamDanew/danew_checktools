@@ -526,20 +526,20 @@ function Export-DanewBuildSummaryHtml {
 
     $html = @"
 <html>
-<head><title>Danew Build Summary</title></head>
+<head><title>Resume de build Danew</title></head>
 <body>
-<h1>Danew Build Summary</h1>
-<p><b>Build ID:</b> $($BuildManifest.build_id)</p>
-<p><b>Mode:</b> $($BuildManifest.mode)</p>
-<p><b>Profile:</b> $($BuildManifest.profile)</p>
-<p><b>Architecture:</b> $($BuildManifest.architecture)</p>
-<p><b>Security Gate Approved:</b> $($SecurityReport.approved)</p>
-<p><b>USB Export Ready:</b> $($UsbValidation.ready_for_export)</p>
-<h2>Action Counts</h2>
+<h1>Resume de build Danew</h1>
+<p><b>ID build :</b> $($BuildManifest.build_id)</p>
+<p><b>Mode :</b> $($BuildManifest.mode)</p>
+<p><b>Profil :</b> $($BuildManifest.profile)</p>
+<p><b>Architecture :</b> $($BuildManifest.architecture)</p>
+<p><b>Validation securite approuvee :</b> $(Get-DanewLocalizedBooleanText $SecurityReport.approved)</p>
+<p><b>Export USB pret :</b> $(Get-DanewLocalizedBooleanText $UsbValidation.ready_for_export)</p>
+<h2>Compteurs d actions</h2>
 <ul>
-<li>Total Actions: $(@($BuildManifest.actions).Count)</li>
-<li>Security Violations: $(@($SecurityReport.violations).Count)</li>
-<li>Missing Required USB Paths: $(@($UsbValidation.required_paths | Where-Object { -not $_.exists }).Count)</li>
+<li>Actions totales : $(@($BuildManifest.actions).Count)</li>
+<li>Violations de securite : $(@($SecurityReport.violations).Count)</li>
+<li>Chemins USB requis manquants : $(@($UsbValidation.required_paths | Where-Object { -not $_.exists }).Count)</li>
 </ul>
 </body>
 </html>

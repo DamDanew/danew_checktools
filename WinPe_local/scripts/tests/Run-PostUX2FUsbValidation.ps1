@@ -116,7 +116,7 @@ $uiStringsOk = $false
 $uiDetails = 'launcher.ps1 missing on USB'
 if ($dataLauncher -and (Test-Path $dataLauncher)) {
     $content = Get-Content -Path $dataLauncher -Raw -Encoding UTF8
-    $need = @('ANALYZE WINDOWS LOGS', 'ANALYZE CRASH CAUSES', 'Diagnostic Summary', 'Recommended next action')
+    $need = @('ANALYSER LES JOURNAUX WINDOWS', 'ANALYSER LES CAUSES DE CRASH', 'Resume du diagnostic', 'Prochaine action recommandee')
     $missing = @($need | Where-Object { $content -notmatch [regex]::Escape($_) })
     $oldTitlePresent = $content -match 'Probable Cause and Severity'
     $uiStringsOk = (@($missing).Count -eq 0) -and (-not $oldTitlePresent)

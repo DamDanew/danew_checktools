@@ -38,16 +38,16 @@ $errors = $null
 [System.Management.Automation.Language.Parser]::ParseFile($launcherPath, [ref]$tokens, [ref]$errors) | Out-Null
 $results += Add-UX2FResult -Name 'launcher_parser_ok' -Passed (-not $errors) -Details ($(if ($errors) { ($errors | Select-Object -First 1).Message } else { 'PowerShell parser clean' }))
 
-$summaryTitleOk = $launcher -match '\$resultTitleLabel\.Text\s*=\s*''Diagnostic Summary''' 
-$results += Add-UX2FResult -Name 'diagnostic_summary_title' -Passed $summaryTitleOk -Details 'Diagnostic Summary title visible.'
+$summaryTitleOk = $launcher -match '\$resultTitleLabel\.Text\s*=\s*''Resume du diagnostic''' 
+$results += Add-UX2FResult -Name 'diagnostic_summary_title' -Passed $summaryTitleOk -Details 'French diagnostic summary title visible.'
 
 $oldTitleAbsent = $launcher -notmatch 'Probable Cause and Severity'
 $results += Add-UX2FResult -Name 'old_title_removed' -Passed $oldTitleAbsent -Details 'Old title removed from UI.'
 
-$recommendedNeutral = $launcher -match '(?s)Recommended Actions'' -Action ''recommended-actions''.*?-Tone ''neutral''' 
-$results += Add-UX2FResult -Name 'recommended_actions_not_orange' -Passed $recommendedNeutral -Details 'Recommended Actions button uses neutral styling.'
+$recommendedNeutral = $launcher -match '(?s)ACTIONS RECOMMANDEES'' -Action ''recommended-actions''.*?-Tone ''neutral''' 
+$results += Add-UX2FResult -Name 'recommended_actions_not_orange' -Passed $recommendedNeutral -Details 'Recommended actions button uses neutral styling.'
 
-$primaryButtons = ($launcher -match 'ANALYZE WINDOWS LOGS') -and ($launcher -match 'ANALYZE CRASH CAUSES')
+$primaryButtons = ($launcher -match 'ANALYSER LES JOURNAUX WINDOWS') -and ($launcher -match 'ANALYSER LES CAUSES DE CRASH')
 $noMainScroll = ($launcher -match '\$form\.AutoScroll\s*=\s*\$false')
 $results += Add-UX2FResult -Name 'primary_buttons_visible_without_scroll' -Passed ($primaryButtons -and $noMainScroll) -Details 'Primary buttons remain visible without scroll.'
 
@@ -58,7 +58,7 @@ $openSavOk = ($launcher -match 'Open-DanewReportFile') -and ($launcher -match 'G
 $results += Add-UX2FResult -Name 'open_sav_report_wired' -Passed $openSavOk -Details 'Open SAV report handler still present.'
 
 $handlersOk = ($launcher -match "-Action 'analyze-offline-logs'") -and ($launcher -match "-Action 'analyze-crash-causes'") -and ($launcher -match 'Invoke-GuiAction')
-$results += Add-UX2FResult -Name 'analyze_handlers_present' -Passed $handlersOk -Details 'Analyze Windows Logs and Crash Causes handlers still present.'
+$results += Add-UX2FResult -Name 'analyze_handlers_present' -Passed $handlersOk -Details 'Analyze Windows logs and crash causes handlers still present.'
 
 $summary = [pscustomobject]@{
     total = @($results).Count

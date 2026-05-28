@@ -21,7 +21,7 @@ function Get-DanewBuildMetrics {
     )
 
     $defaults = Get-DanewUsbProvisioningDefaults
-    $sourceRoots = @('Boot', 'EFI', 'sources', 'scripts', 'tools', 'drivers', 'reports', 'logs', 'images', 'manifests', 'profiles', 'schemas', 'builds')
+    $sourceRoots = @('Boot', 'EFI', 'sources', 'scripts', 'tools', 'drivers', 'reports', 'logs', 'images', 'manifests', 'profiles', 'schemas', 'builds', 'Assets_danew')
     $totalBytes = 0
     foreach ($root in $sourceRoots) {
         $full = Join-Path $BuildPath $root
@@ -389,7 +389,7 @@ function New-DanewPartitionLayout {
             fs = 'NTFS'
             size_mb = -1
             label = $defaults.data_label
-            content = @('tools', 'drivers', 'logs', 'reports', 'diagnostics', 'backup', 'images', 'scripts', 'manifests', 'profiles', 'schemas', 'builds')
+            content = @('tools', 'drivers', 'logs', 'reports', 'diagnostics', 'backup', 'images', 'scripts', 'manifests', 'profiles', 'schemas', 'builds', 'Assets_danew')
         }
     )
 
@@ -673,7 +673,9 @@ function Invoke-DanewUsbExport {
         [pscustomobject]@{ src = (Join-Path $BuildPath 'EFI'); dst = (Join-Path $bootTarget 'EFI') },
         [pscustomobject]@{ src = (Join-Path $BuildPath 'Boot'); dst = (Join-Path $bootTarget 'Boot') },
             [pscustomobject]@{ src = (Join-Path $BuildPath 'sources\boot.wim'); dst = (Join-Path $bootTarget 'sources\boot.wim') },
-            [pscustomobject]@{ src = (Join-Path $BuildPath 'scripts'); dst = (Join-Path $bootTarget 'scripts') }
+            [pscustomobject]@{ src = (Join-Path $BuildPath 'scripts'); dst = (Join-Path $bootTarget 'scripts') },
+            [pscustomobject]@{ src = (Join-Path $BuildPath 'manifests'); dst = (Join-Path $bootTarget 'manifests') },
+            [pscustomobject]@{ src = (Join-Path $BuildPath 'Assets_danew'); dst = (Join-Path $bootTarget 'Assets_danew') }
     )
 
     $dataMap = @(
@@ -686,7 +688,8 @@ function Invoke-DanewUsbExport {
         [pscustomobject]@{ src = (Join-Path $BuildPath 'manifests'); dst = (Join-Path $dataTarget 'manifests') },
         [pscustomobject]@{ src = (Join-Path $BuildPath 'profiles'); dst = (Join-Path $dataTarget 'profiles') },
         [pscustomobject]@{ src = (Join-Path $BuildPath 'schemas'); dst = (Join-Path $dataTarget 'schemas') },
-        [pscustomobject]@{ src = (Join-Path $BuildPath 'builds'); dst = (Join-Path $dataTarget 'builds') }
+        [pscustomobject]@{ src = (Join-Path $BuildPath 'builds'); dst = (Join-Path $dataTarget 'builds') },
+        [pscustomobject]@{ src = (Join-Path $BuildPath 'Assets_danew'); dst = (Join-Path $dataTarget 'Assets_danew') }
     )
 
     foreach ($item in @($bootMap + $dataMap)) {
@@ -839,15 +842,15 @@ function Export-DanewUsbSummaryHtml {
 
     $html = @"
 <html>
-<head><title>Danew USB Export Summary</title></head>
+<head><title>Resume export USB Danew</title></head>
 <body>
-<h1>Danew USB Export Summary</h1>
-<p><b>Status:</b> $($Report.status)</p>
-<p><b>Disk Number:</b> $($Report.target_disk_number)</p>
-<p><b>Mode:</b> $($Report.mode)</p>
-<p><b>Build Size (GB):</b> $($Report.build_metrics.total_gb)</p>
-<p><b>Boot Validation:</b> $($Report.boot_validation.status)</p>
-<p><b>Safety:</b> $($Report.safety.safety_passed)</p>
+<h1>Resume export USB Danew</h1>
+<p><b>Statut :</b> $(Get-DanewLocalizedStatusText $Report.status)</p>
+<p><b>Numero de disque :</b> $($Report.target_disk_number)</p>
+<p><b>Mode :</b> $($Report.mode)</p>
+<p><b>Taille du build (Go) :</b> $($Report.build_metrics.total_gb)</p>
+<p><b>Validation de demarrage :</b> $(Get-DanewLocalizedStatusText $Report.boot_validation.status)</p>
+<p><b>Securite :</b> $(Get-DanewLocalizedBooleanText $Report.safety.safety_passed)</p>
 </body>
 </html>
 "@
