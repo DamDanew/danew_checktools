@@ -1,4 +1,4 @@
-Set-StrictMode -Version Latest
+﻿Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $reportShellPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'report\HtmlReportShell.ps1'
@@ -9,6 +9,11 @@ if (Test-Path -Path $reportShellPath) {
 $offlineEnginePath = Join-Path (Split-Path -Parent $PSScriptRoot) 'offline\OfflineLogsEngine.ps1'
 if (Test-Path -Path $offlineEnginePath) {
     . $offlineEnginePath
+}
+
+$winpePrecheckAgentPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'winpe\WinPEPrecheckAgent.ps1'
+if (Test-Path -Path $winpePrecheckAgentPath) {
+    . $winpePrecheckAgentPath
 }
 
 $crashEnginePath = Join-Path (Split-Path -Parent $PSScriptRoot) 'offline\CrashAnalysisEngine.ps1'
@@ -81,6 +86,220 @@ function Initialize-DanewLauncherPaths {
 
     if (-not (Test-Path -Path $Config.launcher_log_path)) {
         @() | ConvertTo-Json -Depth 5 | Set-Content -Path $Config.launcher_log_path -Encoding UTF8
+    }
+}
+
+function Get-DanewBrowserCandidatePaths {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RootPath,
+        [Parameter(Mandatory = $true)]
+        [object]$Config
+    )
+
+    $candidates = New-Object System.Collections.ArrayList
+
+    function Add-DanewBrowserCandidatePath {
+        param(
+            [string]$BasePath,
+            [string]$Source
+        )
+
+        if ([string]::IsNullOrWhiteSpace($BasePath)) {
+            return
+        }
+
+        foreach ($exeName in @('chrome.exe', 'chromium.exe', 'msedge.exe')) {
+            $path = ''
+            try {
+                $path = Join-Path $BasePath ('tools\browser\' + $exeName)
+            }
+            catch {
+                $base = [string]$BasePath
+                if (-not $base.EndsWith('\')) {
+                    $base += '\'
+                }
+                $path = $base + 'tools\browser\' + $exeName
+            }
+            if (-not @($candidates | Where-Object { $_.path -ieq $path })) {
+                [void]$candidates.Add([pscustomobject]@{
+                        path = $path
+                        executable = $exeName
+                        source = $Source
+                    })
+            }
+        }
+    }
+
+    Add-DanewBrowserCandidatePath -BasePath $RootPath -Source 'root'
+
+    if ($Config -and $Config.PSObject.Properties['reports_path']) {
+        try {
+            $reportsParent = Split-Path -Parent ([string]$Config.reports_path)
+            Add-DanewBrowserCandidatePath -BasePath $reportsParent -Source 'reports-parent'
+        }
+        catch {
+        }
+    }
+
+    try {
+        $dataVolumes = @(Get-Volume -FileSystemLabel 'DANEW_DATA' -ErrorAction SilentlyContinue)
+        foreach ($volume in $dataVolumes) {
+            if (-not [string]::IsNullOrWhiteSpace([string]$volume.DriveLetter)) {
+                Add-DanewBrowserCandidatePath -BasePath ([string]$volume.DriveLetter + ':\') -Source 'DANEW_DATA'
+            }
+        }
+    }
+    catch {
+    }
+
+    foreach ($drive in @('E', 'D', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'Y', 'Z')) {
+        Add-DanewBrowserCandidatePath -BasePath ($drive + ':\') -Source 'drive-scan'
+    }
+
+    return @($candidates)
+}
+
+function Get-DanewPortableBrowserDetection {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RootPath,
+        [Parameter(Mandatory = $true)]
+        [object]$Config
+    )
+
+    Initialize-DanewLauncherPaths -Config $Config
+
+    $candidates = @(Get-DanewBrowserCandidatePaths -RootPath $RootPath -Config $Config)
+    $candidateResults = @()
+    $detected = $null
+
+    foreach ($candidate in @($candidates)) {
+        $exists = Test-Path -Path ([string]$candidate.path)
+        $version = ''
+        if ($exists) {
+            try {
+                $item = Get-Item -Path ([string]$candidate.path) -ErrorAction Stop
+                if ($item.VersionInfo -and -not [string]::IsNullOrWhiteSpace([string]$item.VersionInfo.ProductVersion)) {
+                    $version = [string]$item.VersionInfo.ProductVersion
+                }
+                elseif ($item.VersionInfo -and -not [string]::IsNullOrWhiteSpace([string]$item.VersionInfo.FileVersion)) {
+                    $version = [string]$item.VersionInfo.FileVersion
+                }
+            }
+            catch {
+                $version = ''
+            }
+        }
+
+        $entry = [pscustomobject]@{
+            path = [string]$candidate.path
+            executable = [string]$candidate.executable
+            source = [string]$candidate.source
+            exists = $exists
+            version = $version
+        }
+        $candidateResults += $entry
+
+        if ($exists -and -not $detected) {
+            $detected = $entry
+        }
+    }
+
+    $fallbackTxt = @()
+    foreach ($name in @('evtx-sav-summary.txt', 'winpe-real-run-summary.txt', 'REPORTS_README.txt')) {
+        $path = Join-Path ([string]$Config.reports_path) $name
+        $fallbackTxt += [pscustomobject]@{
+            name = $name
+            path = $path
+            exists = (Test-Path -Path $path)
+        }
+    }
+
+    $reports = @()
+    foreach ($name in @('REPORTS_INDEX.html', 'reports-index.html', 'sav-diagnostic-report.html', 'timeline-raw.html', 'evtx-events.html')) {
+        $path = Join-Path ([string]$Config.reports_path) $name
+        $exists = Test-Path -Path $path
+        $reports += [pscustomobject]@{
+            name = $name
+            path = $path
+            exists = $exists
+            status = if ($exists) { 'PASS' } else { 'WARNING' }
+            open_command = if ($detected -and $exists) { '"' + [string]$detected.path + '" "' + $path + '"' } elseif ($exists) { 'start "" "' + $path + '"' } else { '' }
+        }
+    }
+
+    $status = if ($detected) { 'PASS' } else { 'WARNING' }
+    $message = if ($detected) { 'Portable HTML browser available.' } else { 'Navigateur HTML non disponible. Consultez les rapports TXT/CSV dans le dossier reports.' }
+
+    return [pscustomobject]@{
+        timestamp = (Get-Date).ToString('s')
+        status = $status
+        message = $message
+        browser_path = if ($detected) { [string]$detected.path } else { '' }
+        browser_executable = if ($detected) { [string]$detected.executable } else { '' }
+        browser_version = if ($detected) { [string]$detected.version } else { '' }
+        executable_exists = [bool]$detected
+        launch_test_possible = [bool]$detected
+        launch_test_status = if ($detected) { 'READY' } else { 'SKIPPED' }
+        candidates = $candidateResults
+        report_opening = $reports
+        fallback_message = 'Navigateur HTML non disponible. Consultez les rapports TXT/CSV dans le dossier reports.'
+        fallback_txt = $fallbackTxt
+        internet_required = $false
+    }
+}
+
+function Export-DanewBrowserDetection {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RootPath,
+        [Parameter(Mandatory = $true)]
+        [object]$Config
+    )
+
+    $detection = Get-DanewPortableBrowserDetection -RootPath $RootPath -Config $Config
+    $jsonPath = Join-Path ([string]$Config.reports_path) 'browser-detection.json'
+    $txtPath = Join-Path ([string]$Config.reports_path) 'browser-detection.txt'
+
+    $detection | ConvertTo-Json -Depth 30 | Set-Content -Path $jsonPath -Encoding UTF8
+
+    $lines = @(
+        'Danew Browser Detection',
+        ('Status: ' + [string]$detection.status),
+        ('Message: ' + [string]$detection.message),
+        ('Browser path: ' + [string]$detection.browser_path),
+        ('Browser executable: ' + [string]$detection.browser_executable),
+        ('Browser version: ' + [string]$detection.browser_version),
+        ('Executable exists: ' + [string]$detection.executable_exists),
+        ('Launch test possible: ' + [string]$detection.launch_test_possible),
+        ('Internet required: False'),
+        '',
+        'Report opening validation:'
+    )
+    foreach ($report in @($detection.report_opening)) {
+        $lines += ('[' + [string]$report.status + '] ' + [string]$report.name + ' -> ' + [string]$report.path)
+        if (-not [string]::IsNullOrWhiteSpace([string]$report.open_command)) {
+            $lines += ('  command: ' + [string]$report.open_command)
+        }
+    }
+
+    $lines += ''
+    $lines += 'TXT fallback:'
+    $lines += [string]$detection.fallback_message
+    foreach ($fallback in @($detection.fallback_txt)) {
+        $state = if ($fallback.exists) { 'PASS' } else { 'WARNING' }
+        $lines += ('[' + $state + '] ' + [string]$fallback.name + ' -> ' + [string]$fallback.path)
+    }
+
+    $lines | Set-Content -Path $txtPath -Encoding UTF8
+
+    return [pscustomobject]@{
+        detection = $detection
+        artifacts = [pscustomobject]@{
+            json = $jsonPath
+            txt = $txtPath
+        }
     }
 }
 
@@ -312,6 +531,7 @@ function Get-DanewLauncherStatusSnapshot {
     $offlineWindows = Get-DanewOfflineWindowsDisplayValue -Config $Config
     $logsFolder = if ([string]::IsNullOrWhiteSpace($Config.logs_path)) { 'Unknown' } else { $Config.logs_path }
     $statusSnapshotPath = if ([string]::IsNullOrWhiteSpace($Config.gui_status_snapshot_path)) { Join-Path $Config.reports_path 'gui-status-snapshot.json' } else { $Config.gui_status_snapshot_path }
+    $browserDetection = Get-DanewPortableBrowserDetection -RootPath $RootPath -Config $Config
 
     $snapshot = [pscustomobject]@{
         timestamp = (Get-Date).ToString('s')
@@ -324,6 +544,8 @@ function Get-DanewLauncherStatusSnapshot {
         selected_usb_disk = $selectedUsbDisk
         offline_windows_detected = $offlineWindows
         logs_folder_path = $logsFolder
+        browser_html_status = if ($browserDetection.browser_path) { 'Available' } else { 'Missing' }
+        browser_html_path = if ($browserDetection.browser_path) { [string]$browserDetection.browser_path } else { 'Navigateur HTML non disponible. Consultez les rapports TXT/CSV dans le dossier reports.' }
         snapshot_path = $statusSnapshotPath
     }
 
@@ -568,7 +790,7 @@ function Write-DanewOneClickDiagnosticReport {
     <tr data-search-row="$rowSearch">
 <td>$(Convert-DanewHtmlText $step.order)</td>
 <td>$(Convert-DanewHtmlText $step.label)</td>
-<td>$(Convert-DanewHtmlText $step.status)</td>
+<td>$(Convert-DanewHtmlText (Get-DanewLocalizedStatusText $step.status))</td>
 <td>$(Convert-DanewHtmlText $step.message)</td>
 <td>$(Convert-DanewHtmlText $step.details)</td>
 </tr>
@@ -576,24 +798,24 @@ function Write-DanewOneClickDiagnosticReport {
     }
 
     $metrics = @(
-        (New-DanewMetricCardHtml -Label 'Total steps' -Value $Diagnostic.summary.total -Tone 'info')
+        (New-DanewMetricCardHtml -Label 'Etapes totales' -Value $Diagnostic.summary.total -Tone 'info')
         (New-DanewMetricCardHtml -Label 'Pass' -Value $Diagnostic.summary.pass -Tone 'pass')
-        (New-DanewMetricCardHtml -Label 'Warning' -Value $Diagnostic.summary.warning -Tone 'warning')
-        (New-DanewMetricCardHtml -Label 'Fail' -Value $Diagnostic.summary.fail -Tone 'fail')
+        (New-DanewMetricCardHtml -Label 'Alerte' -Value $Diagnostic.summary.warning -Tone 'warning')
+        (New-DanewMetricCardHtml -Label 'Echec' -Value $Diagnostic.summary.fail -Tone 'fail')
     ) -join ''
 
     $meta = New-DanewReportMetaListHtml -Items @(
-        [pscustomobject]@{ label = 'Timestamp'; value = $Diagnostic.timestamp }
-        [pscustomobject]@{ label = 'Root path'; value = $Diagnostic.root_path }
-        [pscustomobject]@{ label = 'Runtime mode'; value = $Diagnostic.runtime_mode }
+        [pscustomobject]@{ label = 'Horodatage'; value = $Diagnostic.timestamp }
+        [pscustomobject]@{ label = 'Chemin racine'; value = $Diagnostic.root_path }
+        [pscustomobject]@{ label = 'Mode d execution'; value = $Diagnostic.runtime_mode }
     )
 
     $sections = @(
-        (New-DanewReportSectionHtml -Title 'Execution Summary' -Caption 'The counters below reflect the current one-click diagnostic run.' -SearchText ('summary overall status ' + [string]$Diagnostic.summary.overall_status) -BodyHtml ('<div class="split-grid">' + (New-DanewMetricCardHtml -Label 'Overall status' -Value $Diagnostic.summary.overall_status -Tone $Diagnostic.summary.overall_status) + (New-DanewMetricCardHtml -Label 'Diagnostic generated' -Value 'yes' -Tone 'ready') + '</div>'))
-        (New-DanewReportSectionHtml -Title 'Step Details' -Caption 'Search by step number, label, status, or message.' -SearchText 'steps diagnostic execution details' -BodyHtml (New-DanewReportTableHtml -Headers @('#', 'Step', 'Status', 'Message', 'Details') -Rows $stepRows -EmptyMessage 'No diagnostic steps match the current filter.'))
+        (New-DanewReportSectionHtml -Title 'Resume d execution' -Caption 'Les compteurs ci-dessous refletent l execution courante du diagnostic en un clic.' -SearchText ('summary overall status ' + [string]$Diagnostic.summary.overall_status) -BodyHtml ('<div class="split-grid">' + (New-DanewMetricCardHtml -Label 'Statut global' -Value (Get-DanewLocalizedStatusText $Diagnostic.summary.overall_status) -Tone $Diagnostic.summary.overall_status) + (New-DanewMetricCardHtml -Label 'Diagnostic genere' -Value 'Oui' -Tone 'ready') + '</div>'))
+        (New-DanewReportSectionHtml -Title 'Details des etapes' -Caption 'Recherche par numero d etape, libelle, statut ou message.' -SearchText 'steps diagnostic execution details' -BodyHtml (New-DanewReportTableHtml -Headers @('#', 'Etape', 'Statut', 'Message', 'Details') -Rows $stepRows -EmptyMessage 'Aucune etape de diagnostic ne correspond au filtre courant.'))
     )
 
-    $html = New-DanewInteractiveReportHtml -Title 'Danew One-Click Diagnostic' -Subtitle 'Launcher execution summary with offline search, print, and collapsible sections.' -Status ([string]$Diagnostic.summary.overall_status) -Eyebrow 'Operational diagnostic' -HeroMetricsHtml ('<div class="hero-metrics">' + $metrics + '</div>') -MetaHtml $meta -Sections $sections -SearchPlaceholder 'Filter steps by label, status, message, or detail'
+    $html = New-DanewInteractiveReportHtml -Title 'Diagnostic Danew en un clic' -Subtitle 'Resume d execution du launcher avec recherche hors ligne, impression et sections repliables.' -Status ([string]$Diagnostic.summary.overall_status) -Eyebrow 'Diagnostic operationnel' -HeroMetricsHtml ('<div class="hero-metrics">' + $metrics + '</div>') -MetaHtml $meta -Sections $sections -SearchPlaceholder 'Filtrer les etapes par libelle, statut, message ou detail'
 
     $html | Set-Content -Path $htmlPath -Encoding UTF8
     Update-DanewInteractiveReportsIndex -ReportsPath $Config.reports_path | Out-Null
@@ -1010,6 +1232,18 @@ function Invoke-DanewLauncherAction {
                 $offline = Invoke-DanewOfflineLogsAnalysis -RootPath $RootPath -Config $Config -ProgressCallback $ProgressCallback
                 $crash = Invoke-DanewCrashCauseAnalysis -RootPath $RootPath -Config $Config -OfflineAnalysis $offline
                 $result = [pscustomobject]@{ action = $Action; output = $crash }
+            }
+            'precheck-winpe' {
+                $precheck = Invoke-DanewWinPEPrecheckAgent -RootPath $RootPath -Config $Config -ApplyFixes
+                $result = [pscustomobject]@{ action = $Action; output = $precheck }
+            }
+            'export-evtx-targeted' {
+                $exports = Invoke-DanewEvtxTargetedExportsAction -RootPath $RootPath -Config $Config
+                $result = [pscustomobject]@{ action = $Action; output = $exports }
+            }
+            'check-browser' {
+                $browser = Export-DanewBrowserDetection -RootPath $RootPath -Config $Config
+                $result = [pscustomobject]@{ action = $Action; output = $browser }
             }
             'create-usb-media' {
                 $usbReport = Invoke-DanewCreateUsbMedia -RootPath $RootPath -Config $Config

@@ -58,10 +58,10 @@ $results += Add-UX2Result -Name 'launcher_parser_ok' -Passed (-not $errors) -Det
 
 $mainDiagnosticVisible = Test-UX2PatternSet -Content $content -Patterns @(
     "Name 'AnalyzeWindowsLogsButton'",
-    'ANALYZE WINDOWS LOGS',
+    'ANALYSER LES JOURNAUX WINDOWS',
     "-Action 'analyze-offline-logs'",
     "Name 'AnalyzeCrashCausesButton'",
-    'ANALYZE CRASH CAUSES',
+    'ANALYSER LES CAUSES DE CRASH',
     "-Action 'analyze-crash-causes'"
 )
 $results += Add-UX2Result -Name 'main_diagnostic_buttons_visible_without_scroll' -Passed $mainDiagnosticVisible -Details 'Windows logs and crash cause buttons are primary controls.'
@@ -86,19 +86,19 @@ $priorityOk = $primaryTopMatch.Success -and $summaryTopMatch.Success -and $repor
     ([int]$primaryTopMatch.Groups[1].Value -lt [int]$summaryTopMatch.Groups[1].Value) -and
     ([int]$summaryTopMatch.Groups[1].Value -lt [int]$reportsTopMatch.Groups[1].Value) -and
     ($content -match 'New-DanewPrimaryDiagnosticButton') -and
-    ($content -match "Text 'ANALYZE WINDOWS LOGS'") -and
-    ($content -match "Text 'ANALYZE CRASH CAUSES'")
+    ($content -match "Text 'ANALYSER LES JOURNAUX WINDOWS'") -and
+    ($content -match "Text 'ANALYSER LES CAUSES DE CRASH'")
 $results += Add-UX2Result -Name 'analyze_buttons_visually_prioritized' -Passed $priorityOk -Details 'Primary diagnostics appear before summary and reports.'
 
-$summaryVisible = ($content -match "Text = 'SAV Summary'") -and
+$summaryVisible = ($content -match "Text = 'Resume du diagnostic'") -and
     ($content -match '\$statusGroup\.Top\s*=\s*250') -and
-    (Test-UX2PatternSet -Content $content -Patterns @('Probable cause', 'Confidence', 'Severity', 'Windows detection', 'Storage visibility', 'Critical events'))
+    (Test-UX2PatternSet -Content $content -Patterns @('Cause probable', 'Confiance', 'Severite', 'Detection Windows', 'Visibilite du stockage', 'Evenements critiques'))
 $results += Add-UX2Result -Name 'sav_summary_visible_immediately' -Passed $summaryVisible -Details 'SAV summary card remains on the first screen.'
 
-$usbIndex = $content.IndexOf("-Text 'USB Tools'")
+$usbIndex = $content.IndexOf("-Text 'OUTILS USB'")
 $advancedIndex = $content.IndexOf('$buttonGroup = New-Object System.Windows.Forms.GroupBox')
 $simpleIndex = $content.IndexOf('$simpleActionsGroup = New-Object System.Windows.Forms.GroupBox')
-$usbSecondary = ($usbIndex -gt $advancedIndex) -and ($advancedIndex -gt $simpleIndex) -and ($content -notmatch '\$simplePanel\.Controls\.Add\(\(New-DanewActionButton -Text ''USB Tools''')
+$usbSecondary = ($usbIndex -gt $advancedIndex) -and ($advancedIndex -gt $simpleIndex) -and ($content -notmatch '\$simplePanel\.Controls\.Add\(\(New-DanewActionButton -Text ''OUTILS USB''')
 $results += Add-UX2Result -Name 'usb_tools_visually_secondary' -Passed $usbSecondary -Details 'USB tools are only in Advanced Tools.'
 
 $requiredHandlers = @(
@@ -129,9 +129,10 @@ $results += Add-UX2Result -Name 'existing_reports_still_open_correctly' -Passed 
 $savFallbackOrder = ($content -match "sav-diagnostic-report\.html', 'REPORTS_INDEX\.html', 'reports-index\.html")
 $results += Add-UX2Result -Name 'sav_report_falls_back_to_index' -Passed $savFallbackOrder -Details 'SAV button opens reports index before one-click fallback when SAV report is absent.'
 
-$unsupportedPatterns = @('PresentationFramework', 'System.Xaml', 'WebView2', 'Chromium', 'Electron', 'WPF')
+$unsupportedPatterns = @('PresentationFramework', 'System.Xaml', 'WebView2', 'Electron', 'WPF')
 $unsupportedFound = @($unsupportedPatterns | Where-Object { $content -match [regex]::Escape($_) })
-$results += Add-UX2Result -Name 'no_winpe_incompatible_dependency' -Passed (@($unsupportedFound).Count -eq 0) -Details ($(if (@($unsupportedFound).Count -eq 0) { 'WinForms/System.Drawing only.' } else { 'Found: ' + ($unsupportedFound -join ', ') }))
+$portableBrowserOnly = ($content -match 'tools\\browser\\chromium\.exe') -and ($content -notmatch 'Add-Type.+Chromium')
+$results += Add-UX2Result -Name 'no_winpe_incompatible_dependency' -Passed (@($unsupportedFound).Count -eq 0 -and $portableBrowserOnly) -Details ($(if (@($unsupportedFound).Count -eq 0 -and $portableBrowserOnly) { 'WinForms/System.Drawing only; optional portable browser launcher path allowed.' } else { 'Found: ' + ($unsupportedFound -join ', ') }))
 
 $launcherCoreOk = $false
 $launcherCoreDetails = ''

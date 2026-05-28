@@ -4,7 +4,7 @@ param(
     [string]$ConfigPath,
     [switch]$Json,
     [string]$RuntimeSystemDrive,
-    [ValidateSet('Interactive', 'scan-winpe', 'capability-analysis', 'generate-report', 'open-reports-folder', 'export-diagnostic-package', 'prepare-startnet', 'start-diagnostic', 'analyze-offline-logs', 'analyze-crash-causes', 'create-usb-media', 'real-winpe-validation', 'pre-real-boot-check', 'refresh-status', 'show-status', 'view-last-report', 'exit')]
+    [ValidateSet('Interactive', 'scan-winpe', 'capability-analysis', 'generate-report', 'open-reports-folder', 'export-diagnostic-package', 'prepare-startnet', 'start-diagnostic', 'analyze-offline-logs', 'analyze-crash-causes', 'precheck-winpe', 'export-evtx-targeted', 'check-browser', 'create-usb-media', 'real-winpe-validation', 'pre-real-boot-check', 'refresh-status', 'show-status', 'view-last-report', 'exit')]
     [string]$Command = 'Interactive'
 )
 
@@ -292,6 +292,67 @@ function Invoke-DanewCliCrashCausesCommand {
     Write-Host ('sav-diagnostic-report.html: ' + [string]$payload.report_paths.sav_diagnostic_report_html)
 }
 
+function Invoke-DanewCliWinPEPrecheckCommand {
+    $result = Invoke-DanewLauncherAction -Action 'precheck-winpe' -RootPath $RootPath -Config $config
+
+    if ($Json) {
+        $result.output | ConvertTo-Json -Depth 40
+        return
+    }
+
+    $payload = $result.output
+    Write-Host ''
+    Write-Host 'WinPE Precheck Summary'
+    Write-Host ('Overall status: ' + [string]$payload.overall_status)
+    Write-Host ('Available: ' + [string]$payload.summary.available + ' Limited: ' + [string]$payload.summary.limited + ' Missing: ' + [string]$payload.summary.missing)
+    Write-Host ('JSON report: ' + [string]$payload.artifacts.json)
+    Write-Host ('TXT report: ' + [string]$payload.artifacts.txt)
+    Write-Host ('History: ' + [string]$payload.artifacts.history)
+}
+
+function Invoke-DanewCliEvtxTargetedExportCommand {
+    $result = Invoke-DanewLauncherAction -Action 'export-evtx-targeted' -RootPath $RootPath -Config $config
+
+    if ($Json) {
+        $result.output | ConvertTo-Json -Depth 30
+        return
+    }
+
+    $payload = $result.output
+    Write-Host ''
+    Write-Host 'EVTX Targeted Exports Summary'
+    Write-Host ('Knowledge rules loaded: ' + [string]$payload.knowledge_rules_loaded)
+    Write-Host ('Total events: ' + [string]$payload.total_events)
+    Write-Host ('Filtered events: ' + [string]$payload.filtered_events)
+    Write-Host ('Critical/high-importance events: ' + [string]$payload.critical_high_events)
+    Write-Host ('Crash-window events: ' + [string]$payload.crash_window_events)
+    Write-Host ('evtx-filtered-events.csv: ' + [string]$payload.artifacts.evtx_filtered_events_csv)
+    Write-Host ('evtx-critical-events.csv: ' + [string]$payload.artifacts.evtx_critical_events_csv)
+    Write-Host ('evtx-crash-window.csv: ' + [string]$payload.artifacts.evtx_crash_window_csv)
+    Write-Host ('evtx-sav-summary.txt: ' + [string]$payload.artifacts.evtx_sav_summary_txt)
+}
+
+function Invoke-DanewCliBrowserCheckCommand {
+    $result = Invoke-DanewLauncherAction -Action 'check-browser' -RootPath $RootPath -Config $config
+
+    if ($Json) {
+        $result.output | ConvertTo-Json -Depth 30
+        return
+    }
+
+    $payload = $result.output.detection
+    Write-Host ''
+    Write-Host 'Browser Integration Summary'
+    Write-Host ('Status: ' + [string]$payload.status)
+    Write-Host ('Message: ' + [string]$payload.message)
+    Write-Host ('Browser path: ' + [string]$payload.browser_path)
+    Write-Host ('Browser executable: ' + [string]$payload.browser_executable)
+    Write-Host ('Browser version: ' + [string]$payload.browser_version)
+    Write-Host ('Launch test possible: ' + [string]$payload.launch_test_possible)
+    Write-Host ('browser-detection.json: ' + [string]$result.output.artifacts.json)
+    Write-Host ('browser-detection.txt: ' + [string]$result.output.artifacts.txt)
+}
+
 if ($Command -ne 'Interactive') {
     if ($Command -eq 'real-winpe-validation') {
         $validationScript = Join-Path $PSScriptRoot 'Invoke-DanewRealWinPEValidation.ps1'
@@ -332,6 +393,24 @@ if ($Command -ne 'Interactive') {
         exit 0
     }
 
+    if ($Command -eq 'precheck-winpe') {
+        Invoke-DanewCliWinPEPrecheckCommand
+        Write-DanewLauncherActionLog -Config $config -Action 'cli-launcher' -Status 'ok' -Message 'CLI command completed: precheck-winpe'
+        exit 0
+    }
+
+    if ($Command -eq 'export-evtx-targeted') {
+        Invoke-DanewCliEvtxTargetedExportCommand
+        Write-DanewLauncherActionLog -Config $config -Action 'cli-launcher' -Status 'ok' -Message 'CLI command completed: export-evtx-targeted'
+        exit 0
+    }
+
+    if ($Command -eq 'check-browser') {
+        Invoke-DanewCliBrowserCheckCommand
+        Write-DanewLauncherActionLog -Config $config -Action 'cli-launcher' -Status 'ok' -Message 'CLI command completed: check-browser'
+        exit 0
+    }
+
     if ($Command -eq 'refresh-status' -or $Command -eq 'show-status' -or $Command -eq 'view-last-report') {
         Invoke-DanewCliStatusCommand -ActionName $Command
         Write-DanewLauncherActionLog -Config $config -Action 'cli-launcher' -Status 'ok' -Message ('CLI command completed: ' + $Command)
@@ -363,10 +442,13 @@ while ($true) {
     Write-Host '9. Start Diagnostic'
     Write-Host '10. Analyze Offline Windows Logs'
     Write-Host '11. Analyze Crash Causes'
-    Write-Host '12. Create Bootable USB'
-    Write-Host '13. Exit'
+    Write-Host '12. Pre-check WinPE'
+    Write-Host '13. Export EVTX Targeted Files'
+    Write-Host '14. Check Browser'
+    Write-Host '15. Create Bootable USB'
+    Write-Host '16. Exit'
 
-    $choice = Read-Host 'Select action (1-13)'
+    $choice = Read-Host 'Select action (1-16)'
     switch ($choice) {
         '1' { Invoke-DanewCliStatusCommand -ActionName 'refresh-status' }
         '2' { Invoke-DanewCliStatusCommand -ActionName 'show-status' }
@@ -379,8 +461,11 @@ while ($true) {
         '9' { Invoke-DanewCliDiagnosticCommand }
         '10' { Invoke-DanewCliOfflineLogsCommand }
         '11' { Invoke-DanewCliCrashCausesCommand }
-        '12' { Invoke-DanewCliAction -ActionName 'create-usb-media' }
-        '13' {
+        '12' { Invoke-DanewCliWinPEPrecheckCommand }
+        '13' { Invoke-DanewCliEvtxTargetedExportCommand }
+        '14' { Invoke-DanewCliBrowserCheckCommand }
+        '15' { Invoke-DanewCliAction -ActionName 'create-usb-media' }
+        '16' {
             Invoke-DanewCliAction -ActionName 'exit'
             break
         }
