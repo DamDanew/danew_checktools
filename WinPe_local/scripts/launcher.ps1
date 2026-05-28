@@ -372,6 +372,15 @@ function Show-DanewSecondaryPanelDialog {
     $dialog.Font = New-Object System.Drawing.Font('Segoe UI', 9)
     $dialog.TopMost = $true
 
+    $iconPath = Join-Path $RootPath 'Assets_danew\danew_brand_line_blue.ico'
+    if (Test-Path -Path $iconPath) {
+        try {
+            $dialog.Icon = New-Object System.Drawing.Icon($iconPath)
+        }
+        catch {
+        }
+    }
+
     if ($Panel.Parent) {
         $Panel.Parent.Controls.Remove($Panel)
     }
@@ -1307,6 +1316,15 @@ $form.MinimumSize = New-Object System.Drawing.Size(900, 700)
 $form.BackColor = [System.Drawing.Color]::FromArgb(243, 246, 252)
 $form.Font = New-Object System.Drawing.Font('Segoe UI', 9)
 
+$iconPath = Join-Path $RootPath 'Assets_danew\danew_brand_line_blue.ico'
+if (Test-Path -Path $iconPath) {
+    try {
+        $form.Icon = New-Object System.Drawing.Icon($iconPath)
+    }
+    catch {
+    }
+}
+
 $workingArea = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
 if ($workingArea.Height -lt 900 -or $workingArea.Width -lt 940) {
     $targetWidth = [Math]::Max(820, [Math]::Min(900, $workingArea.Width - 24))
@@ -1322,10 +1340,30 @@ $headerPanel.Height = 74
 $headerPanel.Anchor = 'Top,Left,Right'
 $headerPanel.BackColor = [System.Drawing.Color]::FromArgb(30, 64, 175)
 
+$logoBox = New-Object System.Windows.Forms.PictureBox
+$logoBox.Left = 14
+$logoBox.Top = 14
+$logoBox.Width = 50
+$logoBox.Height = 50
+$logoBox.SizeMode = 'Zoom'
+$logoPath = Join-Path $RootPath 'Assets_danew\danew_line_black.png'
+if (Test-Path -Path $logoPath) {
+    try {
+        $logoBox.Image = [System.Drawing.Image]::FromFile($logoPath)
+        $logoBox.BackColor = [System.Drawing.Color]::White
+    }
+    catch {
+        $logoBox.Visible = $false
+    }
+}
+else {
+    $logoBox.Visible = $false
+}
+
 $titleLabel = New-Object System.Windows.Forms.Label
-$titleLabel.Left = 16
+$titleLabel.Left = 72
 $titleLabel.Top = 12
-$titleLabel.Width = 680
+$titleLabel.Width = 624
 $titleLabel.Height = 28
 $titleLabel.ForeColor = [System.Drawing.Color]::White
 $titleLabel.Font = New-Object System.Drawing.Font('Segoe UI', 14, [System.Drawing.FontStyle]::Bold)
@@ -1340,6 +1378,7 @@ $subtitleLabel.ForeColor = [System.Drawing.Color]::FromArgb(219, 234, 254)
 $subtitleLabel.Font = New-Object System.Drawing.Font('Segoe UI', 9)
 $subtitleLabel.Text = 'OEM offline crash, boot, and storage diagnosis assistant'
 
+[void]$headerPanel.Controls.Add($logoBox)
 [void]$headerPanel.Controls.Add($titleLabel)
 [void]$headerPanel.Controls.Add($subtitleLabel)
 
