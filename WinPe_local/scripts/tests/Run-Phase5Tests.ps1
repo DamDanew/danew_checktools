@@ -32,6 +32,77 @@ function Add-Phase5TestResult {
     [pscustomobject]@{ name = $Name; passed = $Passed; details = $Details }
 }
 
+function Invoke-StartNetRuntimeSelectionScenario {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TemplateContent,
+        [Parameter(Mandatory = $true)]
+        [string]$ScenarioRoot,
+        [switch]$CreatePwsh,
+        [switch]$CreateWindowsPowerShell
+    )
+
+    $scenarioRootFull = [System.IO.Path]::GetFullPath($ScenarioRoot)
+    $pwshPath = Join-Path $scenarioRootFull 'pwsh\pwsh.exe'
+    $windowsPowerShellPath = Join-Path $scenarioRootFull 'powershell\powershell.exe'
+    $resultPath = Join-Path $scenarioRootFull 'selected-runtime.txt'
+    $scriptPath = Join-Path $scenarioRootFull 'SelectRuntime.cmd'
+    $pathIsolationDir = Join-Path $scenarioRootFull 'path-bin'
+
+    New-Item -Path $scenarioRootFull -ItemType Directory -Force | Out-Null
+    New-Item -Path $pathIsolationDir -ItemType Directory -Force | Out-Null
+
+    if (($TemplateContent -notmatch 'if exist X:\\Program Files\\PowerShell\\7\\pwsh\.exe set DANEW_PS=X:\\Program Files\\PowerShell\\7\\pwsh\.exe') -or
+        ($TemplateContent -notmatch 'if not defined DANEW_PS if exist X:\\Windows\\System32\\WindowsPowerShell\\v1\.0\\powershell\.exe set DANEW_PS=X:\\Windows\\System32\\WindowsPowerShell\\v1\.0\\powershell\.exe')) {
+        throw 'Template content no longer matches the expected runtime selection order.'
+    }
+
+    if ($CreatePwsh) {
+        $pwshDir = Split-Path -Parent $pwshPath
+        New-Item -Path $pwshDir -ItemType Directory -Force | Out-Null
+        Set-Content -Path $pwshPath -Value 'pwsh' -Encoding ASCII
+    }
+
+    if ($CreateWindowsPowerShell) {
+        $powershellDir = Split-Path -Parent $windowsPowerShellPath
+        New-Item -Path $powershellDir -ItemType Directory -Force | Out-Null
+        Set-Content -Path $windowsPowerShellPath -Value 'powershell' -Encoding ASCII
+    }
+
+    $scenarioLines = @(
+        '@echo off',
+        'setlocal',
+        "set PATH=$pathIsolationDir",
+        'set DANEW_PS=',
+        "if exist $pwshPath set DANEW_PS=$pwshPath",
+        "if not defined DANEW_PS if exist $windowsPowerShellPath set DANEW_PS=$windowsPowerShellPath",
+        'if not defined DANEW_PS (',
+        '  where pwsh.exe >nul 2>nul',
+        '  if not errorlevel 1 set DANEW_PS=pwsh.exe',
+        ')',
+        'if not defined DANEW_PS (',
+        '  where powershell.exe >nul 2>nul',
+        '  if not errorlevel 1 set DANEW_PS=powershell.exe',
+        ')',
+        ("echo DANEW_PS=%DANEW_PS%>`"{0}`"" -f $resultPath)
+    )
+
+    $scenarioLines | Set-Content -Path $scriptPath -Encoding ASCII
+
+    $output = & cmd.exe /c $scriptPath 2>&1 | Out-String
+    $selectedRuntime = ''
+    if (Test-Path -Path $resultPath) {
+        $selectedRuntime = (Get-Content -Path $resultPath -Raw -Encoding ASCII).Trim()
+    }
+
+    return [pscustomobject]@{
+        output = $output.Trim()
+        selected_runtime = $selectedRuntime
+        pwsh_path = $pwshPath
+        windows_powershell_path = $windowsPowerShellPath
+    }
+}
+
 $results = @()
 $tempRoot = Join-Path $RootPath 'temp\phase5-tests'
 
@@ -69,6 +140,20 @@ try {
 
     $prep = Invoke-DanewLauncherAction -Action 'prepare-startnet' -RootPath $testRoot -Config $cfgResolved
     $results += Add-Phase5TestResult -Name 'startnet_preparation' -Passed (Test-Path -Path $prep.output.target_path)
+    $startNetContent = Get-Content -Path $prep.output.target_path -Raw -Encoding ASCII
+    $prefersPwsh = ($startNetContent -match 'X:\\Program Files\\PowerShell\\7\\pwsh\.exe') -and ($startNetContent -match 'where pwsh\.exe')
+    $results += Add-Phase5TestResult -Name 'startnet_prefers_pwsh_release' -Passed $prefersPwsh
+    $windowsPwshFallback = $startNetContent -match 'if not defined DANEW_PS if exist X:\\Windows\\System32\\WindowsPowerShell\\v1\.0\\powershell\.exe set DANEW_PS=X:\\Windows\\System32\\WindowsPowerShell\\v1\.0\\powershell\.exe'
+    $results += Add-Phase5TestResult -Name 'startnet_fallback_to_windows_powershell' -Passed $windowsPwshFallback
+    $missingRuntimeMessage = ($startNetContent -match 'POWERSHELL_MISSING') -and ($startNetContent -match 'PowerShell is not available in this WinPE image') -and ($startNetContent -match 'goto :END')
+    $results += Add-Phase5TestResult -Name 'startnet_missing_runtime_guard' -Passed $missingRuntimeMessage
+    $runtimeScenarioRoot = Join-Path $testRoot 'runtime-selection'
+    $preferPwshScenario = Invoke-StartNetRuntimeSelectionScenario -TemplateContent $startNetContent -ScenarioRoot (Join-Path $runtimeScenarioRoot 'prefer-pwsh') -CreatePwsh -CreateWindowsPowerShell
+    $results += Add-Phase5TestResult -Name 'startnet_runtime_selection_prefers_pwsh' -Passed ($preferPwshScenario.selected_runtime -eq ('DANEW_PS=' + $preferPwshScenario.pwsh_path)) -Details $preferPwshScenario.selected_runtime
+    $fallbackScenario = Invoke-StartNetRuntimeSelectionScenario -TemplateContent $startNetContent -ScenarioRoot (Join-Path $runtimeScenarioRoot 'fallback-powershell') -CreateWindowsPowerShell
+    $results += Add-Phase5TestResult -Name 'startnet_runtime_selection_fallback_powershell' -Passed ($fallbackScenario.selected_runtime -eq ('DANEW_PS=' + $fallbackScenario.windows_powershell_path)) -Details $fallbackScenario.selected_runtime
+    $missingScenario = Invoke-StartNetRuntimeSelectionScenario -TemplateContent $startNetContent -ScenarioRoot (Join-Path $runtimeScenarioRoot 'missing-runtime')
+    $results += Add-Phase5TestResult -Name 'startnet_runtime_selection_missing_runtime' -Passed ($missingScenario.selected_runtime -eq 'DANEW_PS=') -Details $missingScenario.selected_runtime
 
     $scan = Invoke-DanewLauncherAction -Action 'scan-winpe' -RootPath $testRoot -Config $cfgResolved
     $results += Add-Phase5TestResult -Name 'scan_winpe_action' -Passed (Test-Path -Path $scan.output)

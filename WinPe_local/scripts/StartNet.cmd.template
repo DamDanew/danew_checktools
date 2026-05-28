@@ -5,7 +5,12 @@ set DANEW_ROOT=__ROOT__
 set STARTNET_LOG=%DANEW_ROOT%\reports\startnet-runtime-log.txt
 set DANEW_PS=
 
-if exist X:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe set DANEW_PS=X:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+if exist X:\Program Files\PowerShell\7\pwsh.exe set DANEW_PS=X:\Program Files\PowerShell\7\pwsh.exe
+if not defined DANEW_PS if exist X:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe set DANEW_PS=X:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+if not defined DANEW_PS (
+    where pwsh.exe >nul 2>nul
+    if not errorlevel 1 set DANEW_PS=pwsh.exe
+)
 if not defined DANEW_PS (
     where powershell.exe >nul 2>nul
     if not errorlevel 1 set DANEW_PS=powershell.exe
@@ -14,6 +19,12 @@ if not defined DANEW_PS (
 if not exist %DANEW_ROOT%\reports md %DANEW_ROOT%\reports
 echo [%date% %time%] STARTNET_BEGIN>>%STARTNET_LOG%
 echo [%date% %time%] DANEW_ROOT=%DANEW_ROOT%>>%STARTNET_LOG%
+
+if exist %DANEW_ROOT%\scripts\SetHtmlAssociation.cmd (
+    echo [%date% %time%] HTML_ASSOCIATION_SETUP_BEGIN>>%STARTNET_LOG%
+    call %DANEW_ROOT%\scripts\SetHtmlAssociation.cmd /quiet>>%STARTNET_LOG% 2>&1
+    echo [%date% %time%] HTML_ASSOCIATION_SETUP_END>>%STARTNET_LOG%
+)
 
 if not defined DANEW_PS (
     echo [%date% %time%] POWERSHELL_MISSING>>%STARTNET_LOG%

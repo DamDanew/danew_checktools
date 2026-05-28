@@ -32,6 +32,21 @@
       "vendor": "Microsoft"
     },
     {
+      "name": "pwsh.exe",
+      "category": "scripting",
+      "version": "7.6.2",
+      "portable": true,
+      "required_for": ["minimal", "sav", "oem"],
+      "dependencies": ["net_runtime"],
+      "download_url": "https://github.com/PowerShell/PowerShell/releases/download/v7.6.2/PowerShell-7.6.2-win-x64.zip",
+      "size_mb": 110,
+      "architecture": ["x86", "x64", "arm64"],
+      "priority": "critical",
+      "sha256": "32E0DD26752483BA3F0E40E9AE44150643CBFF469C13210C93295D158BFD7B26",
+      "signature_required": true,
+      "vendor": "Microsoft"
+    },
+    {
       "name": "wpeinit.exe",
       "category": "winpe",
       "version": "builtin",

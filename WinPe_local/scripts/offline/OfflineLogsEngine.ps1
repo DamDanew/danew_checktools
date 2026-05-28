@@ -1,6 +1,11 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+$reportShellPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'report\HtmlReportShell.ps1'
+if (Test-Path -Path $reportShellPath) {
+    . $reportShellPath
+}
+
 function Convert-DanewOfflineTimestamp {
     param(
         [AllowNull()]
@@ -1612,8 +1617,9 @@ function Write-DanewTimelineHtml {
             break
         }
 
+        $rowSearch = ConvertTo-DanewReportHtmlText ($evt.timestamp, $evt.level, $evt.provider, $evt.event_id, $evt.channel, $evt.source_file, $evt.message -join ' ')
         $rows += @"
-<tr>
+<tr data-search-row="$rowSearch">
 <td>$([System.Security.SecurityElement]::Escape([string]$evt.timestamp))</td>
 <td>$([System.Security.SecurityElement]::Escape([string]$evt.level))</td>
 <td>$([System.Security.SecurityElement]::Escape([string]$evt.provider))</td>
@@ -1630,41 +1636,29 @@ function Write-DanewTimelineHtml {
         $notice = '<p><b>Note:</b> HTML view truncated to first 4000 events. Full data is available in timeline-raw.json.</p>'
     }
 
-    $html = @"
-<html>
-<head>
-<title>Danew Offline Timeline</title>
-<style>
-body { font-family: Segoe UI, Arial, sans-serif; background: #f7f9fb; color: #1f2937; margin: 20px; }
-.card { background: #ffffff; border: 1px solid #d9e2ec; border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
-table { width: 100%; border-collapse: collapse; }
-th, td { border: 1px solid #d9e2ec; padding: 6px 8px; text-align: left; vertical-align: top; font-size: 12px; }
-th { background: #eef3f8; }
-</style>
-</head>
-<body>
-<div class="card">
-<h2>Danew Offline Timeline</h2>
-<p>Total events: $($Summary.total_events)</p>
-<p>Missing required logs: $($Summary.missing_required_logs)</p>
-<p>Parse issues: $($Summary.parse_issue_count)</p>
-$notice
-</div>
-<div class="card">
-<table>
-<thead>
-<tr><th>Timestamp</th><th>Level</th><th>Provider</th><th>Event ID</th><th>Channel</th><th>Source File</th><th>Message</th></tr>
-</thead>
-<tbody>
-$rows
-</tbody>
-</table>
-</div>
-</body>
-</html>
-"@
+    $metrics = @(
+        (New-DanewMetricCardHtml -Label 'Total events' -Value $Summary.total_events -Tone 'info')
+        (New-DanewMetricCardHtml -Label 'Missing required logs' -Value $Summary.missing_required_logs -Tone $(if ([int]$Summary.missing_required_logs -gt 0) { 'warning' } else { 'pass' }))
+        (New-DanewMetricCardHtml -Label 'Parse issues' -Value $Summary.parse_issue_count -Tone $(if ([int]$Summary.parse_issue_count -gt 0) { 'warning' } else { 'pass' }))
+        (New-DanewMetricCardHtml -Label 'Rendered rows' -Value @($rows).Count -Tone 'ready')
+    ) -join ''
+
+    $meta = New-DanewReportMetaListHtml -Items @(
+        [pscustomobject]@{ label = 'Timeline source'; value = 'timeline-raw.json' }
+        [pscustomobject]@{ label = 'HTML cap'; value = '4000 rows' }
+        [pscustomobject]@{ label = 'Offline mode'; value = 'embedded CSS and JS only' }
+    )
+
+    $overviewBody = '<div class="split-grid">' + (New-DanewMetricCardHtml -Label 'Event stream status' -Value $(if ([int]$Summary.parse_issue_count -gt 0) { 'warning' } else { 'stable' }) -Tone $(if ([int]$Summary.parse_issue_count -gt 0) { 'warning' } else { 'pass' })) + (New-DanewMetricCardHtml -Label 'Log coverage' -Value $(if ([int]$Summary.missing_required_logs -gt 0) { 'partial' } else { 'complete' }) -Tone $(if ([int]$Summary.missing_required_logs -gt 0) { 'warning' } else { 'pass' })) + '</div>' + $notice
+    $sections = @(
+        (New-DanewReportSectionHtml -Title 'Timeline Overview' -Caption 'Use the filter box to narrow by provider, level, source file, or message text.' -SearchText 'timeline overview total events missing logs parse issues' -BodyHtml $overviewBody)
+        (New-DanewReportSectionHtml -Title 'Timeline Events' -Caption 'The HTML report renders the first 4000 events. The JSON artifact remains the full source of truth.' -SearchText 'timeline events provider level event id message source file' -BodyHtml (New-DanewReportTableHtml -Headers @('Timestamp', 'Level', 'Provider', 'Event ID', 'Channel', 'Source File', 'Message') -Rows $rows -EmptyMessage 'No events match the current filter.'))
+    )
+
+    $html = New-DanewInteractiveReportHtml -Title 'Danew Offline Timeline' -Subtitle 'Searchable event chronology for offline EVTX analysis with print-safe output.' -Status $(if ([int]$Summary.parse_issue_count -gt 0 -or [int]$Summary.missing_required_logs -gt 0) { 'WARNING' } else { 'PASS' }) -Eyebrow 'Timeline raw view' -HeroMetricsHtml ('<div class="hero-metrics">' + $metrics + '</div>') -MetaHtml $meta -Sections $sections -SearchPlaceholder 'Filter events by provider, level, event id, source file, or message'
 
     $html | Set-Content -Path $Path -Encoding UTF8
+    Update-DanewInteractiveReportsIndex -ReportsPath (Split-Path -Parent $Path) | Out-Null
 }
 
 function Get-DanewSafeProperty {

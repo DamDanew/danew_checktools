@@ -1,6 +1,11 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+$reportShellPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'report\HtmlReportShell.ps1'
+if (Test-Path -Path $reportShellPath) {
+    . $reportShellPath
+}
+
 $offlineEnginePath = Join-Path (Split-Path -Parent $PSScriptRoot) 'offline\OfflineLogsEngine.ps1'
 if (Test-Path -Path $offlineEnginePath) {
     . $offlineEnginePath
@@ -558,8 +563,9 @@ function Write-DanewOneClickDiagnosticReport {
 
     $stepRows = @()
     foreach ($step in @($Diagnostic.steps)) {
+        $rowSearch = ConvertTo-DanewReportHtmlText ($step.order, $step.label, $step.status, $step.message, $step.details -join ' ')
         $stepRows += @"
-<tr>
+    <tr data-search-row="$rowSearch">
 <td>$(Convert-DanewHtmlText $step.order)</td>
 <td>$(Convert-DanewHtmlText $step.label)</td>
 <td>$(Convert-DanewHtmlText $step.status)</td>
@@ -569,53 +575,28 @@ function Write-DanewOneClickDiagnosticReport {
 "@
     }
 
-    $html = @"
-<html>
-<head>
-<title>Danew One-Click Diagnostic</title>
-<style>
-body { font-family: Segoe UI, Arial, sans-serif; margin: 24px; color: #1f2937; background: #f8fafc; }
-.card { background: #ffffff; border: 1px solid #dbe3ea; border-radius: 12px; padding: 18px 20px; margin-bottom: 16px; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06); }
-h1 { margin: 0 0 8px 0; font-size: 26px; }
-h2 { margin-top: 0; font-size: 18px; }
-table { width: 100%; border-collapse: collapse; background: #ffffff; }
-th, td { border: 1px solid #dbe3ea; padding: 8px 10px; text-align: left; vertical-align: top; }
-th { background: #eef3f7; }
-.pass { color: #0f766e; font-weight: 600; }
-.warning { color: #b45309; font-weight: 600; }
-.fail { color: #b91c1c; font-weight: 600; }
-.meta { color: #475569; }
-</style>
-</head>
-<body>
-<div class="card">
-<h1>Danew One-Click Diagnostic</h1>
-<div class="meta">Timestamp: $(Convert-DanewHtmlText $Diagnostic.timestamp)</div>
-<div class="meta">Root path: $(Convert-DanewHtmlText $Diagnostic.root_path)</div>
-<div class="meta">Runtime mode: $(Convert-DanewHtmlText $Diagnostic.runtime_mode)</div>
-<div class="meta">Overall status: <span class="$(Convert-DanewHtmlText ($Diagnostic.summary.overall_status.ToLowerInvariant()))">$(Convert-DanewHtmlText $Diagnostic.summary.overall_status)</span></div>
-</div>
-<div class="card">
-<h2>Summary</h2>
-<div class="meta">Total steps: $(Convert-DanewHtmlText $Diagnostic.summary.total)</div>
-<div class="meta">Pass: $(Convert-DanewHtmlText $Diagnostic.summary.pass)</div>
-<div class="meta">Warning: $(Convert-DanewHtmlText $Diagnostic.summary.warning)</div>
-<div class="meta">Fail: $(Convert-DanewHtmlText $Diagnostic.summary.fail)</div>
-</div>
-<div class="card">
-<h2>Steps</h2>
-<table>
-<thead><tr><th>#</th><th>Step</th><th>Status</th><th>Message</th><th>Details</th></tr></thead>
-<tbody>
-$stepRows
-</tbody>
-</table>
-</div>
-</body>
-</html>
-"@
+    $metrics = @(
+        (New-DanewMetricCardHtml -Label 'Total steps' -Value $Diagnostic.summary.total -Tone 'info')
+        (New-DanewMetricCardHtml -Label 'Pass' -Value $Diagnostic.summary.pass -Tone 'pass')
+        (New-DanewMetricCardHtml -Label 'Warning' -Value $Diagnostic.summary.warning -Tone 'warning')
+        (New-DanewMetricCardHtml -Label 'Fail' -Value $Diagnostic.summary.fail -Tone 'fail')
+    ) -join ''
+
+    $meta = New-DanewReportMetaListHtml -Items @(
+        [pscustomobject]@{ label = 'Timestamp'; value = $Diagnostic.timestamp }
+        [pscustomobject]@{ label = 'Root path'; value = $Diagnostic.root_path }
+        [pscustomobject]@{ label = 'Runtime mode'; value = $Diagnostic.runtime_mode }
+    )
+
+    $sections = @(
+        (New-DanewReportSectionHtml -Title 'Execution Summary' -Caption 'The counters below reflect the current one-click diagnostic run.' -SearchText ('summary overall status ' + [string]$Diagnostic.summary.overall_status) -BodyHtml ('<div class="split-grid">' + (New-DanewMetricCardHtml -Label 'Overall status' -Value $Diagnostic.summary.overall_status -Tone $Diagnostic.summary.overall_status) + (New-DanewMetricCardHtml -Label 'Diagnostic generated' -Value 'yes' -Tone 'ready') + '</div>'))
+        (New-DanewReportSectionHtml -Title 'Step Details' -Caption 'Search by step number, label, status, or message.' -SearchText 'steps diagnostic execution details' -BodyHtml (New-DanewReportTableHtml -Headers @('#', 'Step', 'Status', 'Message', 'Details') -Rows $stepRows -EmptyMessage 'No diagnostic steps match the current filter.'))
+    )
+
+    $html = New-DanewInteractiveReportHtml -Title 'Danew One-Click Diagnostic' -Subtitle 'Launcher execution summary with offline search, print, and collapsible sections.' -Status ([string]$Diagnostic.summary.overall_status) -Eyebrow 'Operational diagnostic' -HeroMetricsHtml ('<div class="hero-metrics">' + $metrics + '</div>') -MetaHtml $meta -Sections $sections -SearchPlaceholder 'Filter steps by label, status, message, or detail'
 
     $html | Set-Content -Path $htmlPath -Encoding UTF8
+    Update-DanewInteractiveReportsIndex -ReportsPath $Config.reports_path | Out-Null
 
     return [pscustomobject]@{
         json = $jsonPath
@@ -906,7 +887,7 @@ function Invoke-DanewOneClickDiagnostic {
     }
 }
 
-function Prepare-DanewStartNetAutoLaunch {
+function Export-DanewStartNetAutoLaunch {
     param(
         [Parameter(Mandatory = $true)]
         [string]$RootPath,
@@ -1014,7 +995,7 @@ function Invoke-DanewLauncherAction {
                 $result = [pscustomobject]@{ action = $Action; output = $pkg }
             }
             'prepare-startnet' {
-                $prep = Prepare-DanewStartNetAutoLaunch -RootPath $RootPath -Config $Config
+                $prep = Export-DanewStartNetAutoLaunch -RootPath $RootPath -Config $Config
                 $result = [pscustomobject]@{ action = $Action; output = $prep }
             }
             'start-diagnostic' {

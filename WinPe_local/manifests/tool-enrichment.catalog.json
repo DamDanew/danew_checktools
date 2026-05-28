@@ -18,6 +18,14 @@
       "ram_mb": 80
     },
     {
+      "name": "pwsh.exe",
+      "reason": "Portable PowerShell 7.6.2 runtime",
+      "required_profiles": ["minimal", "sav-advanced", "oem-expert"],
+      "priority": "critical",
+      "size_mb": 110,
+      "ram_mb": 120
+    },
+    {
       "name": "wevtutil.exe",
       "reason": "Event log extraction",
       "required_profiles": ["minimal", "sav-advanced", "oem-expert"],

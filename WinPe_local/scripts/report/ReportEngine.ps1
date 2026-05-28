@@ -1,3 +1,8 @@
+ $reportShellPath = Join-Path $PSScriptRoot 'HtmlReportShell.ps1'
+ if (Test-Path -Path $reportShellPath) {
+     . $reportShellPath
+ }
+
 function Export-DanewReports {
     param(
         [Parameter(Mandatory = $true)]
@@ -36,24 +41,26 @@ function Export-DanewReports {
 
     $ReportObject.recommendations | Export-Csv -Path $csvPath -NoTypeInformation -Encoding UTF8
 
-    $html = @"
-<html>
-<head><title>Danew WinPE Report</title></head>
-<body>
-<h1>Danew WinPE Report</h1>
-<p><b>Scan ID:</b> $($ReportObject.scan_id)</p>
-<p><b>Input:</b> $($ReportObject.input.path)</p>
-<p><b>Architecture:</b> $($ReportObject.architecture)</p>
-<p><b>Global Score:</b> $($ReportObject.score.global)/100</p>
-<h2>Recommendations</h2>
-<ul>
-$((($ReportObject.recommendations | ForEach-Object { "<li>[$($_.priority)] $($_.feature): $($_.recommendation)</li>" }) -join "`n"))
-</ul>
-</body>
-</html>
-"@
+    $recommendationItems = @($ReportObject.recommendations | ForEach-Object {
+        '<li>[' + (ConvertTo-DanewReportHtmlText $_.priority) + '] ' + (ConvertTo-DanewReportHtmlText $_.feature) + ': ' + (ConvertTo-DanewReportHtmlText $_.recommendation) + '</li>'
+    })
+    $metrics = @(
+        (New-DanewMetricCardHtml -Label 'Global score' -Value ($ReportObject.score.global.ToString() + '/100') -Tone 'info')
+        (New-DanewMetricCardHtml -Label 'Recommendations' -Value @($ReportObject.recommendations).Count -Tone 'ready')
+        (New-DanewMetricCardHtml -Label 'Architecture' -Value $ReportObject.architecture -Tone 'neutral')
+    ) -join ''
+    $meta = New-DanewReportMetaListHtml -Items @(
+        [pscustomobject]@{ label = 'Scan ID'; value = $ReportObject.scan_id }
+        [pscustomobject]@{ label = 'Timestamp'; value = $ReportObject.timestamp }
+        [pscustomobject]@{ label = 'Input'; value = $ReportObject.input.path }
+    )
+    $sections = @(
+        (New-DanewReportSectionHtml -Title 'Recommendations' -Caption 'Prioritized improvements extracted from the current scan.' -SearchText ('recommendations ' + (@($ReportObject.recommendations | ForEach-Object { $_.priority, $_.feature, $_.recommendation }) -join ' ')) -BodyHtml ('<ul class="report-list">' + ($recommendationItems -join '') + '</ul>'))
+    )
+    $html = New-DanewInteractiveReportHtml -Title 'Danew WinPE Report' -Subtitle 'Interactive export for scan summary and prioritized recommendations.' -Status 'READY' -Eyebrow 'General report' -HeroMetricsHtml ('<div class="hero-metrics">' + $metrics + '</div>') -MetaHtml $meta -Sections $sections -SearchPlaceholder 'Filter recommendations by priority, feature, or recommendation text'
 
     $html | Set-Content -Path $htmlPath -Encoding UTF8
+    Update-DanewInteractiveReportsIndex -ReportsPath $OutputDirectory | Out-Null
 
     return [pscustomobject]@{
         json = $jsonPath

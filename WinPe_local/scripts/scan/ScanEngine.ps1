@@ -768,6 +768,12 @@ function Invoke-DanewScan {
 
     $toolMatches = Find-DanewToolFiles -InputPath $InputPath -FileNames $searchNames
     $detectedTools = @($toolMatches.leaf | Select-Object -Unique)
+    if ($detectedTools -contains 'pwsh.exe' -and $detectedTools -notcontains 'powershell.exe') {
+        $detectedTools += 'powershell.exe'
+    }
+    if ($detectedTools -contains 'powershell.exe' -and $detectedTools -notcontains 'pwsh.exe') {
+        $detectedTools += 'pwsh.exe'
+    }
 
     $driverPatterns = @('*.sys', '*.inf', '*.cat')
     $driversFound = @()
@@ -795,7 +801,7 @@ function Invoke-DanewScan {
         Architecture = $archDetails.detected
         ArchitectureDetails = $archDetails
         FilesScanned = (Get-ChildItem -Path $InputPath -Recurse -File -ErrorAction SilentlyContinue | Measure-Object).Count
-        ToolsDetected = @($detectedTools | Sort-Object)
+        ToolsDetected = @($detectedTools | Select-Object -Unique | Sort-Object)
         ToolMatches = $toolMatches
         DriversDetected = @($driversFound | Sort-Object)
         DriverAnalysis = $driverAnalysis

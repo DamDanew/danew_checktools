@@ -1,0 +1,43 @@
+@echo off
+setlocal
+
+set DANEW_REPORTS=
+if defined DANEW_ROOT if exist "%DANEW_ROOT%\reports" set DANEW_REPORTS=%DANEW_ROOT%\reports
+if not defined DANEW_REPORTS if exist E:\reports set DANEW_REPORTS=E:\reports
+if not defined DANEW_REPORTS if exist D:\reports set DANEW_REPORTS=D:\reports
+
+if not defined DANEW_REPORTS (
+    echo [DANEW] Reports root not found.
+    exit /b 1
+)
+
+set DANEW_INDEX=%DANEW_REPORTS%\REPORTS_INDEX.html
+if not exist "%DANEW_INDEX%" set DANEW_INDEX=%DANEW_REPORTS%\reports-index.html
+if not exist "%DANEW_INDEX%" set DANEW_INDEX=%DANEW_REPORTS%\sav-diagnostic-report.html
+if not exist "%DANEW_INDEX%" set DANEW_INDEX=%DANEW_REPORTS%\one-click-diagnostic-report.html
+if not exist "%DANEW_INDEX%" set DANEW_INDEX=%DANEW_REPORTS%\timeline-raw.html
+if not exist "%DANEW_INDEX%" set DANEW_INDEX=%DANEW_REPORTS%\offline-windows-failure-report.html
+if not exist "%DANEW_INDEX%" set DANEW_INDEX=%DANEW_REPORTS%\export-summary.html
+if not exist "%DANEW_INDEX%" (
+    echo [DANEW] Report index not found under %DANEW_REPORTS%.
+    exit /b 2
+)
+
+call "%~dp0SetHtmlAssociation.cmd" /quiet >nul 2>nul
+
+set DANEW_BROWSER=
+if exist "X:\Program Files\Google\Chrome\Application\chrome.exe" set DANEW_BROWSER=X:\Program Files\Google\Chrome\Application\chrome.exe
+if not defined DANEW_BROWSER if exist "X:\Program Files\Microsoft\Edge\Application\msedge.exe" set DANEW_BROWSER=X:\Program Files\Microsoft\Edge\Application\msedge.exe
+if not defined DANEW_BROWSER if exist "%ProgramFiles%\Google\Chrome\Application\chrome.exe" set DANEW_BROWSER=%ProgramFiles%\Google\Chrome\Application\chrome.exe
+if not defined DANEW_BROWSER if exist "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" set DANEW_BROWSER=%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe
+if not defined DANEW_BROWSER if exist "%ProgramFiles%\Internet Explorer\iexplore.exe" set DANEW_BROWSER=%ProgramFiles%\Internet Explorer\iexplore.exe
+
+if defined DANEW_BROWSER (
+    echo [DANEW] Opening %DANEW_INDEX% with %DANEW_BROWSER%
+    "%DANEW_BROWSER%" "%DANEW_INDEX%"
+    exit /b 0
+)
+
+echo [DANEW] Browser not found, opening with shell fallback.
+start "" "%DANEW_INDEX%"
+exit /b 0

@@ -32,6 +32,13 @@ $statusFields = @{}
 $progressBox = $null
 $summaryLabel = $null
 $overallBadgeLabel = $null
+$windowsStatusValueLabel = $null
+$storageStatusValueLabel = $null
+$criticalEventsValueLabel = $null
+$probableCauseValueLabel = $null
+$confidenceValueLabel = $null
+$severityValueLabel = $null
+$recommendedActionValueLabel = $null
 $offlineProgressBar = $null
 $offlineOperationLabel = $null
 $offlineTimingLabel = $null
@@ -39,10 +46,13 @@ $stepLabels = @{}
 $recentActivityBox = $null
 $simpleActionsGroup = $null
 $advancedToggleButton = $null
+$technicalToggleButton = $null
 $buttonGroup = $null
+$technicalDetailsGroup = $null
 $script:ActionButtons = New-Object System.Collections.ArrayList
 $script:IsActionRunning = $false
 $script:AdvancedToolsVisible = $false
+$script:TechnicalDetailsVisible = $false
 
 $script:StatusColorDefault = $null
 $script:StatusColorPass = $null
@@ -145,8 +155,12 @@ function Set-DanewSummaryVisual {
         $badgeBack = [System.Drawing.Color]::FromArgb(245, 158, 11)
         $badgeFore = [System.Drawing.Color]::FromArgb(17, 24, 39)
     }
-    elseif ($normalized -eq 'FAIL' -or $normalized -eq 'ERROR') {
+    elseif ($normalized -eq 'FAIL' -or $normalized -eq 'ERROR' -or $normalized -eq 'CRITICAL') {
         $badgeBack = [System.Drawing.Color]::FromArgb(220, 38, 38)
+        $badgeFore = [System.Drawing.Color]::White
+    }
+    elseif ($normalized -eq 'INFO' -or $normalized -eq 'IDLE') {
+        $badgeBack = [System.Drawing.Color]::FromArgb(37, 99, 235)
         $badgeFore = [System.Drawing.Color]::White
     }
     elseif ($normalized -eq 'RUNNING') {
@@ -300,10 +314,397 @@ function Set-DanewAdvancedToolsVisible {
     if ($advancedToggleButton) {
         $advancedToggleButton.Text = if ($Visible) { 'Hide Advanced Tools' } else { 'Show Advanced Tools' }
     }
-    if ($form) {
-        $scrollHeight = if ($Visible) { 980 } else { 760 }
-        $form.AutoScrollMinSize = New-Object System.Drawing.Size(900, $scrollHeight)
+    if ($Visible -and $buttonGroup) {
+        Show-DanewSecondaryPanelDialog -Title 'Advanced Tools' -Panel $buttonGroup -Width 900 -Height 330
+        $script:AdvancedToolsVisible = $false
+        $buttonGroup.Visible = $false
+        if ($advancedToggleButton) {
+            $advancedToggleButton.Text = 'Show Advanced Tools'
+        }
     }
+    if ($form) {
+        $form.AutoScrollMinSize = New-Object System.Drawing.Size(900, 720)
+    }
+}
+
+function Set-DanewTechnicalDetailsVisible {
+    param(
+        [Parameter(Mandatory = $true)]
+        [bool]$Visible
+    )
+
+    $script:TechnicalDetailsVisible = $Visible
+    if ($technicalDetailsGroup) {
+        $technicalDetailsGroup.Visible = $Visible
+    }
+    if ($technicalToggleButton) {
+        $technicalToggleButton.Text = if ($Visible) { 'Hide Technical Details' } else { 'Show Technical Details' }
+    }
+    if ($Visible -and $technicalDetailsGroup) {
+        Show-DanewSecondaryPanelDialog -Title 'Technical Details' -Panel $technicalDetailsGroup -Width 900 -Height 330
+        $script:TechnicalDetailsVisible = $false
+        $technicalDetailsGroup.Visible = $false
+        if ($technicalToggleButton) {
+            $technicalToggleButton.Text = 'Show Technical Details'
+        }
+    }
+    if ($form) {
+        $form.AutoScrollMinSize = New-Object System.Drawing.Size(900, 720)
+    }
+}
+
+function Show-DanewSecondaryPanelDialog {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Title,
+        [Parameter(Mandatory = $true)]
+        [System.Windows.Forms.Control]$Panel,
+        [int]$Width = 900,
+        [int]$Height = 330
+    )
+
+    $dialog = New-Object System.Windows.Forms.Form
+    $dialog.Text = 'Danew SAV Diagnostic Tool - ' + $Title
+    $dialog.StartPosition = 'CenterParent'
+    $dialog.ClientSize = New-Object System.Drawing.Size($Width, $Height)
+    $dialog.MinimumSize = New-Object System.Drawing.Size($Width, $Height)
+    $dialog.BackColor = [System.Drawing.Color]::FromArgb(243, 246, 252)
+    $dialog.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+    $dialog.TopMost = $true
+
+    if ($Panel.Parent) {
+        $Panel.Parent.Controls.Remove($Panel)
+    }
+
+    $Panel.Left = 12
+    $Panel.Top = 12
+    $Panel.Width = $Width - 24
+    $Panel.Height = $Height - 24
+    $Panel.Anchor = 'Top,Bottom,Left,Right'
+    $Panel.Visible = $true
+
+    [void]$dialog.Controls.Add($Panel)
+    try {
+        [void]$dialog.ShowDialog($form)
+    }
+    finally {
+        [void]$dialog.Controls.Remove($Panel)
+        $Panel.Visible = $false
+        $dialog.Dispose()
+    }
+}
+
+function Get-DanewObjectValue {
+    param(
+        [AllowNull()]
+        [object]$Object,
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+        [AllowNull()]
+        [object]$Default = ''
+    )
+
+    if ($null -eq $Object) {
+        return $Default
+    }
+
+    $prop = $Object.PSObject.Properties[$Name]
+    if ($prop) {
+        return $prop.Value
+    }
+
+    return $Default
+}
+
+function Get-DanewReportJson {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    $path = Join-Path ([string]$config.reports_path) $Name
+    if (-not (Test-Path -Path $path)) {
+        return $null
+    }
+
+    try {
+        return (Get-Content -Path $path -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 50)
+    }
+    catch {
+        return $null
+    }
+}
+
+function Get-DanewFirstExistingReportPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Names
+    )
+
+    foreach ($root in @(Get-DanewReportSearchRoots)) {
+        foreach ($name in @($Names)) {
+            $path = Join-Path $root $name
+            if (Test-Path -Path $path) {
+                return $path
+            }
+        }
+    }
+
+    return ''
+}
+
+function Get-DanewReportSearchRoots {
+    $roots = New-Object System.Collections.ArrayList
+
+    function Add-DanewReportRoot {
+        param([string]$Path)
+        if ([string]::IsNullOrWhiteSpace($Path)) {
+            return
+        }
+
+        try {
+            $full = [System.IO.Path]::GetFullPath($Path)
+        }
+        catch {
+            $full = $Path
+        }
+
+        if ((Test-Path -Path $full) -and (-not @($roots | Where-Object { $_ -ieq $full }))) {
+            [void]$roots.Add($full)
+        }
+    }
+
+    Add-DanewReportRoot -Path ([string]$config.reports_path)
+
+    try {
+        $dataVolumes = @(Get-Volume -FileSystemLabel 'DANEW_DATA' -ErrorAction SilentlyContinue)
+        foreach ($volume in $dataVolumes) {
+            if (-not [string]::IsNullOrWhiteSpace([string]$volume.DriveLetter)) {
+                Add-DanewReportRoot -Path ([string]$volume.DriveLetter + ':\reports')
+            }
+        }
+    }
+    catch {
+    }
+
+    foreach ($drive in @('E', 'D', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'Y', 'Z')) {
+        Add-DanewReportRoot -Path ($drive + ':\reports')
+    }
+
+    return @($roots)
+}
+
+function Open-DanewReportFile {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [Parameter(Mandatory = $true)]
+        [string]$Title
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -Path $Path)) {
+        [System.Windows.Forms.MessageBox]::Show('Report is not available yet. Run analysis first.', $Title, [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
+        return $false
+    }
+
+    Start-Process -FilePath $Path | Out-Null
+    return $true
+}
+
+function Open-DanewSpecificReport {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('sav', 'timeline', 'storage')]
+        [string]$Kind
+    )
+
+    $path = ''
+    $title = 'Danew SAV Report'
+    switch ($Kind) {
+        'sav' {
+            $path = Get-DanewFirstExistingReportPath -Names @('sav-diagnostic-report.html', 'REPORTS_INDEX.html', 'reports-index.html', 'one-click-diagnostic-report.html', 'offline-windows-failure-report.html')
+            $title = 'Open SAV Diagnostic Report'
+        }
+        'timeline' {
+            $path = Get-DanewFirstExistingReportPath -Names @('timeline-raw.html', 'REPORTS_INDEX.html', 'reports-index.html', 'timeline-raw.json')
+            $title = 'Open Timeline Report'
+        }
+        'storage' {
+            $path = Get-DanewFirstExistingReportPath -Names @('storage-analysis.html', 'storage-diagnostics.html', 'REPORTS_INDEX.html', 'reports-index.html', 'storage-analysis.json', 'storage-visibility-diagnosis.json', 'storage-diagnostics.json')
+            $title = 'Open Storage Report'
+        }
+    }
+
+    return (Open-DanewReportFile -Path $path -Title $title)
+}
+
+function Set-DanewValueLabel {
+    param(
+        [AllowNull()]
+        [object]$Label,
+        [string]$Text,
+        [string]$Tone = 'info'
+    )
+
+    if (-not $Label) {
+        return
+    }
+
+    $Label.Text = $Text
+    $Label.ForeColor = [System.Drawing.Color]::FromArgb(31, 41, 55)
+
+    switch ($Tone.ToUpperInvariant()) {
+        'OK' { $Label.ForeColor = [System.Drawing.Color]::FromArgb(15, 118, 110) }
+        'PASS' { $Label.ForeColor = [System.Drawing.Color]::FromArgb(15, 118, 110) }
+        'WARNING' { $Label.ForeColor = [System.Drawing.Color]::FromArgb(180, 83, 9) }
+        'CRITICAL' { $Label.ForeColor = [System.Drawing.Color]::FromArgb(190, 18, 60) }
+        'FAIL' { $Label.ForeColor = [System.Drawing.Color]::FromArgb(190, 18, 60) }
+        'HIGH' { $Label.ForeColor = [System.Drawing.Color]::FromArgb(15, 118, 110) }
+    }
+}
+
+function Get-DanewSavSummary {
+    $summary = [ordered]@{
+        overall = 'INFO'
+        probable_cause = 'Run analysis to identify the probable cause.'
+        confidence = 'UNKNOWN'
+        severity = 'INFO'
+        windows_status = 'Unknown'
+        storage_status = 'Unknown'
+        critical_events = '0'
+        recommended_action = 'Analyze this PC to build the SAV diagnosis.'
+    }
+
+    $sav = Get-DanewReportJson -Name 'sav-diagnostic-report.json'
+    $rootCause = Get-DanewReportJson -Name 'root-cause-analysis.json'
+    $severity = Get-DanewReportJson -Name 'severity-analysis.json'
+    $offline = Get-DanewReportJson -Name 'offline-windows-analysis.json'
+    $timeline = Get-DanewReportJson -Name 'timeline-raw.json'
+    $oneClick = Get-DanewReportJson -Name 'one-click-diagnostic-report.json'
+
+    if ($sav) {
+        $savRoot = Get-DanewObjectValue -Object $sav -Name 'root_cause_analysis' -Default $null
+        $savPrimary = Get-DanewObjectValue -Object $savRoot -Name 'primary_cause' -Default $null
+        $cause = Get-DanewObjectValue -Object $savPrimary -Name 'cause' -Default ''
+        if (-not [string]::IsNullOrWhiteSpace([string]$cause)) {
+            $summary.probable_cause = [string]$cause
+        }
+
+        $confidence = Get-DanewObjectValue -Object $savPrimary -Name 'confidence' -Default ''
+        if (-not [string]::IsNullOrWhiteSpace([string]$confidence)) {
+            $summary.confidence = ([string]$confidence).ToUpperInvariant()
+        }
+
+        $savSeverity = Get-DanewObjectValue -Object (Get-DanewObjectValue -Object $sav -Name 'severity_analysis' -Default $null) -Name 'overall' -Default ''
+        if (-not [string]::IsNullOrWhiteSpace([string]$savSeverity)) {
+            $summary.severity = ([string]$savSeverity).ToUpperInvariant()
+            $summary.overall = $summary.severity
+        }
+    }
+
+    if ($rootCause -and $summary.probable_cause -eq 'Run analysis to identify the probable cause.') {
+        $primary = Get-DanewObjectValue -Object $rootCause -Name 'primary_cause' -Default $null
+        $cause = Get-DanewObjectValue -Object $primary -Name 'cause' -Default ''
+        if (-not [string]::IsNullOrWhiteSpace([string]$cause)) {
+            $summary.probable_cause = [string]$cause
+        }
+        $confidence = Get-DanewObjectValue -Object $primary -Name 'confidence' -Default ''
+        if (-not [string]::IsNullOrWhiteSpace([string]$confidence)) {
+            $summary.confidence = ([string]$confidence).ToUpperInvariant()
+        }
+    }
+
+    if ($severity) {
+        $overall = Get-DanewObjectValue -Object $severity -Name 'overall' -Default ''
+        if (-not [string]::IsNullOrWhiteSpace([string]$overall)) {
+            $summary.severity = ([string]$overall).ToUpperInvariant()
+            $summary.overall = $summary.severity
+        }
+    }
+
+    if ($offline) {
+        $preferredWindows = Get-DanewObjectValue -Object $offline -Name 'preferred_windows_volume' -Default $null
+        $preferredPath = Get-DanewObjectValue -Object $preferredWindows -Name 'path' -Default ''
+        if (-not [string]::IsNullOrWhiteSpace([string]$preferredPath)) {
+            $summary.windows_status = 'Detected: ' + [string]$preferredPath
+        }
+        else {
+            $discovery = Get-DanewObjectValue -Object $offline -Name 'discovery_case_message' -Default ''
+            if (-not [string]::IsNullOrWhiteSpace([string]$discovery)) {
+                $summary.windows_status = [string]$discovery
+            }
+        }
+
+        $storageCase = Get-DanewObjectValue -Object $offline -Name 'storage_visibility_case' -Default ''
+        $diskStatus = Get-DanewObjectValue -Object $offline -Name 'primary_disk_status' -Default ''
+        if (-not [string]::IsNullOrWhiteSpace([string]$diskStatus)) {
+            $summary.storage_status = [string]$diskStatus
+        }
+        if (-not [string]::IsNullOrWhiteSpace([string]$storageCase)) {
+            $summary.storage_status = ([string]$summary.storage_status + ' / case ' + [string]$storageCase).Trim()
+        }
+    }
+
+    if ($timeline) {
+        $events = Get-DanewObjectValue -Object $timeline -Name 'events' -Default @()
+        $criticalCount = @($events | Where-Object {
+                $level = [string](Get-DanewObjectValue -Object $_ -Name 'level' -Default '')
+                $provider = [string](Get-DanewObjectValue -Object $_ -Name 'provider' -Default '')
+                $message = [string](Get-DanewObjectValue -Object $_ -Name 'message' -Default '')
+                ($level -match 'critical|error') -or ($provider -match 'BugCheck|Kernel-Power|Disk|Ntfs|WHEA') -or ($message -match 'bugcheck|inaccessible|boot device|critical')
+            }).Count
+        $summary.critical_events = [string]$criticalCount
+    }
+
+    if ($oneClick -and $summary.overall -eq 'INFO') {
+        $diag = Get-DanewObjectValue -Object $oneClick -Name 'diagnostic' -Default $null
+        $diagSummary = Get-DanewObjectValue -Object $diag -Name 'summary' -Default $null
+        $overall = Get-DanewObjectValue -Object $diagSummary -Name 'overall_status' -Default ''
+        if (-not [string]::IsNullOrWhiteSpace([string]$overall)) {
+            $summary.overall = ([string]$overall).ToUpperInvariant()
+            $summary.severity = $summary.overall
+        }
+    }
+
+    switch ($summary.severity) {
+        'CRITICAL' { $summary.recommended_action = 'Open the SAV report, confirm storage access, then export the SAV package.' }
+        'FAIL' { $summary.recommended_action = 'Open the SAV report and export the SAV package for escalation.' }
+        'WARNING' { $summary.recommended_action = 'Review warnings, timeline, and storage report before closing the case.' }
+        'PASS' { $summary.recommended_action = 'No blocking issue detected. Export the package if traceability is required.' }
+        default { }
+    }
+
+    return [pscustomobject]$summary
+}
+
+function Update-DanewSavSummaryCard {
+    $summary = Get-DanewSavSummary
+    Set-DanewSummaryVisual -Status ([string]$summary.overall) -Text ('Diagnostic result: ' + [string]$summary.overall)
+    $criticalTone = 'OK'
+    $criticalCount = 0
+    if ([int]::TryParse([string]$summary.critical_events, [ref]$criticalCount) -and $criticalCount -gt 0) {
+        $criticalTone = 'CRITICAL'
+    }
+    Set-DanewValueLabel -Label $probableCauseValueLabel -Text ([string]$summary.probable_cause)
+    Set-DanewValueLabel -Label $confidenceValueLabel -Text ([string]$summary.confidence) -Tone ([string]$summary.confidence)
+    Set-DanewValueLabel -Label $severityValueLabel -Text ([string]$summary.severity) -Tone ([string]$summary.severity)
+    Set-DanewValueLabel -Label $windowsStatusValueLabel -Text ([string]$summary.windows_status)
+    Set-DanewValueLabel -Label $storageStatusValueLabel -Text ([string]$summary.storage_status) -Tone ([string]$summary.severity)
+    Set-DanewValueLabel -Label $criticalEventsValueLabel -Text ([string]$summary.critical_events) -Tone $criticalTone
+    Set-DanewValueLabel -Label $recommendedActionValueLabel -Text ([string]$summary.recommended_action)
+    return $summary
+}
+
+function Show-DanewRecommendedActions {
+    $summary = Update-DanewSavSummaryCard
+    $message = 'Recommended actions' + [Environment]::NewLine + [Environment]::NewLine +
+        'Probable cause: ' + [string]$summary.probable_cause + [Environment]::NewLine +
+        'Severity: ' + [string]$summary.severity + [Environment]::NewLine +
+        'Confidence: ' + [string]$summary.confidence + [Environment]::NewLine + [Environment]::NewLine +
+        [string]$summary.recommended_action + [Environment]::NewLine + [Environment]::NewLine +
+        'Use "Open SAV Diagnostic Report" for details and "Export SAV Package" for escalation.'
+
+    [System.Windows.Forms.MessageBox]::Show($message, 'Recommended Actions', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
 }
 
 function New-DanewActionButton {
@@ -380,10 +781,78 @@ function New-DanewActionButton {
             $form.Close()
         })
     }
+    elseif ($Action -eq 'start-diagnostic') {
+        $button.Add_Click({ Invoke-StartDiagnostic })
+    }
     else {
         $actionName = [string]$Action
         $button.Add_Click(({ Invoke-GuiAction -Action $actionName }).GetNewClosure())
     }
+
+    [void]$script:ActionButtons.Add($button)
+    return $button
+}
+
+function New-DanewPrimaryDiagnosticButton {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+        [Parameter(Mandatory = $true)]
+        [string]$Text,
+        [Parameter(Mandatory = $true)]
+        [string]$Action,
+        [Parameter(Mandatory = $true)]
+        [System.Windows.Forms.ToolTip]$ToolTip,
+        [string]$Hint = '',
+        [ValidateSet('blue', 'orange')]
+        [string]$Tone = 'blue'
+    )
+
+    $button = New-Object System.Windows.Forms.Button
+    $button.Name = $Name
+    $button.Text = $Text
+    $button.Width = 408
+    $button.Height = 64
+    $button.Margin = New-Object System.Windows.Forms.Padding(8, 6, 8, 6)
+    $button.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+    $button.FlatAppearance.BorderSize = 2
+    $button.Font = New-Object System.Drawing.Font('Segoe UI', 13, [System.Drawing.FontStyle]::Bold)
+    $button.Cursor = [System.Windows.Forms.Cursors]::Hand
+
+    $baseBackColor = [System.Drawing.Color]::FromArgb(29, 78, 216)
+    $hoverBackColor = [System.Drawing.Color]::FromArgb(30, 64, 175)
+    $borderColor = [System.Drawing.Color]::FromArgb(30, 64, 175)
+    $foreColor = [System.Drawing.Color]::White
+
+    if ($Tone -eq 'orange') {
+        $baseBackColor = [System.Drawing.Color]::FromArgb(245, 158, 11)
+        $hoverBackColor = [System.Drawing.Color]::FromArgb(217, 119, 6)
+        $borderColor = [System.Drawing.Color]::FromArgb(180, 83, 9)
+        $foreColor = [System.Drawing.Color]::FromArgb(17, 24, 39)
+    }
+
+    $button.BackColor = $baseBackColor
+    $button.ForeColor = $foreColor
+    $button.FlatAppearance.BorderColor = $borderColor
+
+    $hoverBackColorForHandler = $hoverBackColor
+    $baseBackColorForHandler = $baseBackColor
+
+    $button.Add_MouseEnter(({
+        $sender = [System.Windows.Forms.Button]$this
+        $sender.BackColor = $hoverBackColorForHandler
+    }).GetNewClosure())
+    $button.Add_MouseLeave(({
+        $sender = [System.Windows.Forms.Button]$this
+        $sender.BackColor = $baseBackColorForHandler
+    }).GetNewClosure())
+
+    if (-not [string]::IsNullOrWhiteSpace($Hint)) {
+        $ToolTip.SetToolTip($button, $Hint)
+    }
+
+    $actionName = [string]$Action
+    $button.Add_Click(({ Invoke-GuiAction -Action $actionName }).GetNewClosure())
 
     [void]$script:ActionButtons.Add($button)
     return $button
@@ -445,16 +914,36 @@ function Invoke-GuiAction {
 
     $script:IsActionRunning = $true
     Set-DanewActionButtonsEnabled -Enabled $false
-    Set-DanewSummaryVisual -Status 'RUNNING' -Text ('Running: ' + $Action)
+    Set-DanewSummaryVisual -Status 'RUNNING' -Text 'Preparing action...'
 
     try {
+        if ($Action -eq 'open-sav-report') {
+            [void](Open-DanewSpecificReport -Kind 'sav')
+            Set-DanewSummaryVisual -Status 'PASS' -Text 'SAV report opened'
+            return
+        }
+        elseif ($Action -eq 'open-timeline-report') {
+            [void](Open-DanewSpecificReport -Kind 'timeline')
+            Set-DanewSummaryVisual -Status 'PASS' -Text 'Timeline report opened'
+            return
+        }
+        elseif ($Action -eq 'open-storage-report') {
+            [void](Open-DanewSpecificReport -Kind 'storage')
+            Set-DanewSummaryVisual -Status 'PASS' -Text 'Storage report opened'
+            return
+        }
+        elseif ($Action -eq 'recommended-actions') {
+            Show-DanewRecommendedActions
+            return
+        }
+
         if ($Action -eq 'create-usb-media') {
-            $usbDetails = 'This will prepare bootable USB media and may erase the selected target disk.' + [Environment]::NewLine + [Environment]::NewLine +
+            $usbDetails = 'This will prepare the SAV USB tool and may erase the selected target disk.' + [Environment]::NewLine + [Environment]::NewLine +
                 'Current selected USB disk: ' + [string](Get-DanewLauncherSelectedUsbDisk -Config $config) + [Environment]::NewLine +
                 'Continue only if the target disk is correct.'
-            $confirmUsb = [System.Windows.Forms.MessageBox]::Show($usbDetails, 'Confirm USB Media Creation', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Warning)
+            $confirmUsb = [System.Windows.Forms.MessageBox]::Show($usbDetails, 'Confirm USB Tool Preparation', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Warning)
             if ($confirmUsb -ne [System.Windows.Forms.DialogResult]::Yes) {
-                Set-DanewSummaryVisual -Status 'IDLE' -Text 'USB media creation cancelled'
+                Set-DanewSummaryVisual -Status 'IDLE' -Text 'USB tool preparation cancelled'
                 return
             }
         }
@@ -465,11 +954,11 @@ function Invoke-GuiAction {
                 $progressBox.Text = ''
             }
             if ($summaryLabel) {
-                $summaryLabel.Text = 'Summary: Offline logs running...'
+                $summaryLabel.Text = 'Analyzing offline Windows logs...'
             }
             Set-DanewSummaryVisual -Status 'RUNNING' -Text 'Offline logs running...'
             if ($offlineOperationLabel) {
-                $offlineOperationLabel.Text = 'Current operation: initializing'
+                $offlineOperationLabel.Text = 'Current operation: initializing offline log analysis'
             }
             if ($offlineTimingLabel) {
                 $offlineTimingLabel.Text = 'Elapsed: 00:00    ETA: --:--'
@@ -492,10 +981,11 @@ function Invoke-GuiAction {
         if ($Action -eq 'view-last-report') {
             $view = $res.output
             $message = if ($view.opened) { "Last report opened: $($view.path)" } else { "Last report: $($view.path)`n$($view.reason)" }
-            [System.Windows.Forms.MessageBox]::Show($message, 'Danew Launcher') | Out-Null
+            [System.Windows.Forms.MessageBox]::Show($message, 'Danew SAV Diagnostic Tool') | Out-Null
         }
         elseif ($Action -eq 'refresh-status') {
             [void](Update-DanewStatusPanel)
+            [void](Update-DanewSavSummaryCard)
             Set-DanewSummaryVisual -Status 'PASS' -Text 'Status refreshed'
         }
         elseif ($Action -eq 'analyze-offline-logs') {
@@ -506,7 +996,7 @@ function Invoke-GuiAction {
                 $offlineProgressBar.Value = 100
             }
             if ($summaryLabel) {
-                $summaryLabel.Text = 'Summary: Offline logs complete. Overall=' + [string]$offline.overall_status
+                $summaryLabel.Text = 'Offline Windows logs complete. Overall=' + [string]$offline.overall_status
             }
             Set-DanewSummaryVisual -Status ([string]$offline.overall_status) -Text ('Offline logs complete: ' + [string]$offline.overall_status)
             if ($offlineOperationLabel) {
@@ -538,10 +1028,10 @@ function Invoke-GuiAction {
                 $message += [Environment]::NewLine + 'SAV failure report: ' + [string]$offline.artifacts.offline_windows_failure_report_html
             }
 
-            [System.Windows.Forms.MessageBox]::Show($message, 'Danew Launcher') | Out-Null
+            [System.Windows.Forms.MessageBox]::Show($message, 'Danew SAV Diagnostic Tool') | Out-Null
 
             if ([string]$failure.status -eq 'generated' -and -not [string]::IsNullOrWhiteSpace([string]$offline.artifacts.offline_windows_failure_report_html)) {
-                $askOpen = [System.Windows.Forms.MessageBox]::Show('Open SAV failure report now?', 'Danew Launcher', [System.Windows.Forms.MessageBoxButtons]::YesNo)
+                $askOpen = [System.Windows.Forms.MessageBox]::Show('Open SAV failure report now?', 'Danew SAV Diagnostic Tool', [System.Windows.Forms.MessageBoxButtons]::YesNo)
                 if ($askOpen -eq [System.Windows.Forms.DialogResult]::Yes) {
                     try {
                         Start-Process -FilePath [string]$offline.artifacts.offline_windows_failure_report_html | Out-Null
@@ -551,6 +1041,7 @@ function Invoke-GuiAction {
                 }
             }
             [void](Update-DanewStatusPanel)
+            [void](Update-DanewSavSummaryCard)
         }
         elseif ($Action -eq 'analyze-crash-causes') {
             $crash = $res.output
@@ -566,7 +1057,7 @@ function Invoke-GuiAction {
                 'Confidence: ' + [string]$primary.confidence + [Environment]::NewLine +
                 'Top evidence: ' + $topEvidenceSummary + [Environment]::NewLine +
                 'Report: ' + [string]$crash.report_paths.sav_diagnostic_report_html
-            [System.Windows.Forms.MessageBox]::Show($message, 'Danew Launcher') | Out-Null
+            [System.Windows.Forms.MessageBox]::Show($message, 'Danew SAV Diagnostic Tool') | Out-Null
             if (-not [string]::IsNullOrWhiteSpace([string]$crash.report_paths.sav_diagnostic_report_html)) {
                 try {
                     Start-Process -FilePath [string]$crash.report_paths.sav_diagnostic_report_html | Out-Null
@@ -575,21 +1066,24 @@ function Invoke-GuiAction {
                 }
             }
             [void](Update-DanewStatusPanel)
+            [void](Update-DanewSavSummaryCard)
         }
         elseif ($Action -eq 'create-usb-media') {
-            Set-DanewSummaryVisual -Status 'PASS' -Text 'USB media report generated'
-            [System.Windows.Forms.MessageBox]::Show('USB media action completed. Check the USB readiness status and report.', 'Danew Launcher') | Out-Null
+            Set-DanewSummaryVisual -Status 'PASS' -Text 'USB tool report generated'
+            [System.Windows.Forms.MessageBox]::Show('USB tool action completed. Check readiness in advanced details if needed.', 'Danew SAV Diagnostic Tool') | Out-Null
             [void](Update-DanewStatusPanel)
+            [void](Update-DanewSavSummaryCard)
         }
         elseif ($Action -ne 'exit') {
             Set-DanewSummaryVisual -Status 'PASS' -Text ('Completed: ' + [string]$res.action)
-            [System.Windows.Forms.MessageBox]::Show("Action completed: $($res.action)", 'Danew Launcher') | Out-Null
+            [System.Windows.Forms.MessageBox]::Show("Action completed: $($res.action)", 'Danew SAV Diagnostic Tool') | Out-Null
             [void](Update-DanewStatusPanel)
+            [void](Update-DanewSavSummaryCard)
         }
     }
     catch {
         Set-DanewSummaryVisual -Status 'FAIL' -Text ('Failed: ' + $Action)
-        [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, 'Danew Launcher Error') | Out-Null
+        [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, 'Danew SAV Diagnostic Tool Error') | Out-Null
     }
     finally {
         $script:IsActionRunning = $false
@@ -705,9 +1199,12 @@ function Invoke-StartDiagnostic {
     Reset-DanewStepStates
     Set-DanewStepState -Name 'scan' -State 'running'
     if ($summaryLabel) {
-        $summaryLabel.Text = 'Summary: Running...'
+        $summaryLabel.Text = 'Diagnosis in progress...'
     }
-    Set-DanewSummaryVisual -Status 'RUNNING' -Text 'Diagnostic running...'
+    Set-DanewSummaryVisual -Status 'RUNNING' -Text 'Analyzing this PC...'
+    if ($offlineOperationLabel) {
+        $offlineOperationLabel.Text = 'Current operation: collecting diagnostic evidence'
+    }
 
     $progress = {
         param([string]$Message)
@@ -736,9 +1233,10 @@ function Invoke-StartDiagnostic {
 
         $summaryText = [string]$diag.summary.pass + ' OK, ' + [string]$diag.summary.warning + ' warning, ' + [string]$diag.summary.fail + ' fail'
         if ($summaryLabel) {
-            $summaryLabel.Text = $summaryText
+            $summaryLabel.Text = 'Diagnostic complete: ' + $summaryText
         }
         Set-DanewSummaryVisual -Status ([string]$diag.summary.overall_status) -Text $summaryText
+        [void](Update-DanewSavSummaryCard)
 
         $dataReportRoot = Copy-DanewReportToDataVolume -HtmlPath ([string]$result.output.artifacts.report_html_path) -JsonPath ([string]$result.output.artifacts.report_json_path)
         Add-DiagnosticProgressLine -Line ('Final summary: ' + $summaryText)
@@ -747,16 +1245,17 @@ function Invoke-StartDiagnostic {
         if (-not [string]::IsNullOrWhiteSpace($dataReportRoot)) {
             Add-DiagnosticProgressLine -Line ('Copied latest report to: ' + $dataReportRoot)
         }
-        [System.Windows.Forms.MessageBox]::Show('Diagnostic completed. Overall: ' + [string]$diag.summary.overall_status, 'Danew Launcher') | Out-Null
+        [System.Windows.Forms.MessageBox]::Show('Diagnostic completed. Overall: ' + [string]$diag.summary.overall_status, 'Danew SAV Diagnostic Tool') | Out-Null
         [void](Update-DanewStatusPanel)
+        [void](Update-DanewSavSummaryCard)
     }
     catch {
         if ($summaryLabel) {
-            $summaryLabel.Text = 'Summary: FAIL'
+            $summaryLabel.Text = 'Diagnostic failed'
         }
         Set-DanewSummaryVisual -Status 'FAIL' -Text 'Diagnostic failed'
-        Add-DiagnosticProgressLine -Line ('FAIL - Start diagnostic: ' + $_.Exception.Message)
-        [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, 'Danew Launcher Error') | Out-Null
+        Add-DiagnosticProgressLine -Line ('FAIL - Analyze PC: ' + $_.Exception.Message)
+        [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, 'Danew SAV Diagnostic Tool Error') | Out-Null
     }
     finally {
         $script:IsActionRunning = $false
@@ -798,20 +1297,20 @@ if ($config.PSObject.Properties['runtime_mode']) {
         $runtimeTitle = $modeVal
     }
 }
-$form.Text = 'Danew WinPE Check Tool - ' + $runtimeTitle
+$form.Text = 'Danew SAV Diagnostic Tool'
 $form.StartPosition = 'CenterScreen'
-$form.ClientSize = New-Object System.Drawing.Size(900, 780)
+$form.ClientSize = New-Object System.Drawing.Size(900, 720)
 $form.TopMost = $true
-$form.AutoScroll = $true
-$form.AutoScrollMinSize = New-Object System.Drawing.Size(900, 760)
-$form.MinimumSize = New-Object System.Drawing.Size(900, 760)
+$form.AutoScroll = $false
+$form.AutoScrollMinSize = New-Object System.Drawing.Size(900, 720)
+$form.MinimumSize = New-Object System.Drawing.Size(900, 700)
 $form.BackColor = [System.Drawing.Color]::FromArgb(243, 246, 252)
 $form.Font = New-Object System.Drawing.Font('Segoe UI', 9)
 
 $workingArea = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
 if ($workingArea.Height -lt 900 -or $workingArea.Width -lt 940) {
     $targetWidth = [Math]::Max(820, [Math]::Min(900, $workingArea.Width - 24))
-    $targetHeight = [Math]::Max(640, [Math]::Min(780, $workingArea.Height - 24))
+    $targetHeight = [Math]::Max(640, [Math]::Min(720, $workingArea.Height - 24))
     $form.ClientSize = New-Object System.Drawing.Size($targetWidth, $targetHeight)
 }
 
@@ -830,7 +1329,7 @@ $titleLabel.Width = 680
 $titleLabel.Height = 28
 $titleLabel.ForeColor = [System.Drawing.Color]::White
 $titleLabel.Font = New-Object System.Drawing.Font('Segoe UI', 14, [System.Drawing.FontStyle]::Bold)
-$titleLabel.Text = 'Danew Check Tool'
+$titleLabel.Text = 'Danew SAV Diagnostic Tool'
 
 $subtitleLabel = New-Object System.Windows.Forms.Label
 $subtitleLabel.Left = 16
@@ -839,17 +1338,17 @@ $subtitleLabel.Width = 820
 $subtitleLabel.Height = 20
 $subtitleLabel.ForeColor = [System.Drawing.Color]::FromArgb(219, 234, 254)
 $subtitleLabel.Font = New-Object System.Drawing.Font('Segoe UI', 9)
-$subtitleLabel.Text = 'Runtime: ' + $runtimeTitle + ' | Offline diagnostics, crash analysis, and USB preparation'
+$subtitleLabel.Text = 'OEM offline crash, boot, and storage diagnosis assistant'
 
 [void]$headerPanel.Controls.Add($titleLabel)
 [void]$headerPanel.Controls.Add($subtitleLabel)
 
 $statusGroup = New-Object System.Windows.Forms.GroupBox
-$statusGroup.Text = 'Status'
+$statusGroup.Text = 'SAV Summary'
 $statusGroup.Left = 14
-$statusGroup.Top = 96
+$statusGroup.Top = 258
 $statusGroup.Width = 872
-$statusGroup.Height = 154
+$statusGroup.Height = 246
 $statusGroup.Anchor = 'Top,Left,Right'
 $statusGroup.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
 $statusGroup.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
@@ -905,75 +1404,136 @@ foreach ($row in $statusRows) {
     }
 }
 
-[void]$statusGroup.Controls.Add($statusTable)
+$resultTitleLabel = New-Object System.Windows.Forms.Label
+$resultTitleLabel.Left = 16
+$resultTitleLabel.Top = 28
+$resultTitleLabel.Width = 380
+$resultTitleLabel.Height = 28
+$resultTitleLabel.Text = 'Probable Cause and Severity'
+$resultTitleLabel.ForeColor = [System.Drawing.Color]::FromArgb(15, 23, 42)
+$resultTitleLabel.Font = New-Object System.Drawing.Font('Segoe UI', 13, [System.Drawing.FontStyle]::Bold)
+
+$overallBadgeLabel = New-Object System.Windows.Forms.Label
+$overallBadgeLabel.Left = 720
+$overallBadgeLabel.Top = 26
+$overallBadgeLabel.Width = 128
+$overallBadgeLabel.Height = 32
+$overallBadgeLabel.Text = 'INFO'
+$overallBadgeLabel.TextAlign = 'MiddleCenter'
+$overallBadgeLabel.BackColor = [System.Drawing.Color]::FromArgb(37, 99, 235)
+$overallBadgeLabel.ForeColor = [System.Drawing.Color]::White
+$overallBadgeLabel.Font = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
+
+$summaryLabel = New-Object System.Windows.Forms.Label
+$summaryLabel.Left = 16
+$summaryLabel.Top = 60
+$summaryLabel.Width = 832
+$summaryLabel.Height = 24
+$summaryLabel.Text = 'Diagnostic result: waiting for analysis'
+$summaryLabel.ForeColor = [System.Drawing.Color]::FromArgb(30, 64, 175)
+$summaryLabel.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
+
+function New-DanewSummaryFieldLabel {
+    param(
+        [string]$Caption,
+        [int]$Left,
+        [int]$Top,
+        [int]$Width = 188
+    )
+
+    $label = New-Object System.Windows.Forms.Label
+    $label.Left = $Left
+    $label.Top = $Top
+    $label.Width = $Width
+    $label.Height = 18
+    $label.Text = $Caption
+    $label.ForeColor = [System.Drawing.Color]::FromArgb(71, 85, 105)
+    $label.Font = New-Object System.Drawing.Font('Segoe UI', 8.5, [System.Drawing.FontStyle]::Bold)
+    return $label
+}
+
+function New-DanewSummaryValueLabel {
+    param(
+        [string]$Text,
+        [int]$Left,
+        [int]$Top,
+        [int]$Width = 188,
+        [int]$Height = 30
+    )
+
+    $label = New-Object System.Windows.Forms.Label
+    $label.Left = $Left
+    $label.Top = $Top
+    $label.Width = $Width
+    $label.Height = $Height
+    $label.Text = $Text
+    $label.ForeColor = [System.Drawing.Color]::FromArgb(31, 41, 55)
+    $label.BackColor = [System.Drawing.Color]::FromArgb(248, 250, 252)
+    $label.BorderStyle = 'FixedSingle'
+    $label.TextAlign = 'MiddleLeft'
+    $label.Padding = New-Object System.Windows.Forms.Padding(8, 0, 8, 0)
+    $label.Font = New-Object System.Drawing.Font('Segoe UI', 9.5, [System.Drawing.FontStyle]::Bold)
+    return $label
+}
+
+[void]$statusGroup.Controls.Add($resultTitleLabel)
+[void]$statusGroup.Controls.Add($overallBadgeLabel)
+[void]$statusGroup.Controls.Add($summaryLabel)
+
+[void]$statusGroup.Controls.Add((New-DanewSummaryFieldLabel -Caption 'Probable cause' -Left 16 -Top 92 -Width 400))
+$probableCauseValueLabel = New-DanewSummaryValueLabel -Text 'Run analysis to identify the probable cause.' -Left 16 -Top 112 -Width 530 -Height 42
+[void]$statusGroup.Controls.Add($probableCauseValueLabel)
+
+[void]$statusGroup.Controls.Add((New-DanewSummaryFieldLabel -Caption 'Confidence' -Left 566 -Top 92 -Width 130))
+$confidenceValueLabel = New-DanewSummaryValueLabel -Text 'UNKNOWN' -Left 566 -Top 112 -Width 130 -Height 42
+[void]$statusGroup.Controls.Add($confidenceValueLabel)
+
+[void]$statusGroup.Controls.Add((New-DanewSummaryFieldLabel -Caption 'Severity' -Left 712 -Top 92 -Width 136))
+$severityValueLabel = New-DanewSummaryValueLabel -Text 'INFO' -Left 712 -Top 112 -Width 136 -Height 42
+[void]$statusGroup.Controls.Add($severityValueLabel)
+
+[void]$statusGroup.Controls.Add((New-DanewSummaryFieldLabel -Caption 'Windows detection' -Left 16 -Top 166 -Width 260))
+$windowsStatusValueLabel = New-DanewSummaryValueLabel -Text 'Unknown' -Left 16 -Top 186 -Width 260 -Height 34
+[void]$statusGroup.Controls.Add($windowsStatusValueLabel)
+
+[void]$statusGroup.Controls.Add((New-DanewSummaryFieldLabel -Caption 'Storage visibility' -Left 292 -Top 166 -Width 260))
+$storageStatusValueLabel = New-DanewSummaryValueLabel -Text 'Unknown' -Left 292 -Top 186 -Width 260 -Height 34
+[void]$statusGroup.Controls.Add($storageStatusValueLabel)
+
+[void]$statusGroup.Controls.Add((New-DanewSummaryFieldLabel -Caption 'Critical events' -Left 568 -Top 166 -Width 120))
+$criticalEventsValueLabel = New-DanewSummaryValueLabel -Text '0' -Left 568 -Top 186 -Width 120 -Height 34
+[void]$statusGroup.Controls.Add($criticalEventsValueLabel)
+
+[void]$statusGroup.Controls.Add((New-DanewSummaryFieldLabel -Caption 'Recommended next action' -Left 704 -Top 166 -Width 144))
+$recommendedActionValueLabel = New-DanewSummaryValueLabel -Text 'Analyze Windows logs first.' -Left 704 -Top 186 -Width 144 -Height 34
+[void]$statusGroup.Controls.Add($recommendedActionValueLabel)
+
+$savSummaryLabel = $summaryLabel
+$savOverallBadgeLabel = $overallBadgeLabel
 
 $primaryGroup = New-Object System.Windows.Forms.GroupBox
-$primaryGroup.Text = 'Diagnostic Console'
+$primaryGroup.Text = 'Primary Diagnostic Actions'
 $primaryGroup.Left = 14
-$primaryGroup.Top = 262
+$primaryGroup.Top = 96
 $primaryGroup.Width = 872
-$primaryGroup.Height = 340
+$primaryGroup.Height = 150
 $primaryGroup.Anchor = 'Top,Left,Right'
 $primaryGroup.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
 $primaryGroup.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
 
-$startDiagnosticButton = New-Object System.Windows.Forms.Button
-$startDiagnosticButton.Text = 'START DIAGNOSTIC'
-$startDiagnosticButton.Left = 14
-$startDiagnosticButton.Top = 26
-$startDiagnosticButton.Width = 844
-$startDiagnosticButton.Height = 48
-$startDiagnosticButton.Font = New-Object System.Drawing.Font('Segoe UI', 12, [System.Drawing.FontStyle]::Bold)
-$startDiagnosticButton.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-$startDiagnosticButton.FlatAppearance.BorderSize = 1
-$startDiagnosticButton.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(30, 64, 175)
-$startDiagnosticButton.BackColor = [System.Drawing.Color]::FromArgb(29, 78, 216)
-$startDiagnosticButton.ForeColor = [System.Drawing.Color]::White
-$startDiagnosticButton.Cursor = [System.Windows.Forms.Cursors]::Hand
-
-$startDiagnosticButton.Add_MouseEnter({
-    $sender = [System.Windows.Forms.Button]$this
-    $sender.BackColor = [System.Drawing.Color]::FromArgb(30, 64, 175)
-})
-
-$startDiagnosticButton.Add_MouseLeave({
-    $sender = [System.Windows.Forms.Button]$this
-    $sender.BackColor = [System.Drawing.Color]::FromArgb(29, 78, 216)
-})
-
-$summaryLabel = New-Object System.Windows.Forms.Label
-$summaryLabel.Left = 14
-$summaryLabel.Top = 136
-$summaryLabel.Width = 704
-$summaryLabel.Height = 24
-$summaryLabel.Text = 'Summary: Idle'
-$summaryLabel.ForeColor = [System.Drawing.Color]::FromArgb(30, 64, 175)
-$summaryLabel.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
-
-$overallBadgeLabel = New-Object System.Windows.Forms.Label
-$overallBadgeLabel.Left = 730
-$overallBadgeLabel.Top = 134
-$overallBadgeLabel.Width = 128
-$overallBadgeLabel.Height = 28
-$overallBadgeLabel.Text = 'IDLE'
-$overallBadgeLabel.TextAlign = 'MiddleCenter'
-$overallBadgeLabel.BackColor = [System.Drawing.Color]::FromArgb(229, 231, 235)
-$overallBadgeLabel.ForeColor = [System.Drawing.Color]::FromArgb(31, 41, 55)
-$overallBadgeLabel.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
-
 $offlineOperationLabel = New-Object System.Windows.Forms.Label
-$offlineOperationLabel.Left = 14
-$offlineOperationLabel.Top = 162
+$offlineOperationLabel.Left = 22
+$offlineOperationLabel.Top = 104
 $offlineOperationLabel.Width = 844
 $offlineOperationLabel.Height = 20
-$offlineOperationLabel.Text = 'Current operation: idle'
+$offlineOperationLabel.Text = 'Ready. Start with Windows logs, then crash cause analysis.'
 $offlineOperationLabel.ForeColor = [System.Drawing.Color]::FromArgb(71, 85, 105)
 $offlineOperationLabel.Font = New-Object System.Drawing.Font('Segoe UI', 9)
 
 $offlineProgressBar = New-Object System.Windows.Forms.ProgressBar
-$offlineProgressBar.Left = 14
-$offlineProgressBar.Top = 186
-$offlineProgressBar.Width = 844
+$offlineProgressBar.Left = 22
+$offlineProgressBar.Top = 126
+$offlineProgressBar.Width = 828
 $offlineProgressBar.Height = 18
 $offlineProgressBar.Minimum = 0
 $offlineProgressBar.Maximum = 100
@@ -982,7 +1542,7 @@ $offlineProgressBar.Style = 'Continuous'
 
 $offlineTimingLabel = New-Object System.Windows.Forms.Label
 $offlineTimingLabel.Left = 14
-$offlineTimingLabel.Top = 208
+$offlineTimingLabel.Top = 138
 $offlineTimingLabel.Width = 844
 $offlineTimingLabel.Height = 20
 $offlineTimingLabel.Text = 'Elapsed: 00:00    ETA: --:--'
@@ -1002,12 +1562,23 @@ $progressBox.BackColor = [System.Drawing.Color]::FromArgb(248, 250, 252)
 $progressBox.ForeColor = [System.Drawing.Color]::FromArgb(15, 23, 42)
 $progressBox.Font = New-Object System.Drawing.Font('Consolas', 9)
 
-$startDiagnosticButton.Add_Click({ Invoke-StartDiagnostic })
-[void]$script:ActionButtons.Add($startDiagnosticButton)
+$toolTip = New-Object System.Windows.Forms.ToolTip
+$toolTip.AutoPopDelay = 12000
+$toolTip.InitialDelay = 250
+$toolTip.ReshowDelay = 150
+$toolTip.ShowAlways = $true
+
+$analyzeWindowsLogsButton = New-DanewPrimaryDiagnosticButton -Name 'AnalyzeWindowsLogsButton' -Text 'ANALYZE WINDOWS LOGS' -Action 'analyze-offline-logs' -ToolTip $toolTip -Hint 'Primary SAV workflow: detect Windows, parse offline logs, and build timeline evidence.' -Tone 'blue'
+$analyzeWindowsLogsButton.Left = 22
+$analyzeWindowsLogsButton.Top = 28
+
+$analyzeCrashCausesButton = New-DanewPrimaryDiagnosticButton -Name 'AnalyzeCrashCausesButton' -Text 'ANALYZE CRASH CAUSES' -Action 'analyze-crash-causes' -ToolTip $toolTip -Hint 'Correlate log, storage, and timeline evidence to identify the probable crash cause.' -Tone 'orange'
+$analyzeCrashCausesButton.Left = 442
+$analyzeCrashCausesButton.Top = 28
 
 $stepPanel = New-Object System.Windows.Forms.FlowLayoutPanel
 $stepPanel.Left = 14
-$stepPanel.Top = 80
+$stepPanel.Top = 150
 $stepPanel.Width = 844
 $stepPanel.Height = 48
 $stepPanel.FlowDirection = 'LeftToRight'
@@ -1037,27 +1608,19 @@ foreach ($step in @(
     [void]$stepPanel.Controls.Add($stepLabel)
 }
 
-[void]$primaryGroup.Controls.Add($startDiagnosticButton)
-[void]$primaryGroup.Controls.Add($stepPanel)
-[void]$primaryGroup.Controls.Add($summaryLabel)
-[void]$primaryGroup.Controls.Add($overallBadgeLabel)
+[void]$primaryGroup.Controls.Add($analyzeWindowsLogsButton)
+[void]$primaryGroup.Controls.Add($analyzeCrashCausesButton)
 [void]$primaryGroup.Controls.Add($offlineOperationLabel)
 [void]$primaryGroup.Controls.Add($offlineProgressBar)
-[void]$primaryGroup.Controls.Add($offlineTimingLabel)
-[void]$primaryGroup.Controls.Add($progressBox)
-
-$toolTip = New-Object System.Windows.Forms.ToolTip
-$toolTip.AutoPopDelay = 12000
-$toolTip.InitialDelay = 250
-$toolTip.ReshowDelay = 150
-$toolTip.ShowAlways = $true
+$summaryLabel = $savSummaryLabel
+$overallBadgeLabel = $savOverallBadgeLabel
 
 $simpleActionsGroup = New-Object System.Windows.Forms.GroupBox
-$simpleActionsGroup.Text = 'Simple Actions'
+$simpleActionsGroup.Text = 'Reports and Actions'
 $simpleActionsGroup.Left = 14
-$simpleActionsGroup.Top = 614
+$simpleActionsGroup.Top = 514
 $simpleActionsGroup.Width = 872
-$simpleActionsGroup.Height = 148
+$simpleActionsGroup.Height = 120
 $simpleActionsGroup.Anchor = 'Top,Left,Right'
 $simpleActionsGroup.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
 $simpleActionsGroup.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
@@ -1066,13 +1629,15 @@ $simplePanel = New-Object System.Windows.Forms.FlowLayoutPanel
 $simplePanel.Left = 10
 $simplePanel.Top = 22
 $simplePanel.Width = 844
-$simplePanel.Height = 50
+$simplePanel.Height = 92
 $simplePanel.FlowDirection = 'LeftToRight'
-$simplePanel.WrapContents = $false
+$simplePanel.WrapContents = $true
 $simplePanel.Padding = New-Object System.Windows.Forms.Padding(0)
 
-[void]$simplePanel.Controls.Add((New-DanewActionButton -Text 'Open Last Report' -Action 'view-last-report' -ToolTip $toolTip -Hint 'Open the most recent HTML or JSON report.' -Tone 'primary'))
-[void]$simplePanel.Controls.Add((New-DanewActionButton -Text 'Export Package' -Action 'export-diagnostic-package' -ToolTip $toolTip -Hint 'Bundle reports and artifacts for transfer.' -Tone 'neutral'))
+[void]$simplePanel.Controls.Add((New-DanewActionButton -Text 'Open SAV Diagnostic Report' -Action 'open-sav-report' -ToolTip $toolTip -Hint 'Open the main offline SAV diagnosis report.' -Tone 'primary'))
+[void]$simplePanel.Controls.Add((New-DanewActionButton -Text 'Open Timeline Report' -Action 'open-timeline-report' -ToolTip $toolTip -Hint 'Open the offline event timeline report.' -Tone 'neutral'))
+[void]$simplePanel.Controls.Add((New-DanewActionButton -Text 'Export SAV Package' -Action 'export-diagnostic-package' -ToolTip $toolTip -Hint 'Bundle reports and artifacts for escalation.' -Tone 'neutral'))
+[void]$simplePanel.Controls.Add((New-DanewActionButton -Text 'Recommended Actions' -Action 'recommended-actions' -ToolTip $toolTip -Hint 'Show the next SAV action based on current evidence.' -Tone 'warn'))
 
 $advancedToggleButton = New-Object System.Windows.Forms.Button
 $advancedToggleButton.Text = 'Show Advanced Tools'
@@ -1090,7 +1655,24 @@ $advancedToggleButton.Add_Click({
     Set-DanewAdvancedToolsVisible -Visible (-not $script:AdvancedToolsVisible)
 })
 [void]$script:ActionButtons.Add($advancedToggleButton)
-[void]$simplePanel.Controls.Add($advancedToggleButton)
+
+$technicalToggleButton = New-Object System.Windows.Forms.Button
+$technicalToggleButton.Name = 'ShowTechnicalDetailsButton'
+$technicalToggleButton.Text = 'Show Technical Details'
+$technicalToggleButton.Width = 236
+$technicalToggleButton.Height = 40
+$technicalToggleButton.Margin = New-Object System.Windows.Forms.Padding(5, 4, 5, 4)
+$technicalToggleButton.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$technicalToggleButton.FlatAppearance.BorderSize = 2
+$technicalToggleButton.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(71, 85, 105)
+$technicalToggleButton.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
+$technicalToggleButton.ForeColor = [System.Drawing.Color]::FromArgb(31, 41, 55)
+$technicalToggleButton.Font = New-Object System.Drawing.Font('Segoe UI', 9.5, [System.Drawing.FontStyle]::Bold)
+$technicalToggleButton.Cursor = [System.Windows.Forms.Cursors]::Hand
+$technicalToggleButton.Add_Click({
+    Set-DanewTechnicalDetailsVisible -Visible (-not $script:TechnicalDetailsVisible)
+})
+[void]$script:ActionButtons.Add($technicalToggleButton)
 
 $recentActivityBox = New-Object System.Windows.Forms.TextBox
 $recentActivityBox.Left = 14
@@ -1107,12 +1689,25 @@ $recentActivityBox.Font = New-Object System.Drawing.Font('Consolas', 8.5)
 $recentActivityBox.Text = 'Recent activity: idle'
 
 [void]$simpleActionsGroup.Controls.Add($simplePanel)
-[void]$simpleActionsGroup.Controls.Add($recentActivityBox)
+
+$togglePanel = New-Object System.Windows.Forms.FlowLayoutPanel
+$togglePanel.Name = 'CollapsedControlsPanel'
+$togglePanel.Left = 14
+$togglePanel.Top = 654
+$togglePanel.Width = 872
+$togglePanel.Height = 48
+$togglePanel.Anchor = 'Top,Left,Right'
+$togglePanel.FlowDirection = 'LeftToRight'
+$togglePanel.WrapContents = $false
+$togglePanel.BackColor = [System.Drawing.Color]::FromArgb(243, 246, 252)
+[void]$togglePanel.Controls.Add($advancedToggleButton)
+[void]$togglePanel.Controls.Add($technicalToggleButton)
 
 $buttonGroup = New-Object System.Windows.Forms.GroupBox
 $buttonGroup.Text = 'Advanced Tools'
+$buttonGroup.Name = 'AdvancedToolsPanel'
 $buttonGroup.Left = 14
-$buttonGroup.Top = 774
+$buttonGroup.Top = 710
 $buttonGroup.Width = 872
 $buttonGroup.Height = 186
 $buttonGroup.Anchor = 'Top,Left,Right'
@@ -1128,19 +1723,19 @@ $toolsLayout.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([Syst
 $toolsLayout.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 33.333)))
 
 $quickGroup = New-Object System.Windows.Forms.GroupBox
-$quickGroup.Text = 'Quick Actions'
+$quickGroup.Text = 'Reports'
 $quickGroup.Dock = 'Fill'
 $quickGroup.Font = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)
 $quickGroup.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
 
 $analysisGroup = New-Object System.Windows.Forms.GroupBox
-$analysisGroup.Text = 'Analysis'
+$analysisGroup.Text = 'Advanced Diagnostics'
 $analysisGroup.Dock = 'Fill'
 $analysisGroup.Font = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)
 $analysisGroup.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
 
 $systemGroup = New-Object System.Windows.Forms.GroupBox
-$systemGroup.Text = 'System'
+$systemGroup.Text = 'Tools'
 $systemGroup.Dock = 'Fill'
 $systemGroup.Font = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)
 $systemGroup.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
@@ -1149,35 +1744,33 @@ $quickPanel = New-Object System.Windows.Forms.FlowLayoutPanel
 $quickPanel.Dock = 'Fill'
 $quickPanel.FlowDirection = 'TopDown'
 $quickPanel.WrapContents = $false
-$quickPanel.AutoScroll = $true
+$quickPanel.AutoScroll = $false
 $quickPanel.Padding = New-Object System.Windows.Forms.Padding(8, 10, 8, 8)
 
 $analysisPanel = New-Object System.Windows.Forms.FlowLayoutPanel
 $analysisPanel.Dock = 'Fill'
 $analysisPanel.FlowDirection = 'TopDown'
 $analysisPanel.WrapContents = $false
-$analysisPanel.AutoScroll = $true
+$analysisPanel.AutoScroll = $false
 $analysisPanel.Padding = New-Object System.Windows.Forms.Padding(8, 10, 8, 8)
 
 $systemPanel = New-Object System.Windows.Forms.FlowLayoutPanel
 $systemPanel.Dock = 'Fill'
 $systemPanel.FlowDirection = 'TopDown'
 $systemPanel.WrapContents = $false
-$systemPanel.AutoScroll = $true
+$systemPanel.AutoScroll = $false
 $systemPanel.Padding = New-Object System.Windows.Forms.Padding(8, 10, 8, 8)
 
-[void]$quickPanel.Controls.Add((New-DanewActionButton -Text 'Refresh Status' -Action 'refresh-status' -ToolTip $toolTip -Hint 'Reload the status snapshot and latest state from launcher.' -Tone 'neutral'))
-[void]$quickPanel.Controls.Add((New-DanewActionButton -Text 'View Last Report' -Action 'view-last-report' -ToolTip $toolTip -Hint 'Open the most recently generated report.' -Tone 'neutral'))
+[void]$quickPanel.Controls.Add((New-DanewActionButton -Text 'Refresh Summary' -Action 'refresh-status' -ToolTip $toolTip -Hint 'Reload the current SAV diagnosis summary.' -Tone 'neutral'))
+[void]$quickPanel.Controls.Add((New-DanewActionButton -Text 'Open Storage Report' -Action 'open-storage-report' -ToolTip $toolTip -Hint 'Open storage visibility and diagnostics evidence.' -Tone 'neutral'))
 [void]$quickPanel.Controls.Add((New-DanewActionButton -Text 'Open Reports Folder' -Action 'open-reports-folder' -ToolTip $toolTip -Hint 'Open the reports directory in File Explorer.' -Tone 'neutral'))
 
-[void]$analysisPanel.Controls.Add((New-DanewActionButton -Text 'Scan WinPE' -Action 'scan-winpe' -ToolTip $toolTip -Hint 'Scan WinPE runtime details and environment state.' -Tone 'neutral'))
-[void]$analysisPanel.Controls.Add((New-DanewActionButton -Text 'Run Capability Analysis' -Action 'capability-analysis' -ToolTip $toolTip -Hint 'Assess capabilities and produce a machine profile.' -Tone 'neutral'))
-[void]$analysisPanel.Controls.Add((New-DanewActionButton -Text 'Generate Report' -Action 'generate-report' -ToolTip $toolTip -Hint 'Generate JSON and HTML diagnostic reports.' -Tone 'neutral'))
-[void]$analysisPanel.Controls.Add((New-DanewActionButton -Text 'Analyze Offline Windows Logs' -Action 'analyze-offline-logs' -ToolTip $toolTip -Hint 'Run offline logs analysis with live progress and ETA.' -Tone 'primary'))
-[void]$analysisPanel.Controls.Add((New-DanewActionButton -Text 'Analyze Crash Causes' -Action 'analyze-crash-causes' -ToolTip $toolTip -Hint 'Correlate evidence and identify probable crash causes.' -Tone 'warn'))
+[void]$analysisPanel.Controls.Add((New-DanewActionButton -Text 'WinPE Capability Scan' -Action 'capability-analysis' -ToolTip $toolTip -Hint 'Assess WinPE capabilities when low-level checks are required.' -Tone 'neutral'))
+[void]$analysisPanel.Controls.Add((New-DanewActionButton -Text 'Full Diagnostic Run' -Action 'start-diagnostic' -ToolTip $toolTip -Hint 'Run the complete one-click diagnostic sequence.' -Tone 'neutral'))
+[void]$analysisPanel.Controls.Add((New-DanewActionButton -Text 'Storage Diagnostics' -Action 'analyze-offline-logs' -ToolTip $toolTip -Hint 'Refresh storage visibility evidence through offline analysis.' -Tone 'neutral'))
 
-[void]$systemPanel.Controls.Add((New-DanewActionButton -Text 'Export Diagnostic Package' -Action 'export-diagnostic-package' -ToolTip $toolTip -Hint 'Bundle reports and artifacts for transfer.' -Tone 'neutral'))
-[void]$systemPanel.Controls.Add((New-DanewActionButton -Text 'Create Bootable USB' -Action 'create-usb-media' -ToolTip $toolTip -Hint 'Prepare or refresh a bootable USB with Danew media.' -Tone 'warn'))
+[void]$systemPanel.Controls.Add((New-DanewActionButton -Text 'USB Tools' -Action 'create-usb-media' -ToolTip $toolTip -Hint 'Prepare or refresh the SAV USB tool.' -Tone 'warn'))
+[void]$systemPanel.Controls.Add((New-DanewActionButton -Text 'Generate Base Report' -Action 'generate-report' -ToolTip $toolTip -Hint 'Generate the base HTML and JSON reports.' -Tone 'neutral'))
 [void]$systemPanel.Controls.Add((New-DanewActionButton -Text 'Exit' -Action 'exit' -ToolTip $toolTip -Hint 'Close the launcher interface.' -Tone 'danger'))
 
 [void]$quickGroup.Controls.Add($quickPanel)
@@ -1190,12 +1783,47 @@ $systemPanel.Padding = New-Object System.Windows.Forms.Padding(8, 10, 8, 8)
 
 [void]$buttonGroup.Controls.Add($toolsLayout)
 
+$technicalDetailsGroup = New-Object System.Windows.Forms.GroupBox
+$technicalDetailsGroup.Text = 'Technical Details'
+$technicalDetailsGroup.Name = 'TechnicalDetailsPanel'
+$technicalDetailsGroup.Left = 14
+$technicalDetailsGroup.Top = 710
+$technicalDetailsGroup.Width = 872
+$technicalDetailsGroup.Height = 190
+$technicalDetailsGroup.Anchor = 'Top,Left,Right'
+$technicalDetailsGroup.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
+$technicalDetailsGroup.Font = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)
+
+$statusTable.Dock = 'None'
+$statusTable.Left = 10
+$statusTable.Top = 22
+$statusTable.Width = 520
+$statusTable.Height = 150
+
+$progressBox.Left = 544
+$progressBox.Top = 22
+$progressBox.Width = 314
+$progressBox.Height = 86
+
+$recentActivityBox.Left = 544
+$recentActivityBox.Top = 116
+$recentActivityBox.Width = 314
+$recentActivityBox.Height = 56
+
+[void]$technicalDetailsGroup.Controls.Add($statusTable)
+[void]$technicalDetailsGroup.Controls.Add($progressBox)
+[void]$technicalDetailsGroup.Controls.Add($recentActivityBox)
+
 [void]$form.Controls.Add($headerPanel)
 [void]$form.Controls.Add($statusGroup)
 [void]$form.Controls.Add($primaryGroup)
 [void]$form.Controls.Add($simpleActionsGroup)
+[void]$form.Controls.Add($togglePanel)
 [void]$form.Controls.Add($buttonGroup)
+[void]$form.Controls.Add($technicalDetailsGroup)
 
 Set-DanewAdvancedToolsVisible -Visible $false
+Set-DanewTechnicalDetailsVisible -Visible $false
 [void](Update-DanewStatusPanel)
+[void](Update-DanewSavSummaryCard)
 [void]$form.ShowDialog()

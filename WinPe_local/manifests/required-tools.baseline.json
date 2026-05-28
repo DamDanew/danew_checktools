@@ -3,6 +3,7 @@
   "tools": [
     "cmd.exe",
     "powershell.exe",
+    "pwsh.exe",
     "wpeinit.exe",
     "wpeutil.exe",
     "dism.exe",
