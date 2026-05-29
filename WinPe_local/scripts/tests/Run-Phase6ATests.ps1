@@ -250,6 +250,76 @@ try {
     $validPass = ($validOutput.overall_status -eq 'PASS') -and ($validOutput.summary.total_events -eq 1) -and (Test-Path -Path $validOutput.artifacts.timeline_raw_html)
     $results += Add-Phase6AResult -Name 'valid_evtx' -Passed $validPass -Details ([string]$validOutput.overall_status + '; events=' + [string]$validOutput.summary.total_events)
 
+    $quickSummaryJson = [string]$validOutput.artifacts.quick_sav_summary_json
+    $quickSummaryTxt = [string]$validOutput.artifacts.quick_sav_summary_txt
+    $quickSummaryContent = ''
+    if (-not [string]::IsNullOrWhiteSpace($quickSummaryTxt) -and (Test-Path -Path $quickSummaryTxt)) {
+        $quickSummaryContent = Get-Content -Path $quickSummaryTxt -Raw -Encoding UTF8
+    }
+    $quickSummaryPass = (-not [string]::IsNullOrWhiteSpace($quickSummaryJson)) -and (Test-Path -Path $quickSummaryJson) -and (-not [string]::IsNullOrWhiteSpace($quickSummaryTxt)) -and (Test-Path -Path $quickSummaryTxt) -and ($quickSummaryContent -match 'Resume SAV rapide')
+    $results += Add-Phase6AResult -Name 'quick_sav_summary_generated_before_heavy_artifacts' -Passed $quickSummaryPass -Details 'quick-sav-summary.json/txt generated'
+
+    $targetedAuto = $validOutput.evtx_targeted_exports
+    $targetedAutoOff = ($null -ne $targetedAuto) -and (-not [bool]$targetedAuto.generated)
+    $targetedArtifactsEmpty = [string]::IsNullOrWhiteSpace([string]$validOutput.artifacts.evtx_filtered_events_csv) -and [string]::IsNullOrWhiteSpace([string]$validOutput.artifacts.evtx_critical_events_csv) -and [string]::IsNullOrWhiteSpace([string]$validOutput.artifacts.evtx_crash_window_csv) -and [string]::IsNullOrWhiteSpace([string]$validOutput.artifacts.evtx_sav_summary_txt)
+    $autoZipFiles = @()
+    if (Test-Path -Path $config.reports_path) {
+        $autoZipFiles = @(Get-ChildItem -Path $config.reports_path -Filter *.zip -File -ErrorAction SilentlyContinue)
+    }
+    $noAutoZip = (@($autoZipFiles).Count -eq 0)
+    $explicitOnlyPass = $targetedAutoOff -and $targetedArtifactsEmpty -and $noAutoZip
+    $results += Add-Phase6AResult -Name 'explicit_only_targeted_and_zip_exports' -Passed $explicitOnlyPass -Details ('targeted_generated=' + [string]$targetedAuto.generated + '; zip_count=' + [string]@($autoZipFiles).Count)
+
+    $fastCase = Invoke-WithOfflineOverrides -Action {
+        Invoke-DanewLauncherAction -Action 'analyze-offline-logs-fast' -RootPath $temp.root -Config $config
+    } -FindOverride {
+        param([string]$InputPath, [string]$RootPath)
+        return @($installInfo)
+    } -RegistryOverride {
+        param([object]$InstallInfo)
+        return [pscustomobject]@{
+            installation_root = [string]$InstallInfo.windows_root
+            status = 'PASS'
+            message = 'ok'
+            product_name = 'Windows 11 Pro'
+            current_build = '26100'
+            display_version = '24H2'
+            edition_id = 'Professional'
+            release_id = '24H2'
+            registered_owner = 'Danew'
+            computer_name = 'OFFLINE-PC'
+            current_control_set = 'ControlSet001'
+            last_shutdown_utc = ''
+            driver_hints = @('disk.sys')
+            boot_hints = @('winload.efi')
+        }
+    } -DiscoveryOverride {
+        param([object]$InstallInfo)
+        return @([pscustomobject]@{
+                installation_root = [string]$InstallInfo.windows_root
+                channel = 'System'
+                file_name = 'System.evtx'
+                file_path = $sourceFile
+                required = $true
+                exists = $true
+                size_bytes = 1024
+                last_modified_utc = (Get-Date).ToString('s')
+                status = 'readable'
+                message = 'ok'
+            })
+    } -EventsOverride {
+        param([object[]]$DiscoveryItems, [int]$MaxEventsPerLog)
+        return [pscustomobject]@{
+            events = @((New-FakeEvent -Index 1 -InstallRoot $installInfo.windows_root -SourceFile $sourceFile))
+            issues = @()
+        }
+    }
+
+    $fastOutput = $fastCase.output
+    $fastTimelineHtml = Get-Content -Path $fastOutput.artifacts.timeline_raw_html -Raw -Encoding UTF8
+    $fastPass = ($fastOutput.overall_status -eq 'PASS') -and (Test-Path -Path $fastOutput.artifacts.timeline_raw_html) -and ($fastTimelineHtml -match 'Mode rapide optimise') -and ($fastTimelineHtml -match 'evtx-by-file.html')
+    $results += Add-Phase6AResult -Name 'fast_mode_writes_lightweight_timeline_html' -Passed $fastPass -Details 'fast analysis writes lightweight timeline shell with by-file link'
+
     $corruptedCase = Invoke-WithOfflineOverrides -Action {
         Invoke-DanewLauncherAction -Action 'analyze-offline-logs' -RootPath $temp.root -Config $config
     } -FindOverride {

@@ -4,7 +4,7 @@ param(
     [string]$ConfigPath,
     [switch]$Json,
     [string]$RuntimeSystemDrive,
-    [ValidateSet('Interactive', 'scan-winpe', 'capability-analysis', 'generate-report', 'open-reports-folder', 'export-diagnostic-package', 'prepare-startnet', 'start-diagnostic', 'analyze-offline-logs', 'analyze-crash-causes', 'precheck-winpe', 'export-evtx-targeted', 'check-browser', 'create-usb-media', 'real-winpe-validation', 'pre-real-boot-check', 'refresh-status', 'show-status', 'view-last-report', 'exit')]
+    [ValidateSet('Interactive', 'scan-winpe', 'capability-analysis', 'generate-report', 'open-reports-folder', 'export-diagnostic-package', 'prepare-startnet', 'start-diagnostic', 'analyze-offline-logs', 'analyze-offline-logs-fast', 'analyze-offline-logs-full', 'analyze-crash-causes', 'precheck-winpe', 'export-evtx-targeted', 'export-evtx-zip', 'check-browser', 'create-usb-media', 'real-winpe-validation', 'pre-real-boot-check', 'refresh-status', 'show-status', 'view-last-report', 'exit')]
     [string]$Command = 'Interactive'
 )
 
@@ -210,6 +210,10 @@ function Invoke-DanewCliDiagnosticCommand {
 }
 
 function Invoke-DanewCliOfflineLogsCommand {
+    param(
+        [string]$Action = 'analyze-offline-logs'
+    )
+
     $progress = {
         param([string]$Message)
         if (-not $Json) {
@@ -217,7 +221,7 @@ function Invoke-DanewCliOfflineLogsCommand {
         }
     }
 
-    $result = Invoke-DanewLauncherAction -Action 'analyze-offline-logs' -RootPath $RootPath -Config $config -ProgressCallback $progress
+    $result = Invoke-DanewLauncherAction -Action $Action -RootPath $RootPath -Config $config -ProgressCallback $progress
 
     if ($Json) {
         $result.output | ConvertTo-Json -Depth 40
@@ -267,6 +271,7 @@ function Invoke-DanewCliOfflineLogsCommand {
     Write-Host ('evtx-summary.json: ' + [string]$payload.artifacts.evtx_summary)
     Write-Host ('timeline-raw.json: ' + [string]$payload.artifacts.timeline_raw_json)
     Write-Host ('timeline-raw.html: ' + [string]$payload.artifacts.timeline_raw_html)
+    Write-Host ('evtx-by-file.html: ' + [string]$payload.artifacts.evtx_by_file_html)
     if ([string]$payload.failure_report.status -eq 'generated') {
         Write-Host ('offline-windows-failure-report.json: ' + [string]$payload.artifacts.offline_windows_failure_report_json)
         Write-Host ('offline-windows-failure-report.html: ' + [string]$payload.artifacts.offline_windows_failure_report_html)
@@ -332,6 +337,27 @@ function Invoke-DanewCliEvtxTargetedExportCommand {
     Write-Host ('evtx-sav-summary.txt: ' + [string]$payload.artifacts.evtx_sav_summary_txt)
 }
 
+function Invoke-DanewCliEvtxZipExportCommand {
+    $result = Invoke-DanewLauncherAction -Action 'export-evtx-zip' -RootPath $RootPath -Config $config
+
+    if ($Json) {
+        $result.output | ConvertTo-Json -Depth 30
+        return
+    }
+
+    $payload = $result.output
+    Write-Host ''
+    Write-Host 'EVTX ZIP Export Summary'
+    Write-Host ('Status: ' + [string]$payload.status)
+    Write-Host ('Message: ' + [string]$payload.message)
+    Write-Host ('Machine: ' + [string]$payload.machine_name)
+    Write-Host ('Timestamp: ' + [string]$payload.timestamp)
+    Write-Host ('EVTX copied: ' + [string]$payload.copied_evtx_count)
+    Write-Host ('Files in export folder: ' + [string]$payload.copied_file_count)
+    Write-Host ('Export folder: ' + [string]$payload.folder)
+    Write-Host ('ZIP path: ' + [string]$payload.zip)
+}
+
 function Invoke-DanewCliBrowserCheckCommand {
     $result = Invoke-DanewLauncherAction -Action 'check-browser' -RootPath $RootPath -Config $config
 
@@ -381,9 +407,9 @@ if ($Command -ne 'Interactive') {
         exit 0
     }
 
-    if ($Command -eq 'analyze-offline-logs') {
-        Invoke-DanewCliOfflineLogsCommand
-        Write-DanewLauncherActionLog -Config $config -Action 'cli-launcher' -Status 'ok' -Message 'CLI command completed: analyze-offline-logs'
+    if ($Command -in @('analyze-offline-logs', 'analyze-offline-logs-fast', 'analyze-offline-logs-full')) {
+        Invoke-DanewCliOfflineLogsCommand -Action $Command
+        Write-DanewLauncherActionLog -Config $config -Action 'cli-launcher' -Status 'ok' -Message ('CLI command completed: ' + $Command)
         exit 0
     }
 
@@ -402,6 +428,12 @@ if ($Command -ne 'Interactive') {
     if ($Command -eq 'export-evtx-targeted') {
         Invoke-DanewCliEvtxTargetedExportCommand
         Write-DanewLauncherActionLog -Config $config -Action 'cli-launcher' -Status 'ok' -Message 'CLI command completed: export-evtx-targeted'
+        exit 0
+    }
+
+    if ($Command -eq 'export-evtx-zip') {
+        Invoke-DanewCliEvtxZipExportCommand
+        Write-DanewLauncherActionLog -Config $config -Action 'cli-launcher' -Status 'ok' -Message 'CLI command completed: export-evtx-zip'
         exit 0
     }
 
@@ -444,11 +476,12 @@ while ($true) {
     Write-Host '11. Analyze Crash Causes'
     Write-Host '12. Pre-check WinPE'
     Write-Host '13. Export EVTX Targeted Files'
-    Write-Host '14. Check Browser'
-    Write-Host '15. Create Bootable USB'
-    Write-Host '16. Exit'
+    Write-Host '14. Export EVTX ZIP (Machine+Timestamp)'
+    Write-Host '15. Check Browser'
+    Write-Host '16. Create Bootable USB'
+    Write-Host '17. Exit'
 
-    $choice = Read-Host 'Select action (1-16)'
+    $choice = Read-Host 'Select action (1-17)'
     switch ($choice) {
         '1' { Invoke-DanewCliStatusCommand -ActionName 'refresh-status' }
         '2' { Invoke-DanewCliStatusCommand -ActionName 'show-status' }
@@ -463,9 +496,10 @@ while ($true) {
         '11' { Invoke-DanewCliCrashCausesCommand }
         '12' { Invoke-DanewCliWinPEPrecheckCommand }
         '13' { Invoke-DanewCliEvtxTargetedExportCommand }
-        '14' { Invoke-DanewCliBrowserCheckCommand }
-        '15' { Invoke-DanewCliAction -ActionName 'create-usb-media' }
-        '16' {
+        '14' { Invoke-DanewCliEvtxZipExportCommand }
+        '15' { Invoke-DanewCliBrowserCheckCommand }
+        '16' { Invoke-DanewCliAction -ActionName 'create-usb-media' }
+        '17' {
             Invoke-DanewCliAction -ActionName 'exit'
             break
         }

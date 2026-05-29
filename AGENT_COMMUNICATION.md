@@ -74,6 +74,39 @@ If yes, continue there and update this file. If no, Codex can take over from the
 
 ## Agent Notes
 
+### 2026-05-29 20:40 +02:00 VS Code Copilot (Agent B) split commits propre
+
+FAIT:
+- Preparation d'un split en 2 commits a la demande utilisateur:
+  - commit A: scripts/launcher/tests + journal
+  - commit B: TODO docs
+- Aucun revert des changements non lies deja presents.
+
+PENDING:
+- Pousser les 2 commits puis confirmer l'etat restant (fichiers non suivis racine).
+
+### 2026-05-29 20:25 +02:00 VS Code Copilot (Agent B) commit/push + run 1..4
+
+FAIT:
+- Commit et push realises sur `main`:
+  - commit `4416a0d`
+  - message: `report(html): uniformiser la responsivite des tableaux`
+  - fichiers inclus: `AGENT_COMMUNICATION.md`, `WinPe_local/scripts/report/HtmlReportShell.ps1`, `WinPe_local/scripts/offline/OfflineLogsEngine.ps1`
+- Tache 1 executee: regeneration complete offline logs:
+  - commande: `launcher.ps1 -Action analyze-offline-logs-full -FallbackToCli -ForceGuiInitFailure`
+  - resultat: PASS, `timeline-raw.html` regenere (13,791 evenements parses)
+- Tache 2 executee: regeneration du rapport SAV crash:
+  - commande directe: `Invoke-DanewCrashCauseAnalysis` (via `CrashAnalysisEngine.ps1`)
+  - resultat: `reports/sav-diagnostic-report.html` regenere avec le nouveau shell CSS/JS
+- Tache 3 executee: resync scripts vers USB/local test roots:
+  - `OfflineLogsEngine.ps1` et `launcher.ps1` copies vers `E:\scripts\...` et `D:\scripts\...`
+- Tache 4 executee/validee:
+  - verification export EVTX ZIP: destination correcte `reports/Export_EVENTS/...-evtx.zip`
+  - nettoyage historique: deplacement des anciens `*-evtx.zip` restes en racine `reports\` vers `reports\Export_EVENTS\`
+
+PENDING:
+- Aucun blocage technique sur 1..4. Les autres changements non lies deja presents dans le working tree restent inchanges.
+
 ### 2026-05-29 20:10 +02:00 VS Code Copilot (Agent B) uniformisation tableaux HTML
 
 FAIT:

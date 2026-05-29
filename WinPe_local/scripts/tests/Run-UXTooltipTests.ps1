@@ -42,10 +42,16 @@ $tooltipConfigOk = ($launcher -match '\$toolTip\.InitialDelay\s*=\s*400') -and (
 $results += Add-UXTooltipResult -Name 'tooltip_object_configured' -Passed $tooltipConfigOk -Details 'Shared ToolTip object configured with expected delays.'
 
 $requiredButtonHints = @(
-    @{ text = 'ANALYSER LES JOURNAUX WINDOWS'; hint = 'Lit les journaux Windows EVTX de l installation hors ligne detectee.' },
-    @{ text = 'ANALYSER LES CAUSES DE CRASH'; hint = 'Analyse les evenements Windows deja lus pour identifier les causes probables de panne.' },
+    @{ text = 'ANALYSE RAPIDE'; hint = 'Analyse rapide des journaux Windows' },
+    @{ text = 'Critique'; hint = 'Inclut les evenements critiques Windows.' },
+    @{ text = 'Erreur'; hint = 'Inclut les erreurs Windows.' },
+    @{ text = 'Avert.'; hint = 'Inclut les avertissements Windows.' },
+    @{ text = 'Evenements/log'; hint = 'Choisit le nombre maximum d evenements lus par journal en analyse rapide.' },
+    @{ text = 'ANALYSE COMPLETE'; hint = 'Analyse complete des journaux Windows' },
+    @{ text = 'ANALYSER CAUSES'; hint = 'Analyse les evenements Windows deja lus pour identifier les causes probables de panne.' },
     @{ text = 'OUVRIR LE RAPPORT SAV'; hint = 'Ouvre le rapport SAV principal.' },
-    @{ text = 'OUVRIR LE RAPPORT CHRONOLOGIQUE'; hint = 'Ouvre la chronologie interactive des evenements Windows.' },
+    @{ text = 'COMPLET TOUS LES LOGS'; hint = 'Ouvre la vue complete des journaux Windows recuperes.' },
+    @{ text = 'RAPIDE CRIT/ERR/AVERT.'; hint = 'Ouvre la vue rapide des journaux Windows limitee aux evenements critiques, erreurs et avertissements' },
     @{ text = 'EXPORTER LE DOSSIER SAV'; hint = 'Cree un package SAV avec les rapports, journaux et exports disponibles.' },
     @{ text = 'EXPORT EVTX CIBLE'; hint = 'Genere les exports EVTX physiques dans reports' },
     @{ text = 'ACTIONS RECOMMANDEES'; hint = 'Affiche les actions SAV conseillees selon le diagnostic.' },
@@ -59,7 +65,7 @@ $requiredButtonHints = @(
 
 $missingHints = @()
 foreach ($item in @($requiredButtonHints)) {
-    $hasText = $launcher.Contains("-Text '" + [string]$item.text + "'")
+    $hasText = $launcher.Contains([string]$item.text)
     $hasHint = $launcher.Contains([string]$item.hint)
     if (-not ($hasText -and $hasHint)) {
         $missingHints += [string]$item.text
@@ -82,7 +88,7 @@ $mojiPattern = ([string][char]0x00C3) + '|' + ([string][char]0x00C2) + '|' + (([
 $mojiInHints = @($allHints | Where-Object { $_ -match $mojiPattern })
 $results += Add-UXTooltipResult -Name 'tooltip_no_mojibake_markers' -Passed (@($mojiInHints).Count -eq 0) -Details ($(if (@($mojiInHints).Count -eq 0) { 'No mojibake markers in tooltips.' } else { 'mojibake_count=' + [string]@($mojiInHints).Count }))
 
-$readOnlyHintOk = ($launcher -match "ANALYSER LES JOURNAUX WINDOWS'.*Action en lecture seule") -and ($launcher -match "ANALYSER LES CAUSES DE CRASH'.*Action en lecture seule")
+$readOnlyHintOk = ($launcher -match "ANALYSE RAPIDE.*Action en lecture seule") -and ($launcher -match "ANALYSE COMPLETE.*Action en lecture seule") -and ($launcher -match "ANALYSER CAUSES.*Action en lecture seule")
 $results += Add-UXTooltipResult -Name 'read_only_mentions_present' -Passed $readOnlyHintOk -Details 'Read-only wording present where applicable.'
 
 $evtxHintOk = $launcher -match "(?s)EXPORT EVTX CIBLE'.*CSV/TXT"

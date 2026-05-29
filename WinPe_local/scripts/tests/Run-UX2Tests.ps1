@@ -50,6 +50,7 @@ $results = @()
 $launcherPath = Join-Path $RootPath 'scripts\launcher.ps1'
 $launcherCorePath = Join-Path $RootPath 'scripts\launcher\LauncherCore.ps1'
 $content = Get-Content -Path $launcherPath -Raw -Encoding UTF8
+$coreContent = Get-Content -Path $launcherCorePath -Raw -Encoding UTF8
 
 $tokens = $null
 $errors = $null
@@ -57,14 +58,19 @@ $errors = $null
 $results += Add-UX2Result -Name 'launcher_parser_ok' -Passed (-not $errors) -Details ($(if ($errors) { ($errors | Select-Object -First 1).Message } else { 'PowerShell parser clean' }))
 
 $mainDiagnosticVisible = Test-UX2PatternSet -Content $content -Patterns @(
-    "Name 'AnalyzeWindowsLogsButton'",
-    'ANALYSER LES JOURNAUX WINDOWS',
-    "-Action 'analyze-offline-logs'",
+    "Name 'AnalyzeWindowsLogsFastButton'",
+    'ANALYSE FILTRE RAPIDE',
+    'Filtres :',
+    "-Action 'analyze-offline-logs-fast'",
+    "Name 'AnalyzeWindowsLogsFullButton'",
+    'ANALYSE COMPLETE',
+    'TOUS LES LOGS',
+    "-Action 'analyze-offline-logs-full'",
     "Name 'AnalyzeCrashCausesButton'",
-    'ANALYSER LES CAUSES DE CRASH',
+    'ANALYSER CAUSES',
     "-Action 'analyze-crash-causes'"
 )
-$results += Add-UX2Result -Name 'main_diagnostic_buttons_visible_without_scroll' -Passed $mainDiagnosticVisible -Details 'Windows logs and crash cause buttons are primary controls.'
+$results += Add-UX2Result -Name 'main_diagnostic_buttons_visible_without_scroll' -Passed $mainDiagnosticVisible -Details 'Fast logs, full logs, and crash cause buttons are primary controls.'
 
 $noMainScrollbar = ($content -match '\$form\.AutoScroll\s*=\s*\$false') -and
     ($content -match 'AutoScrollMinSize\s*=\s*New-Object System\.Drawing\.Size\(900,\s*720\)') -and
@@ -86,17 +92,30 @@ $priorityOk = $primaryTopMatch.Success -and $summaryTopMatch.Success -and $repor
     ([int]$primaryTopMatch.Groups[1].Value -lt [int]$summaryTopMatch.Groups[1].Value) -and
     ([int]$summaryTopMatch.Groups[1].Value -lt [int]$reportsTopMatch.Groups[1].Value) -and
     ($content -match 'New-DanewPrimaryDiagnosticButton') -and
-    ($content -match "Text 'ANALYSER LES JOURNAUX WINDOWS'") -and
-    ($content -match "Text 'ANALYSER LES CAUSES DE CRASH'")
+    ($content -match 'ANALYSE FILTRE RAPIDE') -and
+    ($content -match 'ANALYSE COMPLETE') -and
+    ($content -match 'ANALYSER CAUSES')
 $results += Add-UX2Result -Name 'analyze_buttons_visually_prioritized' -Passed $priorityOk -Details 'Primary diagnostics appear before summary and reports.'
 
 $summaryDynamic = ($content -match "Text = 'Resume du diagnostic'") -and
-    ($content -match '\$statusGroup\.Top\s*=\s*250') -and
+    ($content -match '\$statusGroup\.Top\s*=\s*302') -and
     ($content -match 'function Set-DanewSavSummaryDetailsVisible') -and
     ($content -match 'Set-DanewSavSummaryDetailsVisible\s+-Visible\s+\$false') -and
     ($content -match 'Set-DanewSavSummaryDetailsVisible\s+-Visible\s+\$true') -and
     (Test-UX2PatternSet -Content $content -Patterns @('Cause probable', 'Confiance', 'Severite', 'Detection Windows', 'Visibilite du stockage', 'Evenements critiques'))
 $results += Add-UX2Result -Name 'sav_summary_details_dynamic_after_logs' -Passed $summaryDynamic -Details 'SAV summary shell stays on the first screen; detailed fields are collapsed until Windows logs analysis completes.'
+
+$progressBarsOk = (Test-UX2PatternSet -Content $content -Patterns @(
+        '$offlineProgressBar = New-Object System.Windows.Forms.ProgressBar',
+        '$offlineSubProgressBar = New-Object System.Windows.Forms.ProgressBar',
+        '$subtaskMatch',
+        '$heartbeatMatch',
+        'Lecture EVTX active',
+        'Sous-etape',
+        'offlineSubProgressBar.Style',
+        'offlineSubProgressBar.MarqueeAnimationSpeed'
+    ))
+$results += Add-UX2Result -Name 'main_and_sub_progress_bars_visible' -Passed $progressBarsOk -Details 'Main diagnostics area exposes global and subtask progress bars.'
 
 $windowsReleaseChip = Test-UX2PatternSet -Content $content -Patterns @(
     'function Get-DanewWindowsDisplayFromOfflineReport',
@@ -122,10 +141,44 @@ $requiredHandlers = @(
     "elseif (`$Action -eq 'start-diagnostic')",
     "if (`$Action -eq 'open-sav-report')",
     "elseif (`$Action -eq 'open-timeline-report')",
+    "elseif (`$Action -eq 'open-timeline-fast-report')",
     "elseif (`$Action -eq 'open-storage-report')"
 )
 $handlersOk = Test-UX2PatternSet -Content $content -Patterns $requiredHandlers
 $results += Add-UX2Result -Name 'existing_handlers_still_functional' -Passed $handlersOk -Details 'Primary, report, and full diagnostic handlers remain present.'
+
+$fastFullActionsOk = (Test-UX2PatternSet -Content $content -Patterns @(
+    "'analyze-offline-logs-fast'",
+    "'analyze-offline-logs-full'",
+    'ANALYSE FILTRE RAPIDE',
+    '$isOfflineLogsAction',
+    'FastAnalysisOptionsPanel',
+    'FastEventLimitComboBox',
+    'Critique',
+    'Erreur',
+    'Avert.',
+    'Tout'
+)) -and (Test-UX2PatternSet -Content $coreContent -Patterns @(
+    "'analyze-offline-logs-fast'",
+    "'analyze-offline-logs-full'",
+    'offline_event_level_filter',
+    'offline_fast_mode',
+    'offline_max_events_per_log'
+))
+$results += Add-UX2Result -Name 'fast_and_full_log_analysis_actions_present' -Passed $fastFullActionsOk -Details 'Main screen exposes configurable fast and full Windows log analysis actions.'
+
+$fastButtonOk = Test-UX2PatternSet -Content $content -Patterns @(
+    'RAPIDE CRIT/ERR/AVERT.',
+    "-Action 'open-timeline-fast-report'",
+    "'evtx-by-file.html'"
+)
+$results += Add-UX2Result -Name 'fast_evtx_by_file_button_present' -Passed $fastButtonOk -Details 'Reports section includes rapid critical/error/warning EVTX button and fallback path.'
+
+$evtxZipButtonOk = Test-UX2PatternSet -Content $content -Patterns @(
+    'EXPORT ZIP EVTX',
+    "-Action 'export-evtx-zip'"
+)
+$results += Add-UX2Result -Name 'evtx_zip_export_button_present' -Passed $evtxZipButtonOk -Details 'Reports section includes EVTX ZIP export button with dedicated launcher action.'
 
 $reportsOpenOk = Test-UX2PatternSet -Content $content -Patterns @(
     'Open-DanewReportFile',
@@ -134,6 +187,7 @@ $reportsOpenOk = Test-UX2PatternSet -Content $content -Patterns @(
     'Start-Process -FilePath $Path',
     'sav-diagnostic-report.html',
     'REPORTS_INDEX.html',
+    'evtx-by-file.html',
     'timeline-raw.html',
     'storage-analysis.json'
 )

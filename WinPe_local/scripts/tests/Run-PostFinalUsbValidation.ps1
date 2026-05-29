@@ -134,10 +134,19 @@ if (Test-Path -Path $launcherUsb) {
     $results += Add-PostFinalResult -Name 'usb_launcher_mojibake_markers_absent' -Passed (@($moji).Count -eq 0) -Details ('mojibake_hits=' + [string]@($moji).Count)
 
     $labels = @(
-        'ANALYSER LES JOURNAUX WINDOWS',
-        'ANALYSER LES CAUSES DE CRASH',
+        'ANALYSE RAPIDE',
+        'CRIT/ERR/AVERT.',
+        'Critique',
+        'Erreur',
+        'Avert.',
+        'Evenements/log',
+        'Tout',
+        'ANALYSE COMPLETE',
+        'TOUS LES LOGS',
+        'ANALYSER CAUSES',
+        'COMPLET TOUS LES LOGS',
+        'RAPIDE CRIT/ERR/AVERT.',
         'OUVRIR LE RAPPORT SAV',
-        'OUVRIR LE RAPPORT CHRONOLOGIQUE',
         'EXPORTER LE DOSSIER SAV',
         'EXPORT EVTX CIBLE',
         'ACTIONS RECOMMANDEES',

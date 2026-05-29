@@ -47,7 +47,7 @@ $results += Add-UX2FResult -Name 'old_title_removed' -Passed $oldTitleAbsent -De
 $recommendedNeutral = $launcher -match '(?s)ACTIONS RECOMMANDEES'' -Action ''recommended-actions''.*?-Tone ''neutral''' 
 $results += Add-UX2FResult -Name 'recommended_actions_not_orange' -Passed $recommendedNeutral -Details 'Recommended actions button uses neutral styling.'
 
-$primaryButtons = ($launcher -match 'ANALYSER LES JOURNAUX WINDOWS') -and ($launcher -match 'ANALYSER LES CAUSES DE CRASH')
+$primaryButtons = ($launcher -match 'ANALYSE FILTRE RAPIDE') -and ($launcher -match 'ANALYSE COMPLETE') -and ($launcher -match 'ANALYSER CAUSES') -and ($launcher -match 'Filtres :')
 $noMainScroll = ($launcher -match '\$form\.AutoScroll\s*=\s*\$false')
 $results += Add-UX2FResult -Name 'primary_buttons_visible_without_scroll' -Passed ($primaryButtons -and $noMainScroll) -Details 'Primary buttons remain visible without scroll.'
 
@@ -57,8 +57,8 @@ $results += Add-UX2FResult -Name 'recommended_action_full_width' -Passed $recomm
 $openSavOk = ($launcher -match 'Open-DanewReportFile') -and ($launcher -match 'Get-DanewFirstExistingReportPath')
 $results += Add-UX2FResult -Name 'open_sav_report_wired' -Passed $openSavOk -Details 'Open SAV report handler still present.'
 
-$handlersOk = ($launcher -match "-Action 'analyze-offline-logs'") -and ($launcher -match "-Action 'analyze-crash-causes'") -and ($launcher -match 'Invoke-GuiAction')
-$results += Add-UX2FResult -Name 'analyze_handlers_present' -Passed $handlersOk -Details 'Analyze Windows logs and crash causes handlers still present.'
+$handlersOk = ($launcher -match "-Action 'analyze-offline-logs-fast'") -and ($launcher -match "-Action 'analyze-offline-logs-full'") -and ($launcher -match "-Action 'analyze-crash-causes'") -and ($launcher -match 'Invoke-GuiAction')
+$results += Add-UX2FResult -Name 'analyze_handlers_present' -Passed $handlersOk -Details 'Fast/full Windows logs and crash causes handlers still present.'
 
 $summary = [pscustomobject]@{
     total = @($results).Count

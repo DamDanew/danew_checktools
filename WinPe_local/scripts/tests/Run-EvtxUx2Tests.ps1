@@ -82,12 +82,14 @@ try {
     $timelineSummary = [pscustomobject]@{ total_events = @($timelineEvents).Count; missing_required_logs = 0; parse_issue_count = 0 }
 
     $timelinePath = Join-Path $config.reports_path 'timeline-raw.html'
+    $byFilePath = Join-Path $config.reports_path 'evtx-by-file.html'
     $timelineJsonPath = Join-Path $config.reports_path 'timeline-raw.json'
     $eventsCsvPath = Join-Path $config.reports_path 'evtx-events.csv'
     $eventsJsonPath = Join-Path $config.reports_path 'evtx-events.json'
     $summaryJsonPath = Join-Path $config.reports_path 'evtx-summary.json'
 
     Write-DanewTimelineHtml -Path $timelinePath -Events $timelineEvents -Summary $timelineSummary
+    Write-DanewEvtxByFileHtml -Path $byFilePath -Events $timelineEvents -Summary $timelineSummary
     ([pscustomobject]@{ events = $timelineEvents; issues = @() } | ConvertTo-Json -Depth 20) | Set-Content -Path $timelineJsonPath -Encoding UTF8
     $timelineEvents | Select-Object timestamp, level, provider, event_id, channel, source_file, message | Export-Csv -Path $eventsCsvPath -NoTypeInformation -Encoding UTF8
     $timelineEvents | ConvertTo-Json -Depth 20 | Set-Content -Path $eventsJsonPath -Encoding UTF8
@@ -133,16 +135,53 @@ try {
 
     $results += Add-EvtxUx2Result -Name 'knowledge_rules_loaded' -Passed ([int]$exports.knowledge_rules_loaded -gt 0) -Details ('loaded rules=' + [string]$exports.knowledge_rules_loaded)
 
-    $results += Add-EvtxUx2Result -Name 'existing_reports_not_broken' -Passed ((Test-Path $timelinePath) -and (Test-Path $timelineJsonPath) -and (Test-Path $eventsCsvPath)) -Details 'timeline-raw.html/json and evtx-events.csv still present'
+    $results += Add-EvtxUx2Result -Name 'existing_reports_not_broken' -Passed ((Test-Path $timelinePath) -and (Test-Path $timelineJsonPath) -and (Test-Path $eventsCsvPath) -and (Test-Path $byFilePath)) -Details 'timeline-raw.html/json, evtx-events.csv and evtx-by-file.html still present'
+
+    $byFileHtml = ''
+    if (Test-Path -Path $byFilePath) {
+        $byFileHtml = Get-Content -Path $byFilePath -Raw -Encoding UTF8
+    }
+    $byFileUiOk = (-not [string]::IsNullOrWhiteSpace($byFileHtml)) -and ($byFileHtml -match 'Mode 1: Rapide - Critique/Erreur/Avert\.') -and ($byFileHtml -match 'Lecture par fichier et par famille')
+    $results += Add-EvtxUx2Result -Name 'by_file_fast_html_contains_modes_and_family_sections' -Passed $byFileUiOk -Details 'evtx-by-file.html includes rapid critical/error/warning mode and grouped family sections.'
 
     $launcherAction = Invoke-DanewLauncherAction -Action 'export-evtx-targeted' -RootPath $temp.root -Config $config -SuppressActionLog
     $results += Add-EvtxUx2Result -Name 'launcher_action_export_evtx_targeted' -Passed (($launcherAction.action -eq 'export-evtx-targeted') -and ($launcherAction.output.generated -eq $true)) -Details 'launcher action callable and successful'
+
+    $fakeEvtxPath = Join-Path $temp.root 'System.evtx'
+    'fake evtx content' | Set-Content -Path $fakeEvtxPath -Encoding ASCII
+    @(
+        [pscustomobject]@{ file_path = $fakeEvtxPath; status = 'readable'; exists = $true }
+    ) | ConvertTo-Json -Depth 10 | Set-Content -Path (Join-Path $config.reports_path 'evtx-discovery.json') -Encoding UTF8
+    @(
+        [pscustomobject]@{ timestamp = '2026-05-28T09:00:00'; level = 'Error'; provider = 'Disk'; event_id = 11; channel = 'System'; computer = 'TESTPC'; source_file = 'System.evtx'; message = 'Disk error.' }
+        [pscustomobject]@{ timestamp = '2026-05-28T09:01:00'; level = 'Critical'; provider = 'Kernel-Power'; event_id = 41; channel = 'System'; computer = 'TESTPC'; source_file = 'System.evtx'; message = 'Crash.' }
+    ) | ConvertTo-Json -Depth 10 | Set-Content -Path $eventsJsonPath -Encoding UTF8
+
+    $launcherZipAction = Invoke-DanewLauncherAction -Action 'export-evtx-zip' -RootPath $temp.root -Config $config -SuppressActionLog
+    $zipCallable = ($launcherZipAction.action -eq 'export-evtx-zip') -and ($launcherZipAction.output.generated -eq $true)
+    $zipDetails = 'status=' + [string]$launcherZipAction.output.status + '; zip=' + [string]$launcherZipAction.output.zip
+    $results += Add-EvtxUx2Result -Name 'launcher_action_export_evtx_zip' -Passed $zipCallable -Details $zipDetails
+
+    $zipPath = [string]$launcherZipAction.output.zip
+    $zipName = if ([string]::IsNullOrWhiteSpace($zipPath)) { '' } else { Split-Path -Leaf $zipPath }
+    $zipNamingOk = (([string]$launcherZipAction.output.machine_name -eq 'TESTPC') -and (-not [string]::IsNullOrWhiteSpace($zipPath)) -and (Test-Path -Path $zipPath) -and ($zipName -match '^TESTPC-\d{8}-\d{6}-evtx(-\d+)?\.zip$'))
+    $results += Add-EvtxUx2Result -Name 'evtx_zip_naming_machine_timestamp' -Passed $zipNamingOk -Details 'zip includes machine name and timestamp with -evtx suffix'
+
+    $zipFolderOk = (-not [string]::IsNullOrWhiteSpace($zipPath)) -and ($zipPath -match '[\/\\]Export_EVENTS[\/\\]')
+    $results += Add-EvtxUx2Result -Name 'evtx_zip_stored_in_export_events_folder' -Passed $zipFolderOk -Details 'zip is stored under reports\\Export_EVENTS'
 
     $cliFile = Join-Path $temp.root 'scripts\DanewCheckTool.CLI.ps1'
     $cliText = Get-Content -Path $cliFile -Raw -Encoding UTF8
     $launcherFile = Join-Path $temp.root 'scripts\launcher.ps1'
     $launcherText = Get-Content -Path $launcherFile -Raw -Encoding UTF8
-    $results += Add-EvtxUx2Result -Name 'cli_and_launcher_expose_action' -Passed (($cliText -match 'export-evtx-targeted') -and ($launcherText -match 'export-evtx-targeted')) -Details 'CLI and launcher expose export action'
+    $exposesTargeted = ($cliText -match 'export-evtx-targeted') -and ($launcherText -match 'export-evtx-targeted')
+    $exposesZip = ($cliText -match 'export-evtx-zip') -and ($launcherText -match 'export-evtx-zip')
+    $results += Add-EvtxUx2Result -Name 'cli_and_launcher_expose_action' -Passed ($exposesTargeted -and $exposesZip) -Details 'CLI and launcher expose targeted and ZIP EVTX export actions'
+
+    $offlineEngineText = Get-Content -Path (Join-Path $temp.root 'scripts\offline\OfflineLogsEngine.ps1') -Raw -Encoding UTF8
+    $launcherHeartbeatOk = ($launcherText -match 'heartbeatMatch') -and ($launcherText -match 'Lecture EVTX active')
+    $engineHeartbeatOk = ($offlineEngineText -match 'emitParseHeartbeat') -and ($offlineEngineText -match '\[heartbeat\] evtx-parse') -and ($offlineEngineText -match '-ProgressCallback \$ProgressCallback')
+    $results += Add-EvtxUx2Result -Name 'evtx_parse_heartbeat_wired' -Passed ($launcherHeartbeatOk -and $engineHeartbeatOk) -Details 'EVTX parse emits heartbeat progress and launcher renders it without raw log spam'
 }
 finally {
     if (Test-Path -Path $temp.root) {

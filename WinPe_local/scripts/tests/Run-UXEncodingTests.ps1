@@ -52,10 +52,18 @@ $mojibakeFound = @($mojibakePatterns | Where-Object { $launcherContent -match [r
 $results += Add-UXEncodingResult -Name 'known_mojibake_absent' -Passed (@($mojibakeFound).Count -eq 0) -Details ($(if (@($mojibakeFound).Count -eq 0) { 'No mojibake markers found in launcher.ps1.' } else { 'Found: ' + ($mojibakeFound -join ', ') }))
 
 $requiredLabels = @(
-    'ANALYSER LES JOURNAUX WINDOWS',
-    'ANALYSER LES CAUSES DE CRASH',
+    'ANALYSE RAPIDE',
+    'CRIT/ERR/AVERT.',
+    'Critique',
+    'Erreur',
+    'Avert.',
+    'Evenements/log',
+    'Tout',
+    'ANALYSE COMPLETE',
+    'ANALYSER CAUSES',
     'OUVRIR LE RAPPORT SAV',
-    'OUVRIR LE RAPPORT CHRONOLOGIQUE',
+    'COMPLET TOUS LES LOGS',
+    'RAPIDE CRIT/ERR/AVERT.',
     'EXPORTER LE DOSSIER SAV',
     'EXPORT EVTX CIBLE',
     'ACTIONS RECOMMANDEES',

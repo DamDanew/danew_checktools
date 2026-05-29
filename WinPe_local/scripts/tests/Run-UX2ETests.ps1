@@ -47,14 +47,14 @@ $results += Add-UX2EResult -Name 'critical_events_visible' -Passed $criticalVisi
 $noOverlap = ($launcher -match '\$criticalEventsValueLabel.*-Top\s+184') -and ($launcher -match '\$recommendedActionValueLabel.*-Top\s+240')
 $results += Add-UX2EResult -Name 'no_overlap_recommended_vs_critical' -Passed $noOverlap -Details 'Recommended action row is below critical events.'
 
-$fitsScreen = ($launcher -match '\$statusGroup\.Height\s*=\s*276') -and ($launcher -match '\$simpleActionsGroup\.Top\s*=\s*538')
+$fitsScreen = ($launcher -match '\$primaryGroup\.Height\s*=\s*202') -and ($launcher -match '\$statusGroup\.Top\s*=\s*302') -and ($launcher -match '\$statusGroup\.Height\s*=\s*276') -and ($launcher -match '\$simpleActionsGroup\.Top\s*=\s*586')
 $results += Add-UX2EResult -Name 'summary_fits_1366x768' -Passed $fitsScreen -Details 'Summary size and spacing fit within 1366x768.'
 
 $noScroll = ($launcher -match '\$form\.AutoScroll\s*=\s*\$false')
 $results += Add-UX2EResult -Name 'no_main_scroll' -Passed $noScroll -Details 'Main form has no scrollbars.'
 
-$primaryButtons = ($launcher -match 'ANALYSER LES JOURNAUX WINDOWS') -and ($launcher -match 'ANALYSER LES CAUSES DE CRASH')
-$reportsVisible = ($launcher -match '\$simpleActionsGroup\.Top\s*=\s*538') -and ($launcher -match 'Rapports et actions')
+$primaryButtons = ($launcher -match 'ANALYSE FILTRE RAPIDE') -and ($launcher -match 'ANALYSE COMPLETE') -and ($launcher -match 'ANALYSER CAUSES')
+$reportsVisible = ($launcher -match '\$simpleActionsGroup\.Top\s*=\s*586') -and ($launcher -match 'Rapports et actions')
 $results += Add-UX2EResult -Name 'primary_and_reports_visible' -Passed ($primaryButtons -and $reportsVisible) -Details 'Primary buttons and report actions remain visible.'
 
 $summary = [pscustomobject]@{

@@ -43,7 +43,7 @@ function New-BrowserIntegrationFixture {
         New-Item -Path (Join-Path $root $folder) -ItemType Directory -Force | Out-Null
     }
 
-    foreach ($report in @('REPORTS_INDEX.html', 'reports-index.html', 'sav-diagnostic-report.html', 'timeline-raw.html', 'evtx-events.html')) {
+    foreach ($report in @('REPORTS_INDEX.html', 'reports-index.html', 'sav-diagnostic-report.html', 'timeline-raw.html', 'evtx-by-file.html', 'evtx-events.html')) {
         '<html><body>fixture</body></html>' | Set-Content -Path (Join-Path $root ('reports\' + $report)) -Encoding UTF8
     }
 
@@ -87,7 +87,7 @@ $results += Add-BrowserIntegrationResult -Name 'fallback_txt_message_exists' -Pa
 
 $launcherPath = Join-Path $RootPath 'scripts\launcher.ps1'
 $launcher = Get-Content -Path $launcherPath -Raw -Encoding UTF8
-$launcherButtonsOk = ($launcher -match 'open-sav-report') -and ($launcher -match 'open-timeline-report') -and ($launcher -match 'Open-DanewReportFile') -and ($launcher -match 'Navigateur HTML non disponible')
+$launcherButtonsOk = ($launcher -match 'open-sav-report') -and ($launcher -match 'open-timeline-report') -and ($launcher -match 'open-timeline-fast-report') -and ($launcher -match 'Open-DanewReportFile') -and ($launcher -match 'Navigateur HTML non disponible')
 $results += Add-BrowserIntegrationResult -Name 'launcher_report_buttons_still_work' -Passed $launcherButtonsOk -Details 'Report button handlers and fallback message present.'
 
 $noHardDependency = ($noBrowserResult.detection.status -eq 'WARNING') -and ($launcher -notmatch 'throw.+browser') -and ($launcher -notmatch 'WebView2|Electron|PresentationFramework')
@@ -106,7 +106,7 @@ foreach ($file in @($browserFiles)) {
 $results += Add-BrowserIntegrationResult -Name 'no_internet_dependency' -Passed (@($internetHits).Count -eq 0 -and -not [bool]$noBrowserResult.detection.internet_required) -Details ('internet_hits=' + [string]@($internetHits).Count)
 
 $reportNames = @($noBrowserResult.detection.report_opening | ForEach-Object { $_.name })
-$expectedNames = @('REPORTS_INDEX.html', 'reports-index.html', 'sav-diagnostic-report.html', 'timeline-raw.html', 'evtx-events.html')
+$expectedNames = @('REPORTS_INDEX.html', 'reports-index.html', 'sav-diagnostic-report.html', 'timeline-raw.html', 'evtx-by-file.html', 'evtx-events.html')
 $pathsUnchanged = @($expectedNames | Where-Object { $_ -notin $reportNames }).Count -eq 0
 $results += Add-BrowserIntegrationResult -Name 'existing_report_paths_unchanged' -Passed $pathsUnchanged -Details ('reports=' + ($reportNames -join ', '))
 

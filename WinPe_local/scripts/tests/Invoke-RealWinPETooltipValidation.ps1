@@ -92,9 +92,9 @@ function Resolve-DanewTooltipLauncherPath {
 function Get-DanewTooltipChecklistText {
     return @(
         '1. Open the launcher.',
-        '2. Hover over ANALYSER LES JOURNAUX WINDOWS.',
+        '2. Hover over ANALYSE RAPIDE.',
         '3. Confirm tooltip appears and mentions EVTX / reports / lecture seule.',
-        '4. Hover over ANALYSER LES CAUSES DE CRASH.',
+        '4. Hover over ANALYSER CAUSES.',
         '5. Confirm tooltip appears and mentions causes probables / confiance / gravite.',
         '6. Hover over EXPORT EVTX CIBLE.',
         '7. Confirm tooltip appears and mentions CSV / TXT / reports.',
@@ -195,8 +195,9 @@ if ($launcherFound) {
 }
 
 $expectedButtons = @(
-    'ANALYSER LES JOURNAUX WINDOWS',
-    'ANALYSER LES CAUSES DE CRASH',
+    'ANALYSE RAPIDE',
+    'ANALYSE COMPLETE',
+    'ANALYSER CAUSES',
     'OUVRIR LE RAPPORT SAV',
     'OUVRIR LE RAPPORT CHRONOLOGIQUE',
     'EXPORTER LE DOSSIER SAV',
@@ -212,8 +213,9 @@ $expectedButtons = @(
 )
 
 $tooltipRules = @(
-    [pscustomobject]@{ label = 'ANALYSER LES JOURNAUX WINDOWS'; expected_text = 'Lit les journaux Windows EVTX de l installation hors ligne detectee.' },
-    [pscustomobject]@{ label = 'ANALYSER LES CAUSES DE CRASH'; expected_text = 'Analyse les evenements Windows deja lus pour identifier les causes probables de panne.' },
+    [pscustomobject]@{ label = 'ANALYSE RAPIDE'; expected_text = 'Analyse rapide des journaux Windows' },
+    [pscustomobject]@{ label = 'ANALYSE COMPLETE'; expected_text = 'Analyse complete des journaux Windows' },
+    [pscustomobject]@{ label = 'ANALYSER CAUSES'; expected_text = 'Analyse les evenements Windows deja lus pour identifier les causes probables de panne.' },
     [pscustomobject]@{ label = 'OUVRIR LE RAPPORT SAV'; expected_text = 'Ouvre le rapport SAV principal.' },
     [pscustomobject]@{ label = 'OUVRIR LE RAPPORT CHRONOLOGIQUE'; expected_text = 'Ouvre la chronologie interactive des evenements Windows.' },
     [pscustomobject]@{ label = 'EXPORTER LE DOSSIER SAV'; expected_text = 'Cree un package SAV avec les rapports, journaux et exports disponibles.' },

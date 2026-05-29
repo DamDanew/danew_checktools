@@ -217,7 +217,7 @@ function Get-DanewPortableBrowserDetection {
     }
 
     $reports = @()
-    foreach ($name in @('REPORTS_INDEX.html', 'reports-index.html', 'sav-diagnostic-report.html', 'timeline-raw.html', 'evtx-events.html')) {
+    foreach ($name in @('REPORTS_INDEX.html', 'reports-index.html', 'sav-diagnostic-report.html', 'timeline-raw.html', 'evtx-by-file.html', 'evtx-events.html')) {
         $path = Join-Path ([string]$Config.reports_path) $name
         $exists = Test-Path -Path $path
         $reports += [pscustomobject]@{
@@ -737,6 +737,190 @@ function Export-DanewDiagnosticPackage {
     }
 }
 
+function Export-DanewEvtxZipPackage {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RootPath,
+        [Parameter(Mandatory = $true)]
+        [object]$Config
+    )
+
+    if (-not (Test-Path -Path $Config.reports_path)) {
+        New-Item -Path $Config.reports_path -ItemType Directory -Force | Out-Null
+    }
+
+    $discoveryPath = Join-Path $Config.reports_path 'evtx-discovery.json'
+    if (-not (Test-Path -Path $discoveryPath)) {
+        return [pscustomobject]@{
+            generated = $false
+            status = 'warning'
+            message = 'evtx-discovery.json absent. Lancez d abord une analyse des journaux Windows.'
+            machine_name = ''
+            timestamp = ''
+            folder = ''
+            zip = ''
+            copied_evtx_count = 0
+            copied_file_count = 0
+        }
+    }
+
+    $discovery = @()
+    try {
+        $parsed = Get-Content -Path $discoveryPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($parsed -is [System.Array]) {
+            $discovery = @($parsed)
+        }
+        elseif ($null -ne $parsed) {
+            $discovery = @($parsed)
+        }
+    }
+    catch {
+        return [pscustomobject]@{
+            generated = $false
+            status = 'error'
+            message = ('Impossible de lire evtx-discovery.json: ' + $_.Exception.Message)
+            machine_name = ''
+            timestamp = ''
+            folder = ''
+            zip = ''
+            copied_evtx_count = 0
+            copied_file_count = 0
+        }
+    }
+
+    $readableEvtx = @()
+    foreach ($entry in $discovery) {
+        if ($null -eq $entry) { continue }
+        $status = [string]$entry.status
+        $sourcePath = [string]$entry.file_path
+        if ([string]::IsNullOrWhiteSpace($sourcePath)) { continue }
+        if ($status -ne 'readable') { continue }
+        if (-not (Test-Path -Path $sourcePath)) { continue }
+        $readableEvtx += @($sourcePath)
+    }
+
+    if (@($readableEvtx).Count -eq 0) {
+        return [pscustomobject]@{
+            generated = $false
+            status = 'warning'
+            message = 'Aucun fichier EVTX lisible detecte pour creer le ZIP.'
+            machine_name = ''
+            timestamp = ''
+            folder = ''
+            zip = ''
+            copied_evtx_count = 0
+            copied_file_count = 0
+        }
+    }
+
+    $machineName = [string]$env:COMPUTERNAME
+    $eventsPath = Join-Path $Config.reports_path 'evtx-events.json'
+    if (Test-Path -Path $eventsPath) {
+        try {
+            $eventRows = Get-Content -Path $eventsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($eventRow in @($eventRows)) {
+                foreach ($candidateRow in @($eventRow)) {
+                    if ($null -eq $candidateRow -or -not $candidateRow.PSObject.Properties['computer']) {
+                        continue
+                    }
+
+                    $candidateMachine = [string]($candidateRow.PSObject.Properties['computer'].Value)
+                    if (-not [string]::IsNullOrWhiteSpace($candidateMachine)) {
+                        $machineName = $candidateMachine
+                        break
+                    }
+                }
+
+                if (-not [string]::IsNullOrWhiteSpace($machineName)) {
+                    break
+                }
+            }
+        }
+        catch {
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($machineName)) {
+        $machineName = 'unknown-machine'
+    }
+
+    $machineName = ($machineName -replace '[^A-Za-z0-9._-]', '_').Trim('_')
+    if ([string]::IsNullOrWhiteSpace($machineName)) {
+        $machineName = 'unknown-machine'
+    }
+
+    $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $baseName = $machineName + '-' + $timestamp + '-evtx'
+    $exportRoot = Join-Path $Config.reports_path 'Export_EVENTS'
+    if (-not (Test-Path -Path $exportRoot)) {
+        New-Item -Path $exportRoot -ItemType Directory -Force | Out-Null
+    }
+
+    $exportFolderBase = Join-Path $exportRoot $baseName
+    $exportFolder = $exportFolderBase
+    $suffix = 1
+    while (Test-Path -Path $exportFolder) {
+        $exportFolder = $exportFolderBase + '-' + [string]$suffix
+        $suffix += 1
+    }
+    New-Item -Path $exportFolder -ItemType Directory -Force | Out-Null
+
+    $copiedCount = 0
+    foreach ($sourcePath in $readableEvtx) {
+        $targetName = Split-Path -Leaf $sourcePath
+        $targetPath = Join-Path $exportFolder $targetName
+        $nameSuffix = 1
+        while (Test-Path -Path $targetPath) {
+            $targetName = ([string]$nameSuffix) + '-' + (Split-Path -Leaf $sourcePath)
+            $targetPath = Join-Path $exportFolder $targetName
+            $nameSuffix += 1
+        }
+        Copy-Item -Path $sourcePath -Destination $targetPath -Force
+        $copiedCount += 1
+    }
+
+    $reportArtifacts = @(
+        'evtx-discovery.json',
+        'evtx-summary.json',
+        'evtx-events.csv',
+        'evtx-events.json',
+        'evtx-filtered-events.csv',
+        'evtx-critical-events.csv',
+        'evtx-crash-window.csv',
+        'evtx-sav-summary.txt'
+    )
+    foreach ($name in $reportArtifacts) {
+        $artifactPath = Join-Path $Config.reports_path $name
+        if (-not (Test-Path -Path $artifactPath)) { continue }
+        Copy-Item -Path $artifactPath -Destination (Join-Path $exportFolder $name) -Force
+    }
+
+    $zipPath = $exportFolder + '.zip'
+    $zipDone = $false
+    if (Get-Command -Name Compress-Archive -ErrorAction SilentlyContinue) {
+        try {
+            Compress-Archive -Path (Join-Path $exportFolder '*') -DestinationPath $zipPath -Force
+            $zipDone = $true
+        }
+        catch {
+            $zipDone = $false
+        }
+    }
+
+    $copiedFiles = @(Get-ChildItem -Path $exportFolder -File -ErrorAction SilentlyContinue)
+    return [pscustomobject]@{
+        generated = $zipDone
+        status = if ($zipDone) { 'ok' } else { 'warning' }
+        message = if ($zipDone) { 'Export ZIP EVTX genere.' } else { 'Archive ZIP indisponible, dossier export genere.' }
+        machine_name = $machineName
+        timestamp = $timestamp
+        folder = $exportFolder
+        zip = if ($zipDone) { $zipPath } else { '' }
+        copied_evtx_count = $copiedCount
+        copied_file_count = @($copiedFiles).Count
+    }
+}
+
 function Convert-DanewHtmlText {
     param(
         [AllowNull()]
@@ -1167,6 +1351,41 @@ function Invoke-DanewCreateUsbMedia {
     return (Join-Path $Config.reports_path 'usb-export-report.json')
 }
 
+function Copy-DanewLauncherConfigWithOverrides {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Config,
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Overrides
+    )
+
+    $copy = [ordered]@{}
+    foreach ($property in @($Config.PSObject.Properties)) {
+        $copy[$property.Name] = $property.Value
+    }
+    foreach ($key in @($Overrides.Keys)) {
+        $copy[[string]$key] = $Overrides[$key]
+    }
+
+    return [pscustomobject]$copy
+}
+
+function Get-DanewLauncherConfigValue {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Config,
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+        [object]$DefaultValue = $null
+    )
+
+    if ($Config -and $Config.PSObject.Properties[$Name]) {
+        return $Config.PSObject.Properties[$Name].Value
+    }
+
+    return $DefaultValue
+}
+
 function Invoke-DanewLauncherAction {
     param(
         [Parameter(Mandatory = $true)]
@@ -1228,9 +1447,37 @@ function Invoke-DanewLauncherAction {
                 $offline = Invoke-DanewOfflineLogsAnalysis -RootPath $RootPath -Config $Config -ProgressCallback $ProgressCallback
                 $result = [pscustomobject]@{ action = $Action; output = $offline }
             }
+            'analyze-offline-logs-fast' {
+                $configuredFastMax = [int](Get-DanewLauncherConfigValue -Config $Config -Name 'offline_max_events_per_log' -DefaultValue 500)
+                $configuredFastLevels = @(Get-DanewLauncherConfigValue -Config $Config -Name 'offline_event_level_filter' -DefaultValue @(1, 2, 3))
+                if (@($configuredFastLevels).Count -eq 0) {
+                    $configuredFastLevels = @(1, 2, 3)
+                }
+
+                $fastConfig = Copy-DanewLauncherConfigWithOverrides -Config $Config -Overrides @{
+                    offline_fast_mode = $true
+                    offline_max_events_per_log = $configuredFastMax
+                    offline_event_level_filter = @($configuredFastLevels)
+                    offline_analysis_mode = 'fast-critical-error-warning'
+                }
+                $offline = Invoke-DanewOfflineLogsAnalysis -RootPath $RootPath -Config $fastConfig -MaxEventsPerLog $configuredFastMax -ProgressCallback $ProgressCallback
+                $result = [pscustomobject]@{ action = $Action; output = $offline }
+            }
+            'analyze-offline-logs-full' {
+                $fullConfig = Copy-DanewLauncherConfigWithOverrides -Config $Config -Overrides @{
+                    offline_fast_mode = $false
+                    offline_event_level_filter = @()
+                    offline_analysis_mode = 'full'
+                }
+                $offline = Invoke-DanewOfflineLogsAnalysis -RootPath $RootPath -Config $fullConfig -ProgressCallback $ProgressCallback
+                $result = [pscustomobject]@{ action = $Action; output = $offline }
+            }
             'analyze-crash-causes' {
+                Write-DanewDiagnosticProgress -ProgressCallback $ProgressCallback -Message '[5%] Step 1/2 - Analyse des journaux hors ligne pour crash'
                 $offline = Invoke-DanewOfflineLogsAnalysis -RootPath $RootPath -Config $Config -ProgressCallback $ProgressCallback
+                Write-DanewDiagnosticProgress -ProgressCallback $ProgressCallback -Message '[92%] Step 2/2 - Correlation et determination des causes de crash'
                 $crash = Invoke-DanewCrashCauseAnalysis -RootPath $RootPath -Config $Config -OfflineAnalysis $offline
+                Write-DanewDiagnosticProgress -ProgressCallback $ProgressCallback -Message '[100%] Step 2/2 - Analyse causes de crash terminee'
                 $result = [pscustomobject]@{ action = $Action; output = $crash }
             }
             'precheck-winpe' {
@@ -1239,6 +1486,10 @@ function Invoke-DanewLauncherAction {
             }
             'export-evtx-targeted' {
                 $exports = Invoke-DanewEvtxTargetedExportsAction -RootPath $RootPath -Config $Config
+                $result = [pscustomobject]@{ action = $Action; output = $exports }
+            }
+            'export-evtx-zip' {
+                $exports = Export-DanewEvtxZipPackage -RootPath $RootPath -Config $Config
                 $result = [pscustomobject]@{ action = $Action; output = $exports }
             }
             'check-browser' {
