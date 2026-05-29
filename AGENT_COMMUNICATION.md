@@ -4,8 +4,8 @@ Shared coordination file for Codex and the VS Code agent working on this repo.
 
 ## Current Owner
 
-- Codex is only observing and coordinating unless the user asks it to fix code.
-- VS Code/Copilot agent appears to be working on Phase 5D / 6A / 6A1 test stabilization.
+- Codex = Agent A, bloc 2026-05-29 15:46 termine et fichiers liberes.
+- VS Code/Copilot = Agent B, peut relire/tester ou reprendre uniquement apres nouveau claim.
 
 ## Repo State Seen By Codex
 
@@ -24,11 +24,43 @@ Observed intent from VS Code/Copilot memory:
 
 ## Coordination Rules
 
+0. Agent mapping (fixed): `Agent A = CODEX`, `Agent B = VSCODE`.
 1. Before editing files, add a short note under "Agent Notes" with your name, timestamp, and intended files.
 2. Do not revert or overwrite another agent's changes unless the user explicitly asks.
 3. Keep test/debug output out of tracked source unless it is intentionally part of the fix.
 4. Remove temporary debug lines before declaring the work complete.
 5. After running tests, record exact commands and pass/fail results under "Test Log".
+6. Locked files can be edited only by the agent that claimed them.
+7. End-of-task output is mandatory with these sections: `FAIT / PENDING / FILES LIBERES / TESTS / PROMPT AUTRE AGENT`.
+
+## Systematic Task Split (No Overlap)
+
+Apply this workflow on every handoff:
+
+1. Claim phase (mandatory before code edits)
+- Write under "Agent Notes":
+	- `PRIS PAR MOI:` explicit task list
+	- `LIBRE AUTRE AGENT:` remaining tasks
+	- `FICHIERS VERROUILLES:` files the current agent will touch
+
+2. Execution phase
+- Only edit claimed files.
+- If a claimed file is needed by another agent, stop and handoff first.
+
+3. Handoff phase
+- Write what is done, what is pending, and what files are now free.
+- Attach exact test commands and results in "Test Log".
+- Add `PROMPT AUTRE AGENT:` with a token-optimized prompt ready to paste.
+
+Prompt format:
+```
+ROLE: Agent X
+ETAT: [resume 1 ligne]
+PRIS: [taches]
+INTERDIT: [fichiers/taches]
+ACTION: [prochaine action]
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
 
 ## Suggested Next Step
 
@@ -41,6 +73,1663 @@ VS Code/Copilot agent should confirm whether it is still actively fixing:
 If yes, continue there and update this file. If no, Codex can take over from the dirty state.
 
 ## Agent Notes
+
+### 2026-05-29 20:10 +02:00 VS Code Copilot (Agent B) uniformisation tableaux HTML
+
+FAIT:
+- Uniformisation source dans `WinPe_local/scripts/report/HtmlReportShell.ps1` pour tous les rapports HTML:
+  - `.report-card { min-width: 0; }`
+  - `table { min-width: 0; }` (suppression contrainte globale 1120px)
+  - `.table-wrap` en `overflow-x: auto` / `overflow-y: visible`
+  - `th, td { min-width: 0; }`
+  - JS: suppression du forçage de largeur initiale par colonne au chargement
+  - JS: suppression de `table.style.minWidth = totalWidth + 'px'`
+- Ajustement EVTX spécifique dans `WinPe_local/scripts/offline/OfflineLogsEngine.ps1`:
+  - règles de colonnes en `%` avec `!important` pour garder un tableau sans débordement de page
+  - `overflow-x: hidden` limité aux wrappers EVTX (main/top10/loops)
+- Validation visuelle et métriques sur `timeline-test-top10.html`: `bodyScrollWidth == clientWidth`.
+
+PENDING:
+- Régénérer les anciens rapports déjà présents dans `WinPe_local/reports/` pour qu'ils embarquent le nouveau shell CSS/JS.
+
+
+### 2026-05-29 ~17:00 VS Code Copilot (Agent B) timeline-raw.html UX+perf handoff
+
+FAIT:
+- 10 ameliorations UX/UI dans `Write-DanewTimelineHtml` (session precedente + confirmees):
+  1. Couleurs badges niveau : `$levelToken` switch → `badge-level-critique/erreur/avertissement/information`
+  2. Pill importance coloree : `<span class="importance-pill" data-score="high|medium|low">`
+  3. Toolbar reorganisee en 4 groupes separes par `<span class="toolbar-sep">`
+  4. CSS `.toolbar select {}`, `.toolbar-sep {}`, `.importance-pill[data-score]`, `.evtx-row:hover`
+  5. `.evtx-row.row-selected`, `.detail-panel-head`, print media query
+  6. Bouton "Fermer" dans le panneau detail avec handler JS `data-action="close-detail"`
+  7. `selectRow` JS re-affiche le panneau detail au clic
+  8. Labels francais courts avec `title` tooltip ; textes "Utiles seulement" / "Avant le crash"
+  9. `Write-DanewFastTimelineHtml` deleguee a `Write-DanewTimelineHtml` (mode rapide = meme HTML)
+- Optimisations performance `Write-DanewTimelineHtml` :
+  - `$enrichedRows`, `$rowsHtml`, `$eventLinks` : tableaux → `List[object/string]` (elimine O(n²) copy)
+  - Pre-calcul `$tsCache` hashtable (4000 `[datetime]::Parse()` au lieu de 16M)
+  - Boucle related-events : O(n²) → O(n log n) via `$sortedParsed` pre-trie + binary search ±5min + break
+  - Resultat mesure : 500 evenements 3s, 2000 evenements 4s (vs ~7s et ~112s avant)
+- Regeneration `timeline-raw.html` reussie : 21,095,465 bytes, 16:47:57
+- Validation : 13/13 checks UX OK sur le HTML final
+
+PENDING:
+- USB sync (E:\, D:\) non fait pour OfflineLogsEngine.ps1
+- evtx_zip_stored_in_export_events_folder FAIL (ZIP dans reports\ au lieu de reports\Export_EVENTS\)
+
+FILES LIBERES:
+- WinPe_local/scripts/offline/OfflineLogsEngine.ps1
+- WinPe_local/reports/timeline-raw.html
+
+TESTS:
+- PARSE_OK `OfflineLogsEngine.ps1` (5394+ lignes)
+- 13/13 UX checks OK sur timeline-raw.html (21MB, 16:47:57)
+- 500 evenements → 3s ; 2000 evenements → 4s (binary search confirme)
+- analyze-offline-logs-full : start 16:40:48 → ok 16:48:00 (7m12s total)
+
+---
+
+### 2026-05-29 16:12:20 +02:00 Codex (Agent A) realtime EVTX heartbeat claim
+
+PRIS PAR MOI:
+- Ajouter un heartbeat pendant le parsing EVTX long.
+- Faire afficher ce heartbeat dans l interface sans spammer la console technique.
+- Garder l analyse et les rapports inchanges.
+
+LIBRE AUTRE AGENT:
+- Verification visuelle uniquement pendant ce bloc.
+
+FICHIERS VERROUILLES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/offline/OfflineLogsEngine.ps1
+- WinPe_local/scripts/tests/Run-UX2Tests.ps1
+- WinPe_local/scripts/tests/Run-EvtxUx2Tests.ps1
+
+### 2026-05-29 16:15:20 +02:00 Codex (Agent A) realtime EVTX heartbeat handoff
+
+FAIT:
+- Heartbeat EVTX ajoute pendant le parse long.
+- `OfflineLogsEngine.ps1` emet maintenant `[heartbeat] evtx-parse ...` pendant:
+  - attente des jobs paralleles EVTX
+  - progression seriale par fichier / tous les 250 evenements
+- `launcher.ps1` consomme ces heartbeats sans les ajouter au log technique visible:
+  - libelle operation mis a jour
+  - summary live `Lecture EVTX active`
+  - sous-barre pulsee
+  - elapsed mis a jour
+- Aucun changement de logique diagnostic ni chemins de rapports.
+- Source synchronisee vers `D:\scripts` et `E:\scripts`.
+- Interface locale relancee: PID `33096`, stdout/stderr vides.
+
+PENDING:
+- Validation terrain pendant une analyse longue WinPE.
+
+FILES LIBERES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/offline/OfflineLogsEngine.ps1
+- WinPe_local/scripts/tests/Run-UX2Tests.ps1
+- WinPe_local/scripts/tests/Run-EvtxUx2Tests.ps1
+
+TESTS:
+- Parser `launcher.ps1`, `OfflineLogsEngine.ps1`, `Run-UX2Tests.ps1`, `Run-EvtxUx2Tests.ps1` => PASS.
+- Smoke runtime heartbeat sur `C:\Windows\System32\winevt\Logs\System.evtx` => callback `[heartbeat] evtx-parse ...` recu.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UX2Tests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports` => PASS 17/17.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-EvtxUx2Tests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports` => PASS 14/14.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UXEncodingTests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports` => PASS 7/7.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File E:\scripts\tests\Run-UX2Tests.ps1 -RootPath E:\ -OutputDirectory E:\reports` => PASS 17/17.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File E:\scripts\tests\Run-EvtxUx2Tests.ps1 -RootPath E:\ -OutputDirectory E:\reports` => PASS 14/14.
+- Hash `launcher.ps1` identique local/D/E: `AEE3B97451F11838FB3D10E29E5EE328EC983ECAFABD7300B641F9F52128A6C8`.
+- Hash `OfflineLogsEngine.ps1` identique local/D/E: `F781CFB908C7105F047DCE0BD3D5B43AC32E668EBF93356CC67AFD86C9A748BF`.
+
+PROMPT AUTRE AGENT:
+```
+ROLE: Agent B
+ETAT: heartbeat EVTX actif; UI update sans spam log; local/D/E sync; UX2+EVTX PASS.
+PRIS: validation visuelle WinPE analyse longue uniquement.
+INTERDIT: modifier launcher.ps1/OfflineLogsEngine.ps1/tests sans nouveau claim.
+ACTION: booter cle, lancer analyse complete, verifier refresh toutes ~2s pendant Parse EVTX.
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
+
+### 2026-05-29 16:02:10 +02:00 Codex (Agent A) primary progress overlap fix claim
+
+PRIS PAR MOI:
+- Corriger le chevauchement bouton/filtres avec texte et barres de progression.
+- Garder le bouton `ANALYSE FILTRE RAPIDE` en vis-a-vis des filtres.
+- Garder handlers et moteurs inchanges.
+
+LIBRE AUTRE AGENT:
+- Verification visuelle uniquement pendant ce bloc.
+
+FICHIERS VERROUILLES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/tests/Run-UX2ETests.ps1
+
+### 2026-05-29 16:07:05 +02:00 Codex (Agent A) primary progress overlap fix handoff
+
+FAIT:
+- Chevauchement corrige dans `Actions principales de diagnostic`.
+- Zone progression descendue sous le bouton `ANALYSE FILTRE RAPIDE` et les filtres.
+- Bloc principal agrandi de 202 px; panneaux suivants descendus sans scrollbar principale.
+- `ANALYSE FILTRE RAPIDE` reste en face des filtres.
+- Aucun handler ni moteur modifie.
+- Source synchronisee vers `D:\scripts` et `E:\scripts`.
+- Interface locale relancee: PID `30548`, stdout/stderr vides.
+
+PENDING:
+- Verification visuelle WinPE reel si besoin.
+
+FILES LIBERES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/tests/Run-UX2Tests.ps1
+- WinPe_local/scripts/tests/Run-UX2ETests.ps1
+- WinPe_local/scripts/tests/Run-UX2FTests.ps1
+
+TESTS:
+- `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UX2Tests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports` => PASS 17/17.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UX2ETests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports` => PASS 7/7.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UX2FTests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports` => PASS 8/8.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UXEncodingTests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports` => PASS 7/7.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File E:\scripts\tests\Run-UX2Tests.ps1 -RootPath E:\ -OutputDirectory E:\reports` => PASS 17/17.
+- Hash `launcher.ps1` identique local/D/E: `A927B4E7C3ED9A39FB3509E33245EB9AEA1800F984869227A11FE2933F8215EA`.
+
+PROMPT AUTRE AGENT:
+```
+ROLE: Agent B
+ETAT: chevauchement progression corrige; bouton rapide en face filtres; local/D/E sync; UX2 PASS.
+PRIS: verification visuelle WinPE uniquement.
+INTERDIT: modifier launcher.ps1/tests sans nouveau claim.
+ACTION: booter cle, verifier absence chevauchement dans Actions principales et lisibilite des 2 barres.
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
+
+### 2026-05-29 15:52:05 +02:00 Codex (Agent A) filtered fast analysis layout claim
+
+PRIS PAR MOI:
+- Renommer le bouton rapide en `ANALYSE FILTRE RAPIDE`.
+- Placer ce bouton en vis-a-vis direct des filtres Critique/Erreur/Avertissement.
+- Garder les handlers et moteurs existants inchanges.
+
+LIBRE AUTRE AGENT:
+- Verification visuelle uniquement pendant ce bloc.
+
+FICHIERS VERROUILLES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/tests/Run-UX2Tests.ps1
+- WinPe_local/scripts/tests/Run-UX2FTests.ps1
+
+### 2026-05-29 15:57:40 +02:00 Codex (Agent A) filtered fast analysis layout handoff
+
+FAIT:
+- Bouton rapide renomme `ANALYSE FILTRE RAPIDE`.
+- Bouton rapide deplace sur la ligne des filtres pour etre en vis-a-vis direct de `Filtres : Critique / Erreur / Avert. / Evenements-log`.
+- Les boutons `ANALYSE COMPLETE TOUS LES LOGS` et `ANALYSER CAUSES DE CRASH` restent grands et visibles en haut.
+- Aucun handler ni moteur modifie.
+- Source synchronisee vers `D:\scripts` et `E:\scripts`.
+- Interface locale relancee: PID `25068`, stdout/stderr vides.
+
+PENDING:
+- Validation visuelle WinPE reel si besoin.
+
+FILES LIBERES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/tests/Run-UX2Tests.ps1
+- WinPe_local/scripts/tests/Run-UX2FTests.ps1
+
+TESTS:
+- `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UX2Tests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports` => PASS 17/17.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UX2FTests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports` => PASS 8/8.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UXEncodingTests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports` => PASS 7/7.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File E:\scripts\tests\Run-UX2Tests.ps1 -RootPath E:\ -OutputDirectory E:\reports` => PASS 17/17.
+- Hash `launcher.ps1` identique local/D/E: `639A64C2CAC3AE25CC383FB8680FF48986FDFE96F6A73217023070C0B27FD098`.
+
+PROMPT AUTRE AGENT:
+```
+ROLE: Agent B
+ETAT: bouton `ANALYSE FILTRE RAPIDE` aligne avec les filtres; local/D/E sync; UX2 PASS.
+PRIS: verification visuelle WinPE uniquement.
+INTERDIT: modifier launcher.ps1/tests sans nouveau claim.
+ACTION: booter cle, verifier que bouton rapide est bien en face des filtres et que les 3 actions restent lisibles.
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
+
+### 2026-05-29 15:40:17 +02:00 Codex (Agent A) launcher progress bars UX claim
+
+PRIS PAR MOI:
+- Agrandir la zone progression sous les actions principales.
+- Ajouter une barre de sous-progression visible pour les sous-taches `[subtask]`.
+- Garder les actions et moteurs existants inchanges.
+
+LIBRE AUTRE AGENT:
+- Verification visuelle uniquement pendant ce bloc.
+
+FICHIERS VERROUILLES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/tests/Run-UX2Tests.ps1
+- WinPe_local/scripts/tests/Run-UX2ETests.ps1
+
+### 2026-05-29 15:46:30 +02:00 Codex (Agent A) launcher progress bars UX handoff
+
+FAIT:
+- Zone `Actions principales de diagnostic` agrandie de 150 px a 184 px.
+- Barre de progression globale agrandie et rendue plus lisible.
+- Ajout d une seconde barre de sous-progression sous la barre globale.
+- La sous-barre reagit aux messages `[subtask]`:
+  - `start` => animation marquee.
+  - `done` => 100%.
+  - autres etapes => progression pulsee.
+- Libelle de progression clarifie: progression globale + sous-etape.
+- Layout ajuste sans remettre de scrollbar principale.
+- Source synchronisee vers `D:\scripts` et `E:\scripts`.
+- Interface locale relancee: PID `33172`, titre `Outil de diagnostic SAV Danew`, stdout/stderr vides.
+
+PENDING:
+- Validation visuelle en WinPE reel pendant une analyse longue.
+
+FILES LIBERES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/tests/Run-UX2Tests.ps1
+- WinPe_local/scripts/tests/Run-UX2ETests.ps1
+
+TESTS:
+- `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UX2Tests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports` => PASS 17/17.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File E:\scripts\tests\Run-UX2Tests.ps1 -RootPath E:\ -OutputDirectory E:\reports` => PASS 17/17.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UX2ETests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports` => PASS 7/7.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UX2FTests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports` => PASS 8/8.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UXEncodingTests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports` => PASS 7/7.
+- Hash `launcher.ps1` identique local/D/E: `506C95F95CC354B4C2CB4605A859917923C385AB1EF7BD0CF802EBE3D129E5A4`.
+
+PROMPT AUTRE AGENT:
+```
+ROLE: Agent B
+ETAT: launcher a 2 barres visibles: globale + sous-etape; local/D/E sync; UX2 PASS 17/17.
+PRIS: validation visuelle WinPE uniquement.
+INTERDIT: modifier launcher.ps1/tests sans nouveau claim; retirer offlineSubProgressBar.
+ACTION: booter cle, lancer analyse rapide puis complete, verifier lisibilite progression/sous-etape.
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
+
+### 2026-05-29 15:32:11 +02:00 Codex (Agent A) HTML table resize reorder claim
+
+PRIS PAR MOI:
+- Corriger les tableaux HTML coupes a droite.
+- Ajouter colonnes redimensionnables et deplacables offline, sans dependance externe.
+- Appliquer au rapport timeline deja genere et synchroniser vers la cle.
+
+LIBRE AUTRE AGENT:
+- Verification visuelle uniquement pendant ce bloc.
+
+FICHIERS VERROUILLES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/scripts/report/HtmlReportShell.ps1
+- WinPe_local/reports/*.html
+
+### 2026-05-29 15:39:13 +02:00 Codex (Agent A) HTML table resize reorder handoff
+
+FAIT:
+- Tableaux HTML interactifs ameliores:
+  - colonnes redimensionnables via poignee a droite de l en-tete
+  - colonnes deplacables par glisser/deposer des en-tetes
+  - `table-layout: fixed` + `overflow-wrap:anywhere` pour eviter la coupe a droite
+  - colonne `Message` EVTX en retour ligne au lieu d une ligne tronquee
+- Source commune corrigee pour les prochains rapports:
+  - `WinPe_local/scripts/report/HtmlReportShell.ps1`
+- Rapport rapide separe `evtx-by-file.html` uniformise aussi:
+  - `WinPe_local/scripts/offline/OfflineLogsEngine.ps1`
+- HTML locaux deja generes mis a jour:
+  - `timeline-raw.html`
+  - `evtx-events.html`
+  - `sav-diagnostic-report.html`
+  - `REPORTS_INDEX.html`
+  - `reports-index.html`
+  - `evtx-by-file.html`
+- Sync effectuee vers `D:\scripts`, `E:\scripts` et `E:\reports` avec hash OK.
+
+PENDING:
+- Recharger l onglet navigateur pour charger le nouveau JS/CSS.
+
+FILES LIBERES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/scripts/report/HtmlReportShell.ps1
+- WinPe_local/scripts/offline/OfflineLogsEngine.ps1
+- WinPe_local/reports/*.html
+
+TESTS:
+- Parser `HtmlReportShell.ps1` + `OfflineLogsEngine.ps1` => PASS.
+- Static local + `E:\reports`: tous les HTML avec table ont `FixedLayout=True`, `Resize=True`, `Reorder=True`.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File .\WinPe_local\scripts\tests\Run-ReportFrenchTests.ps1` => PASS 19/19.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File .\WinPe_local\scripts\tests\Run-EvtxUx2Tests.ps1` => PASS 13/13.
+
+PROMPT AUTRE AGENT:
+```
+ROLE: Agent B
+ETAT: tableaux HTML redimensionnables/deplacables; messages EVTX wrap; local+E sync OK.
+PRIS: verification visuelle navigateur uniquement.
+INTERDIT: retirer setColumnWidth/moveColumn/initInteractiveColumns ou revenir msg-preview nowrap.
+ACTION: reload timeline-raw.html, tester drag bord colonne et drag en-tete; verifier plus de coupe a droite.
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
+
+### 2026-05-29 15:26:34 +02:00 Codex (Agent A) launcher local GUI startup claim
+
+PRIS PAR MOI:
+- Corriger le lancement local de `launcher.ps1` sous Windows PowerShell quand `$PSScriptRoot` est vide dans la valeur par defaut du parametre.
+- Relancer l interface et verifier que la fenetre reste ouverte.
+
+LIBRE AUTRE AGENT:
+- Verification visuelle uniquement pendant ce bloc.
+
+FICHIERS VERROUILLES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/scripts/launcher.ps1
+
+### 2026-05-29 15:31:05 +02:00 Codex (Agent A) launcher local GUI startup handoff
+
+FAIT:
+- Cause du lancement local ferme immediatement identifiee:
+  - `$PSScriptRoot` etait vide lors de l evaluation du parametre par defaut `RootPath` sous Windows PowerShell.
+- Correction:
+  - `RootPath` vaut maintenant `''` dans `param`
+  - calcul robuste de `$scriptDirectory` apres `param`
+  - imports et chemin CLI bases sur `$scriptDirectory`
+- Nettoyage sortie console:
+  - `ColumnStyles.Add()` neutralises avec `[void]`
+  - plus de sortie `0 1 2 3` au lancement GUI.
+- Interface locale relancee et verifiee:
+  - PID `20340`
+  - titre fenetre `Outil de diagnostic SAV Danew`
+  - stdout/stderr vides.
+- Sync `launcher.ps1` vers `D:\scripts` et `E:\scripts` avec hash OK.
+
+PENDING:
+- Verification visuelle utilisateur dans la fenetre ouverte.
+
+FILES LIBERES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/scripts/launcher.ps1
+
+TESTS:
+- Parser `launcher.ps1` => PASS.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File .\WinPe_local\scripts\launcher.ps1 -Action show-status -FallbackToCli -ForceGuiInitFailure` => PASS exit 0.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File .\WinPe_local\scripts\tests\Run-UX2Tests.ps1` => PASS 16/16.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File .\WinPe_local\scripts\tests\Run-UXEncodingTests.ps1` => PASS 7/7.
+
+PROMPT AUTRE AGENT:
+```
+ROLE: Agent B
+ETAT: launcher GUI local lance; bug PSScriptRoot param corrige; sortie console propre; tests UX OK.
+PRIS: smoke test visuel uniquement.
+INTERDIT: remettre RootPath=(Split-Path -Parent $PSScriptRoot) dans param.
+ACTION: verifier fenetre ouverte PID 20340, layout boutons grises, aucun bruit console.
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
+
+### 2026-05-29 15:17:07 +02:00 Codex (Agent A) launcher report actions disabled UX claim
+
+PRIS PAR MOI:
+- Revoir le layout/etat visuel des boutons `Rapports et actions`.
+- Rendre les boutons indisponibles clairement grises avec tooltip explicite.
+- Garder les handlers existants et chemins de rapports inchanges.
+
+LIBRE AUTRE AGENT:
+- Verification visuelle uniquement pendant ce bloc.
+
+FICHIERS VERROUILLES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/tests/Run-UX2Tests.ps1
+- WinPe_local/scripts/tests/Run-UXTooltipTests.ps1
+
+### 2026-05-29 15:22:45 +02:00 Codex (Agent A) launcher report actions disabled UX handoff
+
+FAIT:
+- Layout `Rapports et actions` ajuste:
+  - boutons secondaires passes en `198x34`
+  - 4 boutons tiennent sur la premiere ligne, 3 sur la seconde
+  - suppression des longs suffixes `(INDISPONIBLE)` qui chargeaient l affichage
+- Ajout d un vrai style indisponible:
+  - fond gris clair
+  - texte gris
+  - bordure grise
+  - curseur non-main
+  - restauration des couleurs normales quand le rapport/export devient disponible
+- Les boutons rapports/exports sont desactives selon les artefacts reels:
+  - rapport complet
+  - rapport rapide
+  - rapport SAV
+  - actions recommandees
+  - export EVTX cible
+  - export ZIP EVTX
+  - export dossier SAV
+- Sync `launcher.ps1` vers `D:\scripts` et `E:\scripts` avec hash OK.
+
+PENDING:
+- Verification visuelle finale dans WinPE/local si souhaite.
+
+FILES LIBERES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/tests/Run-UX2Tests.ps1
+- WinPe_local/scripts/tests/Run-UXTooltipTests.ps1
+
+TESTS:
+- Parser `launcher.ps1` => PASS.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File .\WinPe_local\scripts\tests\Run-UX2Tests.ps1` => PASS 16/16.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File .\WinPe_local\scripts\tests\Run-UXTooltipTests.ps1` => PASS 11/11.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File .\WinPe_local\scripts\tests\Run-UXEncodingTests.ps1` => PASS 7/7.
+- USB E: `powershell -NoProfile -ExecutionPolicy Bypass -File E:\scripts\tests\Run-UX2Tests.ps1 -RootPath E:\ -OutputDirectory E:\reports` => PASS 16/16.
+
+PROMPT AUTRE AGENT:
+```
+ROLE: Agent B
+ETAT: boutons Rapports/actions grises si artefact absent; layout 4+3; tests UX OK local+E.
+PRIS: smoke test visuel uniquement.
+INTERDIT: retirer Set-DanewButtonAvailability ou remettre suffixes longs indisponibles.
+ACTION: lancer launcher, verifier boutons absents grises puis disponibles apres analyse.
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
+
+### 2026-05-29 15:14:33 +02:00 Codex (Agent A) HTML reports uniform scroll UX claim
+
+PRIS PAR MOI:
+- Verifier tous les rapports HTML locaux pour l ancien `hero sticky`.
+- Uniformiser les HTML deja generes avec le comportement non masquant.
+- Synchroniser la correction vers la cle si les rapports existent.
+
+LIBRE AUTRE AGENT:
+- Verification visuelle uniquement pendant ce bloc.
+
+FICHIERS VERROUILLES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/reports/*.html
+
+### 2026-05-29 15:16:00 +02:00 Codex (Agent A) HTML reports uniform scroll UX handoff
+
+FAIT:
+- Verification et uniformisation des rapports HTML locaux existants:
+  - `REPORTS_INDEX.html`
+  - `reports-index.html`
+  - `sav-diagnostic-report.html`
+  - `timeline-raw.html`
+  - `evtx-events.html`
+  - `evtx-by-file.html`
+  - `export-summary.html`
+- Ancien comportement `hero sticky` supprime partout.
+- Ancien `top: 12px`/`z-index: 20` supprime partout dans les HTML.
+- Aucun panneau `evtx-detail-panel` sticky restant.
+- Le sticky restant est uniquement celui des en-tetes de tableau (`th { position: sticky; top: 0; }`), volontaire pour garder les colonnes lisibles.
+- Rapports synchronises vers `E:\reports` avec verification SHA256.
+
+PENDING:
+- Verification visuelle finale par reload navigateur si souhaite.
+
+FILES LIBERES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/reports/*.html
+
+TESTS:
+- Controle statique local + `E:\reports`: `HasHeroSticky=False`, `HasTop12=False`, `HasDetailSticky=False` sur tous les HTML.
+- Parser `HtmlReportShell.ps1` => PASS.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File .\WinPe_local\scripts\tests\Run-ReportFrenchTests.ps1` => PASS 19/19.
+- Sync rapports vers `E:\reports` => PASS hash.
+
+PROMPT AUTRE AGENT:
+```
+ROLE: Agent B
+ETAT: tous rapports HTML locaux+E uniformises; plus de hero/detail sticky; tests FR 19/19.
+PRIS: verification visuelle uniquement.
+INTERDIT: remettre sticky sur .hero ou .evtx-detail-panel.
+ACTION: ouvrir REPORTS_INDEX.html, sav-diagnostic-report.html et timeline-raw.html, scroller et confirmer aucune carte ne masque les tableaux.
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
+
+### 2026-05-29 15:09:10 +02:00 Codex (Agent A) timeline report scroll UX claim
+
+PRIS PAR MOI:
+- Corriger le rapport HTML timeline qui masque le tableau pendant le scroll.
+- Garder la logique d'analyse et les chemins de rapports inchanges.
+- Regenerer/valider le rapport local si necessaire.
+
+LIBRE AUTRE AGENT:
+- Pas de modification launcher ou moteur EVTX hors CSS/UX rapport pendant ce bloc.
+
+FICHIERS VERROUILLES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/scripts/report/HtmlReportShell.ps1
+- WinPe_local/scripts/offline/OfflineLogsEngine.ps1
+
+### 2026-05-29 15:12:59 +02:00 Codex (Agent A) timeline report scroll UX handoff
+
+FAIT:
+- Correction du masque au scroll dans les rapports HTML interactifs:
+  - la carte hero commune n'est plus sticky dans `HtmlReportShell.ps1`
+  - le panneau detail EVTX n'est plus sticky dans `OfflineLogsEngine.ps1`
+- Correction d'une fragilite de rendu: l'apercu timeline utilise maintenant les evenements enrichis, pas les evenements bruts, ce qui evite l'erreur `level_fr` sur les tests/chemins bruts.
+- HTML local deja genere corrige pour test immediat:
+  - `WinPe_local/reports/timeline-raw.html`
+  - `WinPe_local/reports/evtx-events.html`
+- Sync effectuee vers la cle:
+  - `D:\scripts\report\HtmlReportShell.ps1`
+  - `D:\scripts\offline\OfflineLogsEngine.ps1`
+  - `E:\scripts\report\HtmlReportShell.ps1`
+  - `E:\scripts\offline\OfflineLogsEngine.ps1`
+  - `E:\reports\timeline-raw.html`
+  - `E:\reports\evtx-events.html`
+
+PENDING:
+- Reload manuel du rapport dans le navigateur pour confirmer le ressenti visuel.
+
+FILES LIBERES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/scripts/report/HtmlReportShell.ps1
+- WinPe_local/scripts/offline/OfflineLogsEngine.ps1
+
+TESTS:
+- Parser `HtmlReportShell.ps1` => PASS.
+- Parser `OfflineLogsEngine.ps1` => PASS.
+- Local: `powershell -NoProfile -ExecutionPolicy Bypass -File .\WinPe_local\scripts\tests\Run-EvtxUx2Tests.ps1` => PASS 13/13.
+- USB E: `powershell -NoProfile -ExecutionPolicy Bypass -File E:\scripts\tests\Run-EvtxUx2Tests.ps1 -RootPath E:\ -OutputDirectory E:\reports` => PASS 12/12.
+- Hash sync D/E => PASS.
+
+PROMPT AUTRE AGENT:
+```
+ROLE: Agent B
+ETAT: scroll UX timeline corrige; hero/detail non sticky; local+E tests EVTX UX OK.
+PRIS: verification visuelle navigateur/WinPE seulement.
+INTERDIT: remettre .hero ou .evtx-detail-panel en sticky.
+ACTION: reload timeline-raw.html, scroller jusqu'au tableau, confirmer aucune carte ne masque les lignes.
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
+
+### 2026-05-29 14:51:00 +02:00 GitHub Copilot (Agent B) GUI smoke relaunch
+
+FAIT:
+- Interface locale relancee via `WinPe_local\scripts\launcher.ps1` pour validation finale manuelle.
+
+### 2026-05-29 15:02:00 +02:00 GitHub Copilot (Agent B) launcher startup cleanup
+
+FAIT:
+- `WinPe_local\scripts\launcher.ps1` accepte maintenant `-Action` comme alias de repli CLI.
+- Les appels de demarrage du logger et du rafraichissement des rapports sont neutralises pour eviter toute sortie console parasite.
+- Validation: `-Action show-status -FallbackToCli -ForceGuiInitFailure` passe avec `LAUNCHER_EXIT=0` et sans sortie numerique parasite.
+
+PENDING:
+- Aucun blocage technique connu.
+
+FILES LIBERES:
+- AGENT_COMMUNICATION.md
+
+TESTS:
+- Lancement GUI local en cours via terminal `e664e8b1-06cb-4a74-96bc-a102ca03e523`.
+
+PROMPT AUTRE AGENT:
+```
+ROLE: Agent A
+ETAT: interface locale relancee pour smoke test final.
+PRIS: aucun.
+ACTION: validation manuelle si necessaire.
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
+
+### 2026-05-29 14:47:56 +02:00 GitHub Copilot (Agent B) claim report opening fallback fix
+
+PRIS PAR MOI:
+- Corriger l ouverture des rapports local/WinPE avec fallback navigateur systeme et shell.
+- Eviter le blocage quand navigateur portable absent.
+- Valider parser + tests UX.
+
+LIBRE AUTRE AGENT:
+- Lecture seule sur ce lot.
+
+FICHIERS VERROUILLES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/scripts/launcher.ps1
+
+### 2026-05-29 14:49:11 +02:00 GitHub Copilot (Agent B) handoff report opening fallback fix
+
+FAIT:
+- Cause racine identifiee: ouverture HTML dependait du navigateur portable uniquement, sans fallback systeme robuste.
+- `Open-DanewReportFile` corrige dans `launcher.ps1`:
+  - tentative navigateur portable (si present)
+  - fallback direct `Start-Process -FilePath $Path` (navigateur/system association)
+  - fallback shell `Invoke-Item`
+  - message d erreur explicite uniquement si toutes les tentatives echouent
+- Comportement conserve pour WinPE/local et compatibilite des tests UX maintenue.
+
+PENDING:
+- Validation manuelle recommandee en clic GUI reel sur boutons ouvrir rapport (SAV/Logs/Stockage).
+
+FILES LIBERES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/scripts/launcher.ps1
+
+TESTS:
+- Parser `launcher.ps1` => PASS.
+- `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Run-UX2Tests.ps1 -RootPath . -OutputDirectory .\reports` => PASS (`UX2_EXIT=0`).
+- Smoke test CLI:
+  - `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\DanewCheckTool.CLI.ps1 -Command view-last-report`
+  - resultat: `Last report opened: Yes`.
+
+PROMPT AUTRE AGENT:
+```
+ROLE: Agent A
+ETAT: ouverture rapports renforcee (fallback portable -> Start-Process path -> Invoke-Item), tests OK.
+PRIS: smoke test manuel GUI local/WinPE des boutons ouvrir rapport.
+INTERDIT: revenir a une ouverture HTML sans fallback systeme.
+ACTION: validation fonctionnelle finale puis cloture.
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
+
+### 2026-05-29 14:45:29 +02:00 GitHub Copilot (Agent B) claim realtime progress + subtasks
+
+PRIS PAR MOI:
+- Ajouter des evenements de sous-taches temps reel pendant l analyse offline.
+- Ameliorer le rendu GUI pour afficher ces sous-taches en direct.
+- Valider parser + tests UX.
+
+LIBRE AUTRE AGENT:
+- Lecture seule sur ce lot.
+
+FICHIERS VERROUILLES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/offline/OfflineLogsEngine.ps1
+
+### 2026-05-29 14:46:16 +02:00 GitHub Copilot (Agent B) handoff realtime progress + subtasks
+
+FAIT:
+- Ajout de sous-taches temps reel cote moteur offline (`[subtask] start|done|info`) pendant:
+  - ecriture des artefacts
+  - resume decouverte EVTX
+  - resume parse EVTX
+- Le launcher GUI interprete maintenant ces evenements et met a jour en direct:
+  - ligne `Current operation`
+  - texte `Summary`
+  - timing (elapsed/ETA updating)
+- Le comportement existant de progression par pourcentage reste conserve.
+
+PENDING:
+- Aucun blocage.
+
+FILES LIBERES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/offline/OfflineLogsEngine.ps1
+
+TESTS:
+- Parser `launcher.ps1` => PASS.
+- Parser `OfflineLogsEngine.ps1` => PASS.
+- `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Run-UX2Tests.ps1 -RootPath . -OutputDirectory .\reports` => PASS (`UX2_EXIT=0`).
+
+PROMPT AUTRE AGENT:
+```
+ROLE: Agent A
+ETAT: progression temps reel + sous-taches visibles en GUI, UX2 OK.
+PRIS: optionnel validation manuelle ergonomie sur bouton analyse crash et analyses logs.
+INTERDIT: retirer les evenements [subtask] sans adaptation du parser GUI.
+ACTION: smoke test UI puis cloture.
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
+
+### 2026-05-29 14:39:34 +02:00 GitHub Copilot (Agent B) claim GUI crash progress fix
+
+PRIS PAR MOI:
+- Corriger l affichage de progression pour le bouton `analyze-crash-causes` dans le launcher GUI.
+- Verifier parser + test UX cible apres correction.
+
+LIBRE AUTRE AGENT:
+- Lecture seule sur ce lot.
+
+FICHIERS VERROUILLES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/scripts/launcher.ps1
+
+### 2026-05-29 14:40:23 +02:00 GitHub Copilot (Agent B) handoff GUI crash progress fix
+
+FAIT:
+- Le bouton `analyze-crash-causes` utilise maintenant le meme pipeline de progression GUI que les analyses offline (callback + barre marquee/percent).
+- Ajout d un libelle explicite de progression pour l analyse causes de crash dans le GUI.
+- Ajout de messages de progression cote moteur (`LauncherCore.ps1`) autour de l etape de correlation crash:
+  - debut analyse crash
+  - phase correlation causes
+  - fin analyse crash
+
+PENDING:
+- Aucune action bloquante.
+
+FILES LIBERES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/launcher/LauncherCore.ps1
+
+TESTS:
+- Parser `launcher.ps1` => PASS.
+- Parser `launcher/LauncherCore.ps1` => PASS.
+- `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Run-UX2Tests.ps1 -RootPath . -OutputDirectory .\reports` => PASS (`UX2_EXIT=0`).
+
+PROMPT AUTRE AGENT:
+```
+ROLE: Agent A
+ETAT: progression GUI crash-cause corrigee; UX2 OK.
+PRIS: optionnel validation manuelle du ressenti UI en click reel.
+INTERDIT: retirer callback de progression sur analyze-crash-causes.
+ACTION: smoke test manuel puis cloture.
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
+
+### 2026-05-29 13:13:58 +02:00 GitHub Copilot (Agent B) claim fast-mode optimization phase 5
+
+PRIS PAR MOI:
+- Desactiver tout export EVTX cible implicite pendant l analyse offline.
+- Verifier que les exports EVTX cibles/ZIP restent uniquement sur actions explicites.
+- Valider via parser + Run-Phase6ATests.
+
+LIBRE AUTRE AGENT:
+- Lecture seule sur ce lot.
+
+FICHIERS VERROUILLES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/docs/TODO_DEMAIN.md
+- WinPe_local/scripts/offline/OfflineLogsEngine.ps1
+- WinPe_local/scripts/tests/Run-Phase6ATests.ps1
+
+### 2026-05-29 13:15:49 +02:00 GitHub Copilot (Agent B) handoff fast-mode optimization phase 5
+
+FAIT:
+- Phase 5 cochee dans `WinPe_local/docs/TODO_DEMAIN.md`.
+- Suppression de l export EVTX cible implicite pendant `analyze-offline-logs*`.
+- Le flux d analyse retourne maintenant un etat explicite:
+  - `evtx_targeted_exports.generated = false`
+  - message: export cible uniquement sur action explicite
+  - artefacts cibles vides par defaut dans `output.artifacts.*`
+- Les actions explicites restent disponibles et inchangees:
+  - `export-evtx-targeted`
+  - `export-evtx-zip`
+
+PENDING:
+- Aucun sur phase 5 locale.
+
+FILES LIBERES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/docs/TODO_DEMAIN.md
+- WinPe_local/scripts/offline/OfflineLogsEngine.ps1
+- WinPe_local/scripts/tests/Run-Phase6ATests.ps1
+
+TESTS:
+- Parser `OfflineLogsEngine.ps1` => PASS.
+- Parser `Run-Phase6ATests.ps1` => PASS.
+- `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Run-Phase6ATests.ps1 -RootPath . -OutputDirectory .\reports` => PASS (`PHASE6A_EXIT=0`).
+- Nouveau test PASS: `explicit_only_targeted_and_zip_exports`.
+
+PROMPT AUTRE AGENT:
+```
+ROLE: Agent A
+ETAT: phase 5 OK; exports EVTX cibles/ZIP non automatiques pendant analyse, actions explicites conservees.
+PRIS: optionnel final hardening (tests UX/CLI complementaires) ou preparation commit.
+INTERDIT: reintroduire generation implicite des exports cibles au premier diagnostic.
+ACTION: validation finale multi-tests puis package commit.
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
+
+### 2026-05-29 14:15:47 +02:00 GitHub Copilot (Agent B) post-phase5 USB sync + validation
+
+FAIT:
+- Validation locale complementaire executee:
+  - `Run-UX2Tests.ps1` => PASS
+  - `Run-EvtxUx2Tests.ps1` => PASS
+- Lecteurs USB `D:` et `E:` redevenus visibles.
+- Resync USB corrigee (mapping vers racine USB `scripts/...`), puis copie forcee des fichiers cles:
+  - `scripts/offline/OfflineLogsEngine.ps1`
+  - `scripts/tests/Run-Phase6ATests.ps1`
+  - `scripts/launcher/LauncherCore.ps1`
+- Parite hash SHA256 source `H:\Danew_CheckTool\WinPe_local\...` == destination `E:\scripts\...` confirmee pour les 3 fichiers cles.
+
+PENDING:
+- Aucun blocage technique en cours.
+
+FILES LIBERES:
+- AGENT_COMMUNICATION.md
+
+TESTS:
+- Local:
+  - `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Run-UX2Tests.ps1 -RootPath . -OutputDirectory .\reports` => PASS (`UX2_EXIT=0`)
+  - `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Run-EvtxUx2Tests.ps1 -RootPath . -OutputDirectory .\reports` => PASS (`EVTXUX2_EXIT=0`)
+- USB (`E:`):
+  - `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Run-Phase6ATests.ps1 -RootPath E:\ -OutputDirectory E:\reports` => PASS (`USB_PHASE6A_EXIT=0`)
+  - `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Run-EvtxUx2Tests.ps1 -RootPath E:\ -OutputDirectory E:\reports` => PASS (`USB_EVTXUX2_EXIT=0`)
+
+PROMPT AUTRE AGENT:
+```
+ROLE: Agent A
+ETAT: validations locales + USB passees apres resync corrigee; lot phases 3-5 stable.
+PRIS: preparer commit final commente et push si demande utilisateur.
+INTERDIT: modifier les artefacts de comportement phase 5 (exports implicites).
+ACTION: packaging git (add/commit) selon demande.
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
+
+### 2026-05-29 13:03:25 +02:00 GitHub Copilot (Agent B) claim fast-mode optimization phase 4
+
+PRIS PAR MOI:
+- Implementer un cache incremental EVTX base sur chemin/taille/date de modification.
+- Integrer le cache dans le parsing EVTX sans casser les artefacts existants.
+- Valider avec parser + Run-Phase6ATests.
+
+LIBRE AUTRE AGENT:
+- Lecture seule sur ce lot.
+
+FICHIERS VERROUILLES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/docs/TODO_DEMAIN.md
+- WinPe_local/scripts/offline/OfflineLogsEngine.ps1
+
+### 2026-05-29 13:10:51 +02:00 GitHub Copilot (Agent B) handoff fast-mode optimization phase 4
+
+FAIT:
+- Phase 4 cochee dans `WinPe_local/docs/TODO_DEMAIN.md`.
+- Ajout d un cache incremental EVTX base sur:
+  - chemin du fichier
+  - taille (`size_bytes`)
+  - date de modification (`last_modified_utc`)
+  - signature de parsing (`max_events_per_log` + filtre niveaux)
+- Integration dans le flux `Invoke-DanewOfflineLogsAnalysis`:
+  - chargement cache au demarrage
+  - reutilisation lors du parse EVTX (hits/misses/stale)
+  - mise a jour puis sauvegarde `evtx-incremental-cache.json`
+- Exposition des infos cache:
+  - `analysis.evtx_cache_stats`
+  - `artifacts.evtx_incremental_cache`
+
+PENDING:
+- Validation runtime complete du 2e rerun interrompue (run long coupe) mais artefact cache present et stats disponibles.
+- Phase 5 reste a implementer.
+
+FILES LIBERES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/docs/TODO_DEMAIN.md
+- WinPe_local/scripts/offline/OfflineLogsEngine.ps1
+
+TESTS:
+- Parser `OfflineLogsEngine.ps1` => PASS.
+- `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Run-Phase6ATests.ps1 -RootPath . -OutputDirectory .\reports` => PASS (`PHASE6A_EXIT=0`).
+- Verification artefacts:
+  - `reports/evtx-incremental-cache.json` present (`entry_count=7`)
+  - `reports/offline-windows-analysis.json` present (`evtx_cache_stats: hits=0 misses=7 stale=0 parsed=7` sur le run valide observe)
+
+PROMPT AUTRE AGENT:
+```
+ROLE: Agent A
+ETAT: phase 4 cache incremental EVTX integree; tests Phase6A OK; artefact cache genere.
+PRIS: soit finaliser validation runtime rerun-cache (attendre completion), soit passer phase 5 exports explicites.
+INTERDIT: retirer analysis.evtx_cache_stats ou artifacts.evtx_incremental_cache.
+ACTION: phase 5 puis validations ciblees.
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
+
+### 2026-05-29 12:55:55 +02:00 GitHub Copilot (Agent B) claim fast-mode optimization phase 3
+
+PRIS PAR MOI:
+- Ecrire un resume SAV rapide (JSON + TXT) juste avant les artefacts lourds.
+- Exposer ces artefacts dans la sortie de l analyse offline.
+- Valider via test Phase6A.
+
+LIBRE AUTRE AGENT:
+- Lecture seule sur ce lot.
+
+FICHIERS VERROUILLES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/docs/TODO_DEMAIN.md
+- WinPe_local/scripts/offline/OfflineLogsEngine.ps1
+- WinPe_local/scripts/tests/Run-Phase6ATests.ps1
+
+### 2026-05-29 13:00:00 +02:00 GitHub Copilot (Agent B) handoff fast-mode optimization phase 3
+
+FAIT:
+- Phase 3 cochee dans `WinPe_local/docs/TODO_DEMAIN.md`.
+- Ajout d un resume SAV immediat avant les artefacts lourds:
+  - `quick-sav-summary.json`
+  - `quick-sav-summary.txt`
+- Ces artefacts sont exposes dans la sortie `artifacts` de l analyse offline.
+- Test Phase6A renforce pour verifier la presence/contenu du resume rapide.
+
+PENDING:
+- Resync USB de ce lot toujours bloquee tant que `D:`/`E:` ne sont pas visibles dans le shell courant.
+- Phases 4 et 5 restent a implementer.
+
+FILES LIBERES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/docs/TODO_DEMAIN.md
+- WinPe_local/scripts/offline/OfflineLogsEngine.ps1
+- WinPe_local/scripts/tests/Run-Phase6ATests.ps1
+
+TESTS:
+- Parser `OfflineLogsEngine.ps1` => PASS.
+- Parser `Run-Phase6ATests.ps1` => PASS.
+- `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Run-Phase6ATests.ps1 -RootPath . -OutputDirectory .\reports` => PASS (`PHASE6A_EXIT=0`).
+
+PROMPT AUTRE AGENT:
+```
+ROLE: Agent A
+ETAT: phase 3 optimisation OK local; resume SAV rapide ecrit avant artefacts lourds.
+PRIS: reprendre pour phase 4 cache incremental EVTX ou resync USB si D/E reviennent.
+INTERDIT: retirer quick-sav-summary.* ou casser artifacts.quick_sav_summary_*.
+ACTION: phase 4 (cache) puis validations ciblees.
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
+
+### 2026-05-29 12:52:38 +02:00 GitHub Copilot (Agent B) claim fast-mode optimization phase 2
+
+PRIS PAR MOI:
+- Implementer la generation du HTML complet seulement sur demande explicite lors de l ouverture du rapport complet.
+- Garder le stub rapide pour l analyse rapide tant que le rapport detaille n est pas demande.
+- Mettre a jour le TODO et valider le launcher.
+
+LIBRE AUTRE AGENT:
+- Lecture seule sur ce lot.
+
+FICHIERS VERROUILLES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/docs/TODO_DEMAIN.md
+- WinPe_local/scripts/launcher.ps1
+
+### 2026-05-29 12:56:00 +02:00 GitHub Copilot (Agent B) handoff fast-mode optimization phase 2
+
+FAIT:
+- Phase 2 cochee dans `WinPe_local/docs/TODO_DEMAIN.md`.
+- `open-timeline-report` regenere maintenant `timeline-raw.html` complet a la demande si le fichier courant est le stub rapide.
+- Le mode rapide garde donc son cout faible apres analyse, et le cout du HTML complet est reporte au clic explicite sur le bouton complet.
+
+PENDING:
+- Resync USB de ce lot toujours bloquee tant que les lecteurs `D:`/`E:` ne sont pas visibles dans le shell courant.
+- Phases 3 a 5 restent a implementer.
+
+FILES LIBERES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/docs/TODO_DEMAIN.md
+- WinPe_local/scripts/launcher.ps1
+
+TESTS:
+- Parser `launcher.ps1` => PASS.
+- `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Run-UX2Tests.ps1 -RootPath . -OutputDirectory .\reports` => PASS (`UX2_EXIT=0`).
+
+PROMPT AUTRE AGENT:
+```
+ROLE: Agent A
+ETAT: phase 2 optimisation OK local; HTML complet regenere au clic sur rapport complet.
+PRIS: reprendre uniquement pour phases 3+ ou resync USB si D/E reviennent.
+INTERDIT: reintroduire le rendu HTML complet pendant l analyse rapide.
+ACTION: soit phase 3 resume immediat, soit resync USB de phase1+2.
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
+
+### 2026-05-29 12:45:50 +02:00 GitHub Copilot (Agent B) claim fast-mode optimization phase 1
+
+PRIS PAR MOI:
+- Ecrire les taches d optimisation progressive dans TODO_DEMAIN.
+- Implementer un lot concret: en mode rapide, remplacer le rendu lourd `timeline-raw.html` par une page legere de synthese/redirection.
+- Ajouter un test cible de ce comportement rapide.
+
+LIBRE AUTRE AGENT:
+- Lecture seule sur ce lot.
+
+FICHIERS VERROUILLES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/docs/TODO_DEMAIN.md
+- WinPe_local/scripts/offline/OfflineLogsEngine.ps1
+- WinPe_local/scripts/tests/Run-Phase6ATests.ps1
+
+### 2026-05-29 12:58:00 +02:00 GitHub Copilot (Agent B) handoff fast-mode optimization phase 1
+
+FAIT:
+- Taches d optimisation progressive ajoutees dans `WinPe_local/docs/TODO_DEMAIN.md`.
+- Phase 1 implemente: en mode rapide, `timeline-raw.html` devient une page legere de synthese/redirection vers `evtx-by-file.html` et `timeline-raw.json`.
+- Contrat conserve: le fichier `timeline-raw.html` existe toujours et `timeline_raw_html` reste renseigne dans les artefacts.
+- Test cible ajoute dans `Run-Phase6ATests.ps1` pour verifier le shell HTML rapide.
+- Verification runtime reelle: `timeline-raw.html` passe a `78 ms` en mode rapide, avec marqueur `FAST_TIMELINE_STUB_OK`.
+
+PENDING:
+- Resync USB de ce dernier lot non terminee: le shell PowerShell courant ne voit plus `D:`/`E:` au moment de la copie (drives visibles: `C/F/G/H/S/Z`).
+- Phases 2 a 5 de l optimisation progressive restent a faire.
+
+FILES LIBERES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/docs/TODO_DEMAIN.md
+- WinPe_local/scripts/offline/OfflineLogsEngine.ps1
+- WinPe_local/scripts/tests/Run-Phase6ATests.ps1
+
+TESTS:
+- Parser `OfflineLogsEngine.ps1` => PASS.
+- Parser `Run-Phase6ATests.ps1` => PASS.
+- `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Run-Phase6ATests.ps1 -RootPath . -OutputDirectory .\reports` => PASS (`PHASE6A_EXIT=0`).
+- Runtime reel `DanewCheckTool.CLI.ps1 -Command analyze-offline-logs-fast` => PASS (`CLI_EXIT=0`), `FAST_TIMELINE_STUB_OK`, `timeline-raw.html = 78 ms`.
+- Tentative de resync USB de ce dernier lot => BLOCKED (lecteurs `D:`/`E:` absents du shell courant).
+
+PROMPT AUTRE AGENT:
+```
+ROLE: Agent A
+ETAT: phase 1 optimisation rapide OK local; resync USB finale bloquee par absence D/E dans le shell.
+PRIS: reprendre uniquement si D/E redeviennent visibles ou si un autre chemin USB est confirme.
+INTERDIT: casser le contrat timeline_raw_html ou retirer evtx-by-file.
+ACTION: resync 4 fichiers du lot puis valider Phase6A sur la cle.
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
+
+### 2026-05-29 12:10:00 +02:00 GitHub Copilot (Agent B) claim USB full resync all modifications
+
+PRIS PAR MOI:
+- Resynchroniser la cle D: et E: avec tous les fichiers modifies du workspace.
+- Inclure les scripts, tests, `AGENT_COMMUNICATION.md` et `WinPe_local/docs/TODO_DEMAIN.md`.
+- Verifier ensuite les tests USB utiles apres copie.
+
+LIBRE AUTRE AGENT:
+- Lecture seule sur les fichiers de ce lot.
+
+FICHIERS VERROUILLES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/scripts/launcher/LauncherCore.ps1
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/DanewCheckTool.CLI.ps1
+- WinPe_local/scripts/offline/OfflineLogsEngine.ps1
+- WinPe_local/scripts/tests/Invoke-RealWinPETooltipValidation.ps1
+- WinPe_local/scripts/tests/Run-BrowserIntegrationTests.ps1
+- WinPe_local/scripts/tests/Run-EvtxUx2Tests.ps1
+- WinPe_local/scripts/tests/Run-PostFinalUsbValidation.ps1
+- WinPe_local/scripts/tests/Run-PostUX2FUsbValidation.ps1
+- WinPe_local/scripts/tests/Run-ReportFrenchTests.ps1
+- WinPe_local/scripts/tests/Run-UX2ETests.ps1
+- WinPe_local/scripts/tests/Run-UX2FTests.ps1
+- WinPe_local/scripts/tests/Run-UX2Tests.ps1
+- WinPe_local/scripts/tests/Run-UXEncodingTests.ps1
+- WinPe_local/scripts/tests/Run-UXTooltipTests.ps1
+- WinPe_local/docs/TODO_DEMAIN.md
+
+### 2026-05-29 12:15:00 +02:00 GitHub Copilot (Agent B) handoff USB full resync all modifications
+
+FAIT:
+- Copie miroir complete des 17 fichiers modifies vers `D:\` et `E:\`.
+- Synchronisation validee sur la cle avec les scripts, tests, `AGENT_COMMUNICATION.md` et `WinPe_local/docs/TODO_DEMAIN.md`.
+- Validations USB passees apres resync.
+
+PENDING:
+- Aucun blocage connu.
+
+FILES LIBERES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/scripts/launcher/LauncherCore.ps1
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/DanewCheckTool.CLI.ps1
+- WinPe_local/scripts/offline/OfflineLogsEngine.ps1
+- WinPe_local/scripts/tests/Invoke-RealWinPETooltipValidation.ps1
+- WinPe_local/scripts/tests/Run-BrowserIntegrationTests.ps1
+- WinPe_local/scripts/tests/Run-EvtxUx2Tests.ps1
+- WinPe_local/scripts/tests/Run-PostFinalUsbValidation.ps1
+- WinPe_local/scripts/tests/Run-PostUX2FUsbValidation.ps1
+- WinPe_local/scripts/tests/Run-ReportFrenchTests.ps1
+- WinPe_local/scripts/tests/Run-UX2ETests.ps1
+- WinPe_local/scripts/tests/Run-UX2FTests.ps1
+- WinPe_local/scripts/tests/Run-UX2Tests.ps1
+- WinPe_local/scripts/tests/Run-UXEncodingTests.ps1
+- WinPe_local/scripts/tests/Run-UXTooltipTests.ps1
+- WinPe_local/docs/TODO_DEMAIN.md
+
+TESTS:
+- `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Run-EvtxUx2Tests.ps1 -RootPath E:\ -OutputDirectory E:\reports` => PASS (`EVTXUX2_EXIT=0`).
+- `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Run-UX2Tests.ps1 -RootPath E:\ -OutputDirectory E:\reports` => PASS (`UX2_EXIT=0`).
+- `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Run-PostFinalUsbValidation.ps1 -RootPath E:\ -OutputDirectory E:\reports` => PASS (`POSTFINAL_EXIT=0`).
+
+PROMPT AUTRE AGENT:
+```
+ROLE: Agent A
+ETAT: USB D/E resynchronisee avec tous les fichiers modifies et tests passes.
+PRIS: aucun pour ce lot.
+INTERDIT: modifier les fichiers sans nouveau claim.
+ACTION: lecture seule ou nouveau claim si necessaire.
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
+
+### 2026-05-29 12:02:54 +02:00 GitHub Copilot (Agent B) claim Export_EVENTS EVTX ZIP relocation
+
+PRIS PAR MOI:
+- Deplacer le dossier de sortie du ZIP EVTX sous `Export_EVENTS`.
+- Verifier que le ZIP est bien cree au nouvel emplacement.
+- Mettre a jour le test EVTX UX2 pour controler le chemin attendu.
+
+LIBRE AUTRE AGENT:
+- Lecture seule sur les fichiers de cette tache.
+
+FICHIERS VERROUILLES:
+- WinPe_local/scripts/launcher/LauncherCore.ps1
+- WinPe_local/scripts/tests/Run-EvtxUx2Tests.ps1
+- AGENT_COMMUNICATION.md
+
+### 2026-05-29 12:04:00 +02:00 GitHub Copilot (Agent B) handoff Export_EVENTS EVTX ZIP relocation
+
+FAIT:
+- Le ZIP EVTX est maintenant cree sous `reports\Export_EVENTS`.
+- Le nom reste `machine-yyyymmdd-HHMMSS-evtx.zip` avec suffixe de collision si besoin.
+- Le test EVTX UX2 controle maintenant explicitement le dossier `Export_EVENTS`.
+
+PENDING:
+- Aucun blocage connu.
+
+FILES LIBERES:
+- WinPe_local/scripts/launcher/LauncherCore.ps1
+- WinPe_local/scripts/tests/Run-EvtxUx2Tests.ps1
+- AGENT_COMMUNICATION.md
+
+TESTS:
+- Parser `LauncherCore.ps1` => PASS.
+- Parser `Run-EvtxUx2Tests.ps1` => PASS.
+- `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Run-EvtxUx2Tests.ps1 -RootPath . -OutputDirectory .\reports` => PASS (`EVTXUX2_EXIT=0`).
+
+PROMPT AUTRE AGENT:
+```
+ROLE: Agent A
+ETAT: export EVTX deplace sous reports\\Export_EVENTS et teste localement.
+PRIS: aucun pour ce lot.
+INTERDIT: modifier l export EVTX sans nouveau claim.
+ACTION: relire seulement si besoin.
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
+
+### 2026-05-29 12:05:00 +02:00 Codex Agent A verify Agent B ZIP claim
+
+PRIS PAR MOI:
+- Verifier coherence des changements Agent B/VSCODE `export-evtx-zip` avec les changements CODEX.
+- Corriger uniquement si bug constate sur nommage ZIP machine+timestamp.
+- Revalider local + USB.
+
+LIBRE AUTRE AGENT:
+- Lecture seule.
+
+FICHIERS VERROUILLES:
+- WinPe_local/scripts/launcher/LauncherCore.ps1
+- WinPe_local/scripts/tests/Run-EvtxUx2Tests.ps1
+- AGENT_COMMUNICATION.md
+
+### 2026-05-29 12:06:00 +02:00 Codex Agent A verify Agent B ZIP handoff
+
+FAIT:
+- Verification coherence Agent B/VSCODE + CODEX effectuee.
+- `export-evtx-zip` present dans GUI, CLI, LauncherCore et tests.
+- Bug detecte: nom machine repete dans ZIP reel (`skynetdam_skynetdam_...`).
+- Correction appliquee dans `LauncherCore.ps1`: extraction robuste du premier champ `computer`.
+- Test EVTX UX2 renforce: cree un ZIP reel avec machine `TESTPC` et verifie `TESTPC-yyyymmdd-HHMMSS-evtx.zip`.
+- Sync vers `D:\` et `E:\` effectuee pour `LauncherCore.ps1` et `Run-EvtxUx2Tests.ps1`.
+
+PENDING:
+- Test boot reel WinPE utilisateur si necessaire.
+- Commit/push si demande.
+
+FILES LIBERES:
+- WinPe_local/scripts/launcher/LauncherCore.ps1
+- WinPe_local/scripts/tests/Run-EvtxUx2Tests.ps1
+- AGENT_COMMUNICATION.md
+
+TESTS:
+- Parser `LauncherCore.ps1` + `Run-EvtxUx2Tests.ps1` => PASS.
+- Local `Run-EvtxUx2Tests.ps1` => 12/12 PASS.
+- Local `Run-UX2Tests.ps1` => 16/16 PASS.
+- CLI reel `export-evtx-zip` => PASS, ZIP `skynetdam-20260529-120432-evtx.zip`, 7 EVTX, 15 fichiers.
+- USB hash `LauncherCore.ps1` et `Run-EvtxUx2Tests.ps1` local/D/E => OK.
+- USB `E:\scripts\tests\Run-EvtxUx2Tests.ps1 -RootPath E:\` => 12/12 PASS.
+- USB `E:\scripts\tests\Run-UX2Tests.ps1 -RootPath E:\` => 16/16 PASS.
+- `Run-PostFinalUsbValidation.ps1` => 52/52 PASS.
+
+PROMPT AUTRE AGENT:
+```
+ROLE: Agent B VSCODE
+ETAT: export ZIP EVTX verifie/corrige par CODEX; local+USB verts.
+PRIS: validation boot reel uniquement si besoin.
+INTERDIT: toucher LauncherCore/EVTX sans nouveau claim.
+ACTION: tester export ZIP en WinPE et verifier nom machine-date.
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
+
+### 2026-05-29 11:59:30 +02:00 GitHub Copilot (Agent B) claim coordination-rules alignment
+
+PRIS PAR MOI:
+- Aligner la regle explicite Agent A/CODEX et Agent B/VSCODE dans la documentation de coordination.
+- Rappeler la regle de verrouillage des fichiers et le format de fin de tache obligatoire.
+
+LIBRE AUTRE AGENT:
+- Edition code applicatif hors documentation de coordination.
+
+FICHIERS VERROUILLES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/docs/TODO_DEMAIN.md
+
+### 2026-05-29 11:59:30 +02:00 GitHub Copilot (Agent B) handoff coordination-rules alignment
+
+FAIT:
+- Regles explicites ajoutees: mapping Agent A/B, verrouillage strict des fichiers claimes, format obligatoire de fin de tache.
+- Alignement applique dans AGENT_COMMUNICATION et TODO_DEMAIN.
+
+PENDING:
+- Aucun blocage. Attente d un nouveau claim pour edition de code.
+
+FILES LIBERES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/docs/TODO_DEMAIN.md
+
+TESTS:
+- N/A (mise a jour documentaire uniquement)
+
+PROMPT AUTRE AGENT:
+```
+ROLE: Agent A
+ETAT: regles de coordination alignees et explicites.
+PRIS: reprendre tache metier suivante avec claim prealable.
+INTERDIT: editer fichiers claimes par autre agent actif.
+ACTION: claim puis execution sans chevauchement.
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
+
+### 2026-05-29 12:12:00 +02:00 GitHub Copilot (Agent B) claim EVTX ZIP export machine+timestamp
+
+PRIS PAR MOI:
+- Ajouter une action d export ZIP EVTX nommee avec nom machine + horodate.
+- Exposer cette action dans launcher GUI et CLI.
+- Mettre a jour le test EVTX UX2 de presence d action.
+
+LIBRE AUTRE AGENT:
+- Lecture seule et validation non bloquante sur autres modules.
+
+FICHIERS VERROUILLES:
+- WinPe_local/scripts/launcher/LauncherCore.ps1
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/DanewCheckTool.CLI.ps1
+- WinPe_local/scripts/tests/Run-EvtxUx2Tests.ps1
+- AGENT_COMMUNICATION.md
+
+### 2026-05-29 12:18:00 +02:00 GitHub Copilot (Agent B) handoff EVTX ZIP export machine+timestamp
+
+FAIT:
+- Nouvelle action runtime `export-evtx-zip` ajoutee dans LauncherCore.
+- Export ZIP EVTX nomme `nomMachine-yyyymmdd-HHMMSS-evtx.zip` (suffixe numerique si collision).
+- Le ZIP inclut les fichiers EVTX lisibles detectes + artefacts EVTX utiles (`evtx-summary.json`, `evtx-events.csv/json`, exports cibles CSV, resume TXT).
+- Bouton GUI ajoute dans `Rapports et actions`: `6. EXPORT ZIP EVTX`.
+- CLI ajoute: commande `export-evtx-zip` + entree menu interactif.
+- Tests EVTX/UX2 mis a jour pour verifier exposition et appel de l action ZIP.
+
+PENDING:
+- Validation terrain WinPE reel a faire sur poste cible si necessaire (non bloquant pour ce lot).
+
+FILES LIBERES:
+- WinPe_local/scripts/launcher/LauncherCore.ps1
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/DanewCheckTool.CLI.ps1
+- WinPe_local/scripts/tests/Run-EvtxUx2Tests.ps1
+- WinPe_local/scripts/tests/Run-UX2Tests.ps1
+- AGENT_COMMUNICATION.md
+
+TESTS:
+- Parser PowerShell:
+  - `scripts/launcher/LauncherCore.ps1` => PASS
+  - `scripts/launcher.ps1` => PASS
+  - `scripts/DanewCheckTool.CLI.ps1` => PASS
+  - `scripts/tests/Run-EvtxUx2Tests.ps1` => PASS
+  - `scripts/tests/Run-UX2Tests.ps1` => PASS
+- `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Run-EvtxUx2Tests.ps1 -RootPath . -OutputDirectory .\reports` => PASS (`EVTXUX2_EXIT=0`)
+- `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Run-UX2Tests.ps1 -RootPath . -OutputDirectory .\reports` => PASS (`UX2_EXIT=0`)
+
+PROMPT AUTRE AGENT:
+```
+ROLE: Agent A
+ETAT: export ZIP EVTX machine+timestamp implemente et teste local.
+PRIS: validation terrain WinPE reel + verification packaging sur machine cible.
+INTERDIT: modifier logique moteur EVTX hors bug critique.
+ACTION: lancer export-evtx-zip en reel, verifier nom ZIP et contenu EVTX.
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
+
+### 2026-05-29 11:45:18 +02:00 GitHub Copilot (Agent B) claim timing artifacts
+
+PRIS PAR MOI:
+- Ajouter un timing par sous-etape dans l etape "Write JSON and CSV artifacts" pour identifier le goulot.
+
+LIBRE AUTRE AGENT:
+- Revue read-only et validation terrain WinPE.
+
+FICHIERS VERROUILLES:
+- WinPe_local/scripts/offline/OfflineLogsEngine.ps1
+- AGENT_COMMUNICATION.md
+
+### 2026-05-29 12:00:00 +02:00 Codex Agent A fast options claim
+
+PRIS PAR MOI:
+- Ajouter options UI pour l analyse rapide: Critique / Erreur / Avertissement et volume Tout / 100 / 500.
+- Passer ces choix au moteur via config runtime sans changer les chemins de rapports.
+- Mettre a jour tests UX associes.
+
+LIBRE AUTRE AGENT:
+- Lecture seule.
+- Resync USB/test boot apres handoff.
+
+FICHIERS VERROUILLES:
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/launcher/LauncherCore.ps1
+- WinPe_local/scripts/offline/OfflineLogsEngine.ps1
+- WinPe_local/scripts/tests/Run-UX2Tests.ps1
+- WinPe_local/scripts/tests/Run-UXTooltipTests.ps1
+- WinPe_local/scripts/tests/Run-UXEncodingTests.ps1
+- WinPe_local/scripts/tests/Run-PostFinalUsbValidation.ps1
+- AGENT_COMMUNICATION.md
+
+### 2026-05-29 12:15:00 +02:00 Codex Agent A fast options handoff
+
+FAIT:
+- Ajout UI sous les actions principales:
+  - cases `Critique`, `Erreur`, `Avert.`
+  - selecteur `Evenements/log` avec `100`, `500`, `Tout`
+- Le bouton `ANALYSE RAPIDE` utilise maintenant ces choix.
+- `Tout` garde le filtre de niveaux coches mais retire la limite par journal.
+- `ANALYSE COMPLETE` reste le bouton pour tous les logs sans filtre.
+- Synchronisation effectuee vers `D:\` et `E:\`; hash `launcher.ps1` OK local/D/E.
+
+PENDING:
+- Test boot reel WinPE utilisateur.
+- Commit/push si demande.
+
+FILES LIBERES:
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/launcher/LauncherCore.ps1
+- WinPe_local/scripts/offline/OfflineLogsEngine.ps1
+- WinPe_local/scripts/tests/Run-UX2Tests.ps1
+- WinPe_local/scripts/tests/Run-UXTooltipTests.ps1
+- WinPe_local/scripts/tests/Run-UXEncodingTests.ps1
+- WinPe_local/scripts/tests/Run-PostFinalUsbValidation.ps1
+- AGENT_COMMUNICATION.md
+
+TESTS:
+- Parser PowerShell fichiers modifies => PASS.
+- Runtime custom direct: `analyze-offline-logs-fast` avec niveaux `@(1)` et `100`/log => PASS, `8` evenements, niveau `Critique:8`, parse issues `0`.
+- Local `Run-UX2Tests.ps1` => 16/16 PASS.
+- Local `Run-UXTooltipTests.ps1` => 11/11 PASS.
+- Local `Run-UXEncodingTests.ps1` => 7/7 PASS.
+- Local `Run-UX2FTests.ps1` => 8/8 PASS.
+- Local `Run-BrowserIntegrationTests.ps1` => PASS.
+- Local `Run-EvtxUx2Tests.ps1` => PASS.
+- USB `Run-PostFinalUsbValidation.ps1` => 52/52 PASS.
+- USB `E:\scripts\tests\Run-UX2Tests.ps1 -RootPath E:\` => 16/16 PASS.
+- USB `E:\scripts\tests\Run-UXTooltipTests.ps1 -RootPath E:\` => 11/11 PASS.
+- USB `E:\scripts\tests\Run-UXEncodingTests.ps1 -RootPath E:\` => 7/7 PASS.
+
+PROMPT AUTRE AGENT:
+```
+ROLE: Agent B
+ETAT: options analyse rapide OK local+USB; D/E sync valide.
+PRIS: test boot WinPE reel + capture UI si possible.
+INTERDIT: changer moteur analyse/chemins reports sans claim.
+ACTION: booter cle, verifier cases Critique/Erreur/Avert + choix 100/500/Tout.
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
+
+### 2026-05-29 11:34:00 +02:00 Codex Agent A fast/full analysis claim
+
+PRIS PAR MOI:
+- Ajouter deux actions principales distinctes: analyse rapide journaux Windows et analyse complete journaux Windows.
+- Brancher l analyse rapide sur un filtre EVTX niveaux 1/2/3 (critique/erreur/avertissement) sans casser l action historique.
+- Mettre a jour CLI/LauncherCore/UX tests.
+
+LIBRE AUTRE AGENT:
+- Lecture seule.
+- Validation boot reel WinPE et resync USB apres handoff.
+
+FICHIERS VERROUILLES:
+- WinPe_local/scripts/offline/OfflineLogsEngine.ps1
+- WinPe_local/scripts/launcher/LauncherCore.ps1
+- WinPe_local/scripts/DanewCheckTool.CLI.ps1
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/tests/Run-UX2Tests.ps1
+- WinPe_local/scripts/tests/Run-EvtxUx2Tests.ps1
+- WinPe_local/scripts/tests/Run-PostFinalUsbValidation.ps1
+- WinPe_local/scripts/tests/Run-UXEncodingTests.ps1
+- WinPe_local/scripts/tests/Run-UXTooltipTests.ps1
+- WinPe_local/scripts/tests/Run-UX2ETests.ps1
+- WinPe_local/scripts/tests/Run-UX2FTests.ps1
+- WinPe_local/scripts/tests/Run-PostUX2FUsbValidation.ps1
+- WinPe_local/scripts/tests/Run-ReportFrenchTests.ps1
+- WinPe_local/scripts/tests/Invoke-RealWinPETooltipValidation.ps1
+- AGENT_COMMUNICATION.md
+
+### 2026-05-29 11:52:00 +02:00 Codex Agent A fast/full analysis handoff
+
+FAIT:
+- Ecran principal reorganise avec 3 actions visibles:
+  - `ANALYSE RAPIDE / CRIT/ERR/AVERT.`
+  - `ANALYSE COMPLETE / TOUS LES LOGS`
+  - `ANALYSER CAUSES / DE CRASH`
+- Nouvelles actions runtime/CLI:
+  - `analyze-offline-logs-fast`
+  - `analyze-offline-logs-full`
+- Mode rapide branche sur filtre EVTX niveaux `1,2,3` et limite `500` evenements/log.
+- Rapport `evtx-by-file.html` aligne: mode rapide = critique/erreur/avertissement.
+- Action historique `analyze-offline-logs` conservee.
+
+PENDING:
+- Resync USB quand la cle Danew `D:`/`E:` est remontee. Le poste ne montre actuellement que `F:` FIRMWARE sans `scripts`/`reports`.
+- Validation boot reel WinPE apres resync.
+
+FILES LIBERES:
+- WinPe_local/scripts/offline/OfflineLogsEngine.ps1
+- WinPe_local/scripts/launcher/LauncherCore.ps1
+- WinPe_local/scripts/DanewCheckTool.CLI.ps1
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/tests/Run-UX2Tests.ps1
+- WinPe_local/scripts/tests/Run-EvtxUx2Tests.ps1
+- WinPe_local/scripts/tests/Run-PostFinalUsbValidation.ps1
+- WinPe_local/scripts/tests/Run-UXEncodingTests.ps1
+- WinPe_local/scripts/tests/Run-UXTooltipTests.ps1
+- WinPe_local/scripts/tests/Run-UX2ETests.ps1
+- WinPe_local/scripts/tests/Run-UX2FTests.ps1
+- WinPe_local/scripts/tests/Run-PostUX2FUsbValidation.ps1
+- WinPe_local/scripts/tests/Run-ReportFrenchTests.ps1
+- WinPe_local/scripts/tests/Invoke-RealWinPETooltipValidation.ps1
+- AGENT_COMMUNICATION.md
+
+TESTS:
+- Parser PowerShell fichiers modifies => PASS.
+- `DanewCheckTool.CLI.ps1 -Command analyze-offline-logs-fast` => PASS, 1112 events, parse EVTX `max 500/log, niveaux 1/2/3`, duree 02:48.
+- `Run-UX2Tests.ps1` => 15/15 PASS.
+- `Run-EvtxUx2Tests.ps1` => 10/10 PASS.
+- `Run-BrowserIntegrationTests.ps1` => 10/10 PASS.
+- `Run-UXEncodingTests.ps1` => 7/7 PASS.
+- `Run-UXTooltipTests.ps1` => 11/11 PASS.
+- `Run-UX2ETests.ps1` => 7/7 PASS.
+- `Run-UX2FTests.ps1` => 8/8 PASS.
+- `Run-ReportFrenchTests.ps1` => 19/19 PASS.
+
+PROMPT AUTRE AGENT:
+```
+ROLE: Agent B
+ETAT: fast/full logs OK local; USB D/E absente.
+PRIS: resync USB + test boot WinPE.
+INTERDIT: changer moteurs analyse; changer chemins reports.
+ACTION: copier scripts/tests modifies sur D/E puis lancer PostFinal/UX.
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
+
+### 2026-05-29 11:18:00 +02:00 Codex Agent A UX wording claim
+
+PRIS PAR MOI:
+- Clarifier les deux boutons de lecture des journaux Windows: complet vs rapide critique/erreur/avertissement.
+- Mettre a jour uniquement les tests de libelle/visibilite associes.
+- Verifier parser + UX2 local.
+
+LIBRE AUTRE AGENT:
+- Lecture seule.
+- Validation boot reel WinPE apres synchronisation.
+
+FICHIERS VERROUILLES:
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/tests/Run-UX2Tests.ps1
+- WinPe_local/scripts/tests/Run-PostFinalUsbValidation.ps1
+- AGENT_COMMUNICATION.md
+
+### 2026-05-29 11:25:00 +02:00 Codex Agent A UX wording handoff
+
+FAIT:
+- Bouton complet clarifie: `1. COMPLET TOUS LES LOGS`.
+- Bouton rapide clarifie: `2. RAPIDE CRIT/ERR/AVERT.`.
+- Tests UX/PostFinal ajustes aux nouveaux libelles.
+- Aucune modification moteur/backend.
+
+PENDING:
+- Synchronisation USB quand la cle Danew `D:`/`E:` est remontee. Au moment du controle local, seuls `F:` FIRMWARE sans `scripts`/`reports` etait visible.
+- Validation boot reel WinPE apres resync.
+
+FILES LIBERES:
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/tests/Run-UX2Tests.ps1
+- WinPe_local/scripts/tests/Run-PostFinalUsbValidation.ps1
+- AGENT_COMMUNICATION.md
+
+TESTS:
+- `powershell -NoProfile -ExecutionPolicy Bypass -File WinPe_local\scripts\tests\Run-UX2Tests.ps1 -RootPath WinPe_local` => 14/14 PASS.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File WinPe_local\scripts\tests\Run-EvtxUx2Tests.ps1 -RootPath WinPe_local` => 10/10 PASS.
+
+PROMPT AUTRE AGENT:
+```
+ROLE: Agent B
+ETAT: UX logs clarifiee localement; USB D/E non montee.
+PRIS: resync USB quand D/E disponibles + test boot reel.
+INTERDIT: changer moteur EVTX; renommer chemins reports.
+ACTION: copier launcher/tests vers USB puis lancer PostFinal.
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
+
+### 2026-05-29 11:03:33 +02:00 GitHub Copilot (Agent B) process update
+
+FAIT:
+- Regle ajoutee dans TODO: fin de chaque tache => ajouter `PROMPT AUTRE AGENT` token optimise.
+
+PENDING:
+- Appliquer ce format sur tous les prochains handoffs.
+
+FILES LIBERES:
+- WinPe_local/docs/TODO_DEMAIN.md
+- AGENT_COMMUNICATION.md
+
+TESTS:
+- N/A (mise a jour process documentaire uniquement)
+
+PROMPT AUTRE AGENT:
+ROLE: Agent [A|B]
+ETAT: [ok|warning|blocked] [resume 1 ligne]
+PRIS: [tache1;tache2]
+VERROUILLES: [fichier1;fichier2]
+INTERDIT: [liste courte]
+ACTION: [prochaine action unique]
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+
+### 2026-05-29 10:33:48 +02:00 Codex Agent A takeover
+
+PRIS PAR MOI:
+- Stabiliser le travail EVTX/logs offline deja commence.
+- Lire et valider les modifications en cours avant toute correction.
+- Corriger uniquement si necessaire le crash `Cannot overwrite variable PID because it is read-only or constant`.
+- Valider Phase6A / UX2 / EVTX UX selon impact.
+- Preparer ensuite la resync USB seulement apres validation locale.
+
+LIBRE AUTRE AGENT:
+- Lecture seule et revue.
+- Aucune edition tant que Codex Agent A n'a pas publie `FILES LIBERES`.
+
+FICHIERS VERROUILLES:
+- WinPe_local/scripts/offline/OfflineLogsEngine.ps1
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/launcher/LauncherCore.ps1
+- WinPe_local/scripts/tests/Run-Phase6ATests.ps1
+- WinPe_local/scripts/tests/Run-UX2Tests.ps1
+- WinPe_local/scripts/tests/Run-EvtxUx2Tests.ps1
+- WinPe_local/scripts/tests/Run-BrowserIntegrationTests.ps1
+- WinPe_local/docs/TODO_DEMAIN.md
+- AGENT_COMMUNICATION.md
+
+### 2026-05-29 10:55:00 +02:00 Codex Agent A handoff
+
+FAIT:
+- Crash WinPE `Cannot overwrite variable PID because it is read-only or constant` lu dans `E:\logs\launcher-log.json`.
+- Verification source: plus aucune occurrence `$PID` / `$pid` dans `OfflineLogsEngine.ps1`, `launcher.ps1`, `LauncherCore.ps1`.
+- Run reel local `analyze-offline-logs` termine sans crash, avec generation `evtx-by-file.html`.
+- Synchronisation vers USB `D:\` et `E:\`:
+  - `scripts\DanewCheckTool.CLI.ps1`
+  - `scripts\launcher.ps1`
+  - `scripts\launcher\LauncherCore.ps1`
+  - `scripts\offline\OfflineLogsEngine.ps1`
+  - tests UX/EVTX/Browser/PostFinal concernes
+  - `docs\TODO_DEMAIN.md`
+- Test USB post-final ajuste au nouveau libelle UX `LIRE LES LOGS WINDOWS (CLASSES)`.
+- TODO mis a jour.
+
+PENDING:
+- Validation boot reel utilisateur: confirmer absence du crash en WinPE apres nouveau boot/test.
+- Commit/push final si demande utilisateur.
+
+FILES LIBERES:
+- WinPe_local/scripts/offline/OfflineLogsEngine.ps1
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/launcher/LauncherCore.ps1
+- WinPe_local/scripts/DanewCheckTool.CLI.ps1
+- WinPe_local/scripts/tests/Run-Phase6ATests.ps1
+- WinPe_local/scripts/tests/Run-UX2Tests.ps1
+- WinPe_local/scripts/tests/Run-EvtxUx2Tests.ps1
+- WinPe_local/scripts/tests/Run-BrowserIntegrationTests.ps1
+- WinPe_local/scripts/tests/Run-PostFinalUsbValidation.ps1
+- WinPe_local/docs/TODO_DEMAIN.md
+- AGENT_COMMUNICATION.md
+
+TESTS:
+- Voir Test Log 2026-05-29 10:55 Codex Agent A.
+
+PROMPT AUTRE AGENT:
+```
+ROLE: Agent B
+ETAT: Agent A fini; EVTX/UX/USB verts.
+PRIS: revue lecture seule + test boot reel si dispo.
+INTERDIT: edition sans nouveau claim; commit/push.
+ACTION: verifier logs WinPE apres test utilisateur.
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
+
+### 2026-05-29 09:46:08 +02:00 GitHub Copilot (GPT-5.3-Codex) synchro multi-agent
+
+PRIS PAR MOI:
+- Optimisation moteur EVTX (parametres fast mode + parallelisme + cache provider/event).
+- Validation logique via `Run-Phase6ATests.ps1` et `Run-UX2Tests.ps1`.
+
+LIBRE AUTRE AGENT:
+- Validation boot reel WinPE (`if not recognized` + popup lecteur `F:`).
+- Resync USB (`launcher.ps1`, `OfflineLogsEngine.ps1`) sur `D:`/`E:` + hash SHA256.
+- Commit/push final apres validations.
+
+FICHIERS VERROUILLES:
+- WinPe_local/scripts/offline/OfflineLogsEngine.ps1
+- WinPe_local/scripts/launcher-config.json (si tuning necessaire)
+- WinPe_local/scripts/tests/Run-Phase6ATests.ps1 (uniquement si adaptation necessaire)
+
+### 2026-05-29 09:38:32 +02:00 GitHub Copilot (GPT-5.3-Codex)
+
+Reprise du TODO "logs offline et UX" sur la voie rapide EVTX.
+Fichiers prevus en modification:
+- WinPe_local/scripts/offline/OfflineLogsEngine.ps1
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/launcher/LauncherCore.ps1
+- WinPe_local/scripts/tests/Run-EvtxUx2Tests.ps1
+- WinPe_local/scripts/tests/Run-UX2Tests.ps1
+- WinPe_local/scripts/tests/Run-BrowserIntegrationTests.ps1
+- WinPe_local/docs/TODO_DEMAIN.md
+- AGENT_COMMUNICATION.md (journalisation)
 
 ### 2026-05-27 Codex
 
@@ -62,6 +1751,132 @@ Handoff explicite: Codex reprend maintenant la main sur la stabilisation Phase 5
 Le prochain agent peut poursuivre directement depuis l'etat courant du working tree et du Test Log.
 
 ## Test Log
+
+### 2026-05-29 16:15:20 +02:00 Codex Agent A
+
+Tests et validations lances:
+1. Parser PowerShell:
+   - `launcher.ps1`: OK
+   - `OfflineLogsEngine.ps1`: OK
+   - `Run-UX2Tests.ps1`: OK
+   - `Run-EvtxUx2Tests.ps1`: OK
+2. Smoke runtime heartbeat:
+   - appel `Get-DanewEvtxEventRecords` avec callback sur `C:\Windows\System32\winevt\Logs\System.evtx`
+   - Resultat: callback recu: `[heartbeat] evtx-parse | mode=serial | file=System.evtx ...`
+3. `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UX2Tests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports`
+   - Resultat: 17/17 PASS.
+4. `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-EvtxUx2Tests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports`
+   - Resultat: 14/14 PASS.
+5. `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UXEncodingTests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports`
+   - Resultat: 7/7 PASS.
+6. `powershell -NoProfile -ExecutionPolicy Bypass -File E:\scripts\tests\Run-UX2Tests.ps1 -RootPath E:\ -OutputDirectory E:\reports`
+   - Resultat: 17/17 PASS.
+7. `powershell -NoProfile -ExecutionPolicy Bypass -File E:\scripts\tests\Run-EvtxUx2Tests.ps1 -RootPath E:\ -OutputDirectory E:\reports`
+   - Resultat: 14/14 PASS.
+8. Hash sync:
+   - `launcher.ps1` local/D/E: `AEE3B97451F11838FB3D10E29E5EE328EC983ECAFABD7300B641F9F52128A6C8`
+   - `OfflineLogsEngine.ps1` local/D/E: `F781CFB908C7105F047DCE0BD3D5B43AC32E668EBF93356CC67AFD86C9A748BF`
+9. Interface locale:
+   - ancienne fenetre fermee.
+   - nouvelle fenetre lancee PID `33096`.
+   - stdout/stderr vides.
+
+### 2026-05-29 16:07:05 +02:00 Codex Agent A
+
+Tests et validations lances:
+1. `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UX2Tests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports`
+   - Resultat: 17/17 PASS.
+2. `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UX2ETests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports`
+   - Resultat: 7/7 PASS.
+3. `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UX2FTests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports`
+   - Resultat: 8/8 PASS.
+4. `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UXEncodingTests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports`
+   - Resultat: 7/7 PASS.
+5. `powershell -NoProfile -ExecutionPolicy Bypass -File E:\scripts\tests\Run-UX2Tests.ps1 -RootPath E:\ -OutputDirectory E:\reports`
+   - Resultat: 17/17 PASS.
+6. Hash `launcher.ps1`:
+   - `H:\Danew_CheckTool\WinPe_local\scripts\launcher.ps1`, `D:\scripts\launcher.ps1`, `E:\scripts\launcher.ps1` identiques.
+   - SHA256: `A927B4E7C3ED9A39FB3509E33245EB9AEA1800F984869227A11FE2933F8215EA`.
+7. Interface locale:
+   - ancienne fenetre PID `25068` fermee.
+   - nouvelle fenetre lancee PID `30548`.
+   - stdout/stderr vides.
+
+### 2026-05-29 15:57:40 +02:00 Codex Agent A
+
+Tests et validations lances:
+1. `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UX2Tests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports`
+   - Resultat: 17/17 PASS.
+2. `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UX2FTests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports`
+   - Resultat: 8/8 PASS.
+3. `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UXEncodingTests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports`
+   - Resultat: 7/7 PASS.
+4. `powershell -NoProfile -ExecutionPolicy Bypass -File E:\scripts\tests\Run-UX2Tests.ps1 -RootPath E:\ -OutputDirectory E:\reports`
+   - Resultat: 17/17 PASS.
+5. Hash `launcher.ps1`:
+   - `H:\Danew_CheckTool\WinPe_local\scripts\launcher.ps1`, `D:\scripts\launcher.ps1`, `E:\scripts\launcher.ps1` identiques.
+   - SHA256: `639A64C2CAC3AE25CC383FB8680FF48986FDFE96F6A73217023070C0B27FD098`.
+6. Interface locale:
+   - ancienne fenetre PID `33172` fermee.
+   - nouvelle fenetre lancee PID `25068`.
+   - stdout/stderr vides.
+
+### 2026-05-29 15:46:30 +02:00 Codex Agent A
+
+Tests et validations lances:
+1. `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UX2Tests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports`
+   - Resultat: 17/17 PASS.
+2. `powershell -NoProfile -ExecutionPolicy Bypass -File E:\scripts\tests\Run-UX2Tests.ps1 -RootPath E:\ -OutputDirectory E:\reports`
+   - Resultat: 17/17 PASS.
+3. `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UX2ETests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports`
+   - Resultat: 7/7 PASS.
+4. `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UX2FTests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports`
+   - Resultat: 8/8 PASS.
+5. `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UXEncodingTests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports`
+   - Resultat: 7/7 PASS.
+6. Hash `launcher.ps1`:
+   - `H:\Danew_CheckTool\WinPe_local\scripts\launcher.ps1`, `D:\scripts\launcher.ps1`, `E:\scripts\launcher.ps1` identiques.
+   - SHA256: `506C95F95CC354B4C2CB4605A859917923C385AB1EF7BD0CF802EBE3D129E5A4`.
+7. Interface locale:
+   - ancienne fenetre PID `20340` fermee.
+   - nouvelle fenetre lancee PID `33172`.
+   - stdout/stderr vides.
+
+### 2026-05-29 10:55:00 +02:00 Codex Agent A
+
+Tests et validations lances:
+1. Parser PowerShell:
+   - `OfflineLogsEngine.ps1`: OK
+   - `launcher.ps1`: OK
+   - `LauncherCore.ps1`: OK
+   - `Run-Phase6ATests.ps1`: OK
+   - `Run-UX2Tests.ps1`: OK
+   - `Run-EvtxUx2Tests.ps1`: OK
+   - `Run-BrowserIntegrationTests.ps1`: OK
+2. Recherche `$PID` / `$pid`:
+   - `OfflineLogsEngine.ps1`, `launcher.ps1`, `LauncherCore.ps1`: aucune occurrence.
+3. `powershell -NoProfile -ExecutionPolicy Bypass -File WinPe_local\scripts\tests\Run-Phase6ATests.ps1`
+   - Resultat: 9/9 PASS.
+4. `powershell -NoProfile -ExecutionPolicy Bypass -File WinPe_local\scripts\tests\Run-UX2Tests.ps1`
+   - Resultat: 14/14 PASS.
+5. `powershell -NoProfile -ExecutionPolicy Bypass -File WinPe_local\scripts\tests\Run-EvtxUx2Tests.ps1`
+   - Resultat: 10/10 PASS.
+6. `powershell -NoProfile -ExecutionPolicy Bypass -File WinPe_local\scripts\tests\Run-BrowserIntegrationTests.ps1`
+   - Resultat: 10/10 PASS.
+7. `powershell -NoProfile -ExecutionPolicy Bypass -File WinPe_local\scripts\DanewCheckTool.CLI.ps1 -RootPath WinPe_local -Command analyze-offline-logs`
+   - Resultat: PASS runtime, `analyze-offline-logs ok`, 13791 events, generation `evtx-by-file.html`, statut global WARNING attendu.
+8. Sync USB `D:\` / `E:\`
+   - Hash source/destination OK pour scripts runtime et tests synchronises.
+9. `powershell -NoProfile -ExecutionPolicy Bypass -File WinPe_local\scripts\tests\Run-PostFinalUsbValidation.ps1`
+   - Resultat: 52/52 PASS.
+10. `powershell -NoProfile -ExecutionPolicy Bypass -File WinPe_local\scripts\tests\Run-PostBrowserUsbValidation.ps1`
+   - Resultat: 34/34 PASS.
+11. `powershell -NoProfile -ExecutionPolicy Bypass -File E:\scripts\tests\Run-UX2Tests.ps1 -RootPath E:\`
+   - Resultat: 14/14 PASS.
+12. `powershell -NoProfile -ExecutionPolicy Bypass -File E:\scripts\tests\Run-EvtxUx2Tests.ps1 -RootPath E:\`
+   - Resultat: 10/10 PASS.
+13. `powershell -NoProfile -ExecutionPolicy Bypass -File E:\scripts\tests\Run-Phase6ATests.ps1 -RootPath E:\`
+   - Resultat: 9/9 PASS.
 
 ### 2026-05-27 16:38:54 +02:00 GitHub Copilot (GPT-5.3-Codex)
 
@@ -740,3 +2555,32 @@ Validation:
 - UX-2: 13/13 PASS.
 - Post Final USB validation: 52/52 PASS.
 - Hash logo PNG et ICO identique local/D/E.
+
+### 2026-05-29 09:43:05 +02:00 GitHub Copilot (GPT-5.3-Codex) reprise TODO logs offline et UX
+
+Travail realise:
+- Ajout d un nouveau rapport EVTX rapide par fichier dans `OfflineLogsEngine.ps1`:
+  - sortie `reports\evtx-by-file.html`
+  - mode 1 rapide (Critique/Erreur)
+  - mode 2 complet (tous les evenements)
+  - sections pliables par famille dans chaque fichier EVTX
+  - resume court en tete (top causes, top evenements, volume par fichier)
+- Le pipeline `Invoke-DanewOfflineLogsAnalysis` publie maintenant `artifacts.evtx_by_file_html`.
+- `launcher.ps1`:
+  - nouveau bouton `2. LIRE LES LOGS WINDOWS (RAPIDE PAR FICHIER)` dans `Rapports et actions`
+  - conservation du bouton historique `1. LIRE LES LOGS WINDOWS (CLASSES)`
+  - nouveau handler GUI `open-timeline-fast-report`
+  - fallback d ouverture integre avec priorite `evtx-by-file.html`
+- `DanewCheckTool.CLI.ps1` affiche `evtx-by-file.html` dans le resume de la commande offline logs.
+- `LauncherCore.ps1` inclut `evtx-by-file.html` dans la detection navigateur (report_opening).
+
+Tests executes (depuis `H:\Danew_CheckTool\WinPe_local`):
+1. `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Run-EvtxUx2Tests.ps1 -RootPath . -OutputDirectory .\reports`
+	- Resultat: PASS, `EVTXUX2_EXIT=0`.
+2. `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Run-UX2Tests.ps1 -RootPath . -OutputDirectory .\reports`
+	- Resultat: PASS, `UX2_EXIT=0`.
+3. `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Run-BrowserIntegrationTests.ps1 -RootPath . -OutputDirectory .\reports`
+	- Resultat: PASS, `BROWSER_EXIT=0`.
+
+Note:
+- Une erreur syntaxique temporaire a ete corrigee pendant l intervention dans `OfflineLogsEngine.ps1` (usage invalide de `Sort-Object`), puis retest complet au vert.

@@ -284,10 +284,10 @@ function New-DanewReportTableHtml {
         $label = ConvertTo-DanewReportHtmlText $Headers[$i]
         $isSortable = (@($SortableColumns).Count -eq 0) -or ($i -in $SortableColumns)
         if ($isSortable) {
-            $headerCells += '<th data-sortable="true" data-sort-index="' + [string]$i + '" data-sort-direction="none"><button type="button" class="sort-header-button" data-sort-trigger="' + [string]$i + '"><span>' + $label + '</span><span class="sort-indicator" aria-hidden="true">+/-</span></button></th>'
+            $headerCells += '<th data-column-index="' + [string]$i + '" data-sortable="true" data-sort-index="' + [string]$i + '" data-sort-direction="none" draggable="true"><button type="button" class="sort-header-button" data-sort-trigger="' + [string]$i + '"><span>' + $label + '</span><span class="sort-indicator" aria-hidden="true">+/-</span></button><span class="column-resize-handle" data-column-resize title="Redimensionner la colonne"></span></th>'
         }
         else {
-            $headerCells += '<th>' + $label + '</th>'
+            $headerCells += '<th data-column-index="' + [string]$i + '" draggable="true">' + $label + '<span class="column-resize-handle" data-column-resize title="Redimensionner la colonne"></span></th>'
         }
     }
     $headerHtml = $headerCells -join ''
@@ -297,7 +297,7 @@ function New-DanewReportTableHtml {
 
     return @"
 <div class="table-wrap">
-<table>
+<table data-enhanced-table="true">
 <thead><tr>$headerHtml</tr></thead>
 <tbody>
 $rowsHtml
@@ -377,9 +377,6 @@ body {
     margin: 24px auto 40px auto;
 }
 .hero {
-    position: sticky;
-    top: 12px;
-    z-index: 20;
     margin-bottom: 18px;
     padding: 22px;
     border: 1px solid var(--line);
@@ -500,6 +497,7 @@ h1 {
 }
 .report-card {
     padding: 18px 20px;
+    min-width: 0;
 }
 .section-head {
     display: flex;
@@ -542,7 +540,8 @@ h1 {
 .report-badge-danger { background: rgba(180,35,24,0.14); color: var(--danger); }
 .report-badge-neutral { background: rgba(89,101,121,0.12); color: var(--text); }
 .table-wrap {
-    overflow: auto;
+    overflow-x: auto;
+    overflow-y: visible;
     border: 1px solid var(--line);
     border-radius: 16px;
     background: #ffffff;
@@ -574,7 +573,8 @@ th[data-sort-direction="desc"] .sort-indicator { font-size: 0; }
 table {
     width: 100%;
     border-collapse: collapse;
-    min-width: 720px;
+    min-width: 0;
+    table-layout: fixed;
 }
 th, td {
     padding: 10px 12px;
@@ -582,12 +582,37 @@ th, td {
     text-align: left;
     vertical-align: top;
     font-size: 13px;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    min-width: 0;
 }
 th {
     position: sticky;
     top: 0;
     background: #eef5f4;
     z-index: 1;
+    user-select: none;
+}
+th[draggable="true"] { cursor: grab; }
+th.column-dragging { opacity: 0.55; cursor: grabbing; }
+th.column-drop-target { box-shadow: inset 3px 0 0 var(--accent); }
+.column-resize-handle {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 8px;
+    height: 100%;
+    cursor: col-resize;
+    opacity: 0;
+    border-right: 2px solid rgba(15,118,110,0.35);
+}
+th:hover .column-resize-handle,
+.column-resize-handle:hover {
+    opacity: 1;
+}
+body.column-resizing {
+    cursor: col-resize;
+    user-select: none;
 }
 tbody tr:nth-child(even) { background: rgba(15,118,110,0.03); }
 tbody tr[hidden] { display: none; }
@@ -753,6 +778,146 @@ $AdditionalContentHtml
         });
     }
 
+    function setColumnWidth(table, columnIndex, width) {
+        var safeWidth = Math.max(64, Math.round(width));
+        var rows = Array.prototype.slice.call(table.querySelectorAll('tr'));
+        rows.forEach(function (row) {
+            var cell = row.children[columnIndex];
+            if (cell) {
+                cell.style.width = safeWidth + 'px';
+                cell.style.minWidth = safeWidth + 'px';
+            }
+        });
+
+        var totalWidth = 0;
+        var headers = Array.prototype.slice.call(table.querySelectorAll('thead th'));
+        headers.forEach(function (header) {
+            var headerWidth = parseInt(header.style.width || header.offsetWidth || 0, 10);
+            totalWidth += Math.max(64, headerWidth || 64);
+        });
+        if (totalWidth > 0) {
+            // ne pas forcer la largeur globale : le tableau reste dans sa carte
+        }
+    }
+
+    function moveColumn(table, fromIndex, toIndex) {
+        if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) {
+            return;
+        }
+
+        var rows = Array.prototype.slice.call(table.querySelectorAll('tr'));
+        rows.forEach(function (row) {
+            var cells = row.children;
+            if (fromIndex >= cells.length || toIndex >= cells.length) {
+                return;
+            }
+
+            var movingCell = cells[fromIndex];
+            var targetCell = cells[toIndex];
+            if (fromIndex < toIndex) {
+                row.insertBefore(movingCell, targetCell.nextSibling);
+            }
+            else {
+                row.insertBefore(movingCell, targetCell);
+            }
+        });
+
+        var headers = Array.prototype.slice.call(table.querySelectorAll('thead th'));
+        headers.forEach(function (header, index) {
+            header.setAttribute('data-column-index', String(index));
+            if (header.getAttribute('data-sortable') === 'true') {
+                header.setAttribute('data-sort-index', String(index));
+                var trigger = header.querySelector('[data-sort-trigger]');
+                if (trigger) {
+                    trigger.setAttribute('data-sort-trigger', String(index));
+                }
+            }
+        });
+    }
+
+    function initInteractiveColumns() {
+        var tables = Array.prototype.slice.call(document.querySelectorAll('.table-wrap table'));
+        tables.forEach(function (table) {
+            var headers = Array.prototype.slice.call(table.querySelectorAll('thead th'));
+            if (headers.length === 0) {
+                return;
+            }
+
+            headers.forEach(function (header, index) {
+                header.setAttribute('draggable', 'true');
+                header.setAttribute('data-column-index', String(index));
+
+                var handle = header.querySelector('[data-column-resize]');
+                if (!handle) {
+                    handle = document.createElement('span');
+                    handle.className = 'column-resize-handle';
+                    handle.setAttribute('data-column-resize', 'true');
+                    handle.setAttribute('title', 'Redimensionner la colonne');
+                    header.appendChild(handle);
+                }
+                if (handle) {
+                    handle.addEventListener('mousedown', function (event) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        var startX = event.clientX;
+                        var startWidth = header.offsetWidth;
+                        var columnIndex = Array.prototype.indexOf.call(header.parentNode.children, header);
+                        document.body.classList.add('column-resizing');
+
+                        function onMove(moveEvent) {
+                            setColumnWidth(table, columnIndex, startWidth + (moveEvent.clientX - startX));
+                        }
+
+                        function onUp() {
+                            document.removeEventListener('mousemove', onMove);
+                            document.removeEventListener('mouseup', onUp);
+                            document.body.classList.remove('column-resizing');
+                        }
+
+                        document.addEventListener('mousemove', onMove);
+                        document.addEventListener('mouseup', onUp);
+                    });
+                }
+
+                header.addEventListener('dragstart', function (event) {
+                    if (event.target && event.target.getAttribute && event.target.getAttribute('data-column-resize') !== null) {
+                        event.preventDefault();
+                        return;
+                    }
+                    var columnIndex = Array.prototype.indexOf.call(header.parentNode.children, header);
+                    header.classList.add('column-dragging');
+                    event.dataTransfer.effectAllowed = 'move';
+                    event.dataTransfer.setData('text/plain', String(columnIndex));
+                });
+
+                header.addEventListener('dragend', function () {
+                    header.classList.remove('column-dragging');
+                    headers.forEach(function (item) {
+                        item.classList.remove('column-drop-target');
+                    });
+                });
+
+                header.addEventListener('dragover', function (event) {
+                    event.preventDefault();
+                    header.classList.add('column-drop-target');
+                    event.dataTransfer.dropEffect = 'move';
+                });
+
+                header.addEventListener('dragleave', function () {
+                    header.classList.remove('column-drop-target');
+                });
+
+                header.addEventListener('drop', function (event) {
+                    event.preventDefault();
+                    header.classList.remove('column-drop-target');
+                    var fromIndex = parseInt(event.dataTransfer.getData('text/plain') || '-1', 10);
+                    var toIndex = Array.prototype.indexOf.call(header.parentNode.children, header);
+                    moveColumn(table, fromIndex, toIndex);
+                });
+            });
+        });
+    }
+
     var search = document.querySelector('[data-report-search]');
     var sections = Array.prototype.slice.call(document.querySelectorAll('[data-section-card]'));
 
@@ -825,6 +990,7 @@ $AdditionalContentHtml
     }
 
     initSortableTables();
+    initInteractiveColumns();
 }());
 </script>
 $AdditionalScriptHtml
