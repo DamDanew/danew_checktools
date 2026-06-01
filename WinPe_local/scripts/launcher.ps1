@@ -726,17 +726,30 @@ function Get-DanewFirstExistingReportPath {
         [Parameter(Mandatory = $true)]
         [string[]]$Names,
         [AllowNull()]
-        [datetime]$MinLastWriteTime = $null
+        [object]$MinLastWriteTime = $null
     )
+
+    $resolvedMinTime = $null
+    if ($null -ne $MinLastWriteTime) {
+        $rawMinTime = [string]$MinLastWriteTime
+        if (-not [string]::IsNullOrWhiteSpace($rawMinTime)) {
+            try {
+                $resolvedMinTime = [datetime]$MinLastWriteTime
+            }
+            catch {
+                $resolvedMinTime = $null
+            }
+        }
+    }
 
     foreach ($root in @(Get-DanewReportSearchRoots)) {
         foreach ($name in @($Names)) {
             $path = Join-Path $root $name
             if (Test-Path -Path $path -ErrorAction SilentlyContinue) {
-                if ($MinLastWriteTime) {
+                if ($null -ne $resolvedMinTime) {
                     try {
                         $item = Get-Item -Path $path -ErrorAction Stop
-                        if ($item.LastWriteTime -lt $MinLastWriteTime) {
+                        if ($item.LastWriteTime -lt $resolvedMinTime) {
                             continue
                         }
                     }

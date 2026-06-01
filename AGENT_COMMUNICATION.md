@@ -3676,3 +3676,60 @@ DEPLOIEMENT CLE USB:
 PENDING:
 - Rebooter la cle WinPE et verifier disparition de l erreur au menu CLI.
 - Aucun autre blocage cote code.
+
+### 2026-06-01 18:25 +02:00 VS Code Copilot (Agent B) durcissement final MinLastWriteTime + synchro cle
+
+FAIT:
+- Durcissement complementaire dans `WinPe_local/scripts/launcher.ps1`:
+  - `Get-DanewFirstExistingReportPath` accepte maintenant aussi `MinLastWriteTime` en valeur vide/null sans erreur de binding.
+  - conversion defensive en `[datetime]` uniquement si valeur non vide.
+  - filtrage par date applique uniquement si conversion reussie.
+- Ce correctif complete celui deja fait sur `Get-DanewAvailableReportPath` pour couvrir tous les chemins d appel.
+
+VALIDATION:
+- `get_errors` launcher: aucun probleme.
+- `Run-UX1Tests.ps1`: 12/12 PASS.
+
+DEPLOIEMENT CLE USB:
+- `D:\scripts\launcher.ps1` synchronise: `MATCH=True`.
+- `E:\scripts\launcher.ps1` synchronise: `MATCH=True`.
+- SHA256 local/D/E: `F034E4AC87F88B4F956DF14F83F9A464FA17FB1BD69278099CA10E61F7444BC8`.
+
+LECTURE LOGS:
+- `D:\logs\launcher-log.json` : aucune signature `MinLastWriteTime` / `ParameterArgumentTransformationError`.
+- `E:\logs\launcher-log.json` : aucune signature `MinLastWriteTime` / `ParameterArgumentTransformationError`.
+
+PENDING:
+- Reboot WinPE et validation terrain finale au demarrage (plus de ligne rouge en tete CLI).
+
+### 2026-06-01 18:05 +02:00 VS Code Copilot (Agent B) nettoyage reports cle (archivage safe)
+
+FAIT:
+- Audit des dossiers reports sur la cle:
+  - `D:\reports`: 9 fichiers, ~0.08 MB, recents.
+  - `E:\reports`: 334 fichiers, ~33.46 MB, historique ancien present.
+- Nettoyage non destructif execute:
+  - archivage des fichiers anterieurs a la date du jour vers `E:\reports\_archive\cleanup-20260601-180146`.
+  - aucun fichier supprime definitivement.
+
+RESULTAT:
+- `D:\reports`: aucun deplacement (deja recent), 9 fichiers actifs.
+- `E:\reports`: 20 fichiers anciens deplaces en archive; 314 fichiers actifs restants (du jour / recents).
+
+PENDING:
+- Optionnel: nettoyage complet de session (vider aussi les reports actifs) avant prochaine validation terrain si besoin d un run 100% propre.
+
+### 2026-06-01 18:02 +02:00 VS Code Copilot (Agent B) nettoyage complet reports cle (sur demande)
+
+FAIT:
+- Nettoyage complet de session execute en mode non destructif (archivage):
+  - deplacement de tous les fichiers actifs de `D:\reports` vers `D:\reports\_archive\cleanup-full-20260601-180231`.
+  - deplacement de tous les fichiers actifs de `E:\reports` vers `E:\reports\_archive\cleanup-full-20260601-180231`.
+
+RESULTAT:
+- `D:\reports`: 9 fichiers deplaces, `ACTIVE_FILES=0`.
+- `E:\reports`: 314 fichiers deplaces, `ACTIVE_FILES=0`.
+- Aucun fichier supprime definitivement.
+
+PENDING:
+- Prochain boot WinPE: lancer une analyse pour regenarer uniquement des artefacts frais de session.
