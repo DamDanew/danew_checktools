@@ -1,6 +1,11 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+$reportShellPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'report\HtmlReportShell.ps1'
+if (Test-Path -Path $reportShellPath) {
+    . $reportShellPath
+}
+
 function Get-DanewUsbProvisioningDefaults {
     [pscustomobject]@{
         efi_partition_mb = 1024
@@ -840,19 +845,51 @@ function Export-DanewUsbSummaryHtml {
         [object]$Report
     )
 
-    $html = @"
-<html>
-<head><title>Resume export USB Danew</title></head>
-<body>
-<h1>Resume export USB Danew</h1>
-<p><b>Statut :</b> $(Get-DanewLocalizedStatusText $Report.status)</p>
-<p><b>Numero de disque :</b> $($Report.target_disk_number)</p>
-<p><b>Mode :</b> $($Report.mode)</p>
-<p><b>Taille du build (Go) :</b> $($Report.build_metrics.total_gb)</p>
-<p><b>Validation de demarrage :</b> $(Get-DanewLocalizedStatusText $Report.boot_validation.status)</p>
-<p><b>Securite :</b> $(Get-DanewLocalizedBooleanText $Report.safety.safety_passed)</p>
-</body>
-</html>
+    $warnings = @($Report.warnings)
+    $warningItems = if (@($warnings).Count -gt 0) {
+        (@($warnings) | ForEach-Object { '<li>' + [System.Security.SecurityElement]::Escape([string]$_) + '</li>' }) -join ''
+    }
+    else {
+        '<li>Aucun avertissement.</li>'
+    }
+
+    $metrics = @(
+        (New-DanewMetricCardHtml -Label 'Statut global' -Value (Get-DanewLocalizedStatusText $Report.status) -Tone ([string]$Report.status))
+        (New-DanewMetricCardHtml -Label 'Mode' -Value ([string]$Report.mode) -Tone 'info')
+        (New-DanewMetricCardHtml -Label 'Disque cible' -Value ([string]$Report.target_disk_number) -Tone 'neutral')
+        (New-DanewMetricCardHtml -Label 'Taille build (Go)' -Value ([string](Get-DanewSafeProperty -Object $Report.build_metrics -Name 'total_gb' -DefaultValue '0')) -Tone 'good')
+    ) -join ''
+
+    $meta = New-DanewReportMetaListHtml -Items @(
+        [pscustomobject]@{ label = 'Nom cible'; value = [string](Get-DanewSafeProperty -Object $Report -Name 'target_friendly_name' -DefaultValue '') }
+        [pscustomobject]@{ label = 'Validation demarrage'; value = (Get-DanewLocalizedStatusText (Get-DanewSafeProperty -Object $Report.boot_validation -Name 'status' -DefaultValue 'Unknown')) }
+        [pscustomobject]@{ label = 'Securite USB'; value = (Get-DanewLocalizedBooleanText (Get-DanewSafeProperty -Object $Report.safety -Name 'safety_passed' -DefaultValue $false)) }
+        [pscustomobject]@{ label = 'Generation'; value = [string](Get-DanewSafeProperty -Object $Report -Name 'timestamp' -DefaultValue '') }
+    )
+
+    $artifactsRows = @()
+    foreach ($prop in @($Report.artifacts.PSObject.Properties)) {
+        $artifactName = [string]$prop.Name
+        $artifactPath = [string]$prop.Value
+        $searchText = [System.Security.SecurityElement]::Escape(($artifactName + ' ' + $artifactPath))
+        $artifactsRows += @"
+<tr data-search-row="$searchText">
+<td>$([System.Security.SecurityElement]::Escape($artifactName))</td>
+<td>$([System.Security.SecurityElement]::Escape($artifactPath))</td>
+</tr>
 "@
+    }
+
+    if (@($artifactsRows).Count -eq 0) {
+        $artifactsRows += '<tr data-search-row="none"><td colspan="2">Aucun artefact reference.</td></tr>'
+    }
+
+    $sections = @(
+        (New-DanewReportSectionHtml -Title 'Resume export USB' -Caption 'Synthese operationnelle de la preparation de la cle.' -SearchText ('usb summary status mode disk ' + [string]$Report.status) -BodyHtml ('<div class="split-grid">' + (New-DanewMetricCardHtml -Label 'Validation demarrage' -Value (Get-DanewLocalizedStatusText (Get-DanewSafeProperty -Object $Report.boot_validation -Name 'status' -DefaultValue 'Unknown')) -Tone (Get-DanewSafeProperty -Object $Report.boot_validation -Name 'status' -DefaultValue 'neutral')) + (New-DanewMetricCardHtml -Label 'Securite' -Value (Get-DanewLocalizedBooleanText (Get-DanewSafeProperty -Object $Report.safety -Name 'safety_passed' -DefaultValue $false)) -Tone $(if ([bool](Get-DanewSafeProperty -Object $Report.safety -Name 'safety_passed' -DefaultValue $false)) { 'good' } else { 'danger' })) + '</div>'))
+        (New-DanewReportSectionHtml -Title 'Avertissements' -Caption 'Points a verifier avant usage terrain.' -SearchText ('warnings ' + (@($warnings) -join ' ')) -BodyHtml ('<ul class="report-list">' + $warningItems + '</ul>') -Collapsed $true)
+        (New-DanewReportSectionHtml -Title 'Artefacts generes' -Caption 'References des sorties JSON/validation produites.' -SearchText 'artifacts export report boot validation rollback' -BodyHtml (New-DanewReportTableHtml -Headers @('Artefact', 'Chemin') -Rows $artifactsRows -EmptyMessage 'Aucun artefact ne correspond au filtre courant.'))
+    )
+
+    $html = New-DanewInteractiveReportHtml -Title 'Resume export USB Danew' -Subtitle 'Rapport interactif de preparation media USB avec recherche, tri et impression.' -Status ([string]$Report.status) -Eyebrow 'Provisioning USB' -HeroMetricsHtml ('<div class="hero-metrics">' + $metrics + '</div>') -MetaHtml $meta -Sections $sections -SearchPlaceholder 'Filtrer le resume, les avertissements ou les artefacts'
     $html | Set-Content -Path $Path -Encoding UTF8
 }

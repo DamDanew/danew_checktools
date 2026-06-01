@@ -61,6 +61,7 @@ $recommendedActionValueLabel = $null
 $runtimeChipLabel = $null
 $windowsChipLabel = $null
 $usbChipLabel = $null
+$analysisCompletionLabel = $null
 $openSavReportButton = $null
 $openTimelineFastReportButton = $null
 $exportEvtxZipButton = $null
@@ -95,6 +96,11 @@ $script:StatusColorWarning = $null
 $script:StatusColorFail = $null
 $script:OfflineProgressStart = $null
 $script:OfflineProgressUpdates = 0
+$script:GuiSessionStartedAt = Get-Date
+$script:ReportAvailabilityCutoff = $script:GuiSessionStartedAt.AddSeconds(-2)
+$script:LastReportOpenError = ''
+$script:BrowserOperationalCachePath = ''
+$script:BrowserOperationalCacheResult = $false
 
 function Get-DanewElapsedText {
     param(
@@ -265,6 +271,11 @@ function Set-DanewButtonAvailability {
 
     if (-not $Button) { return }
 
+    if ($Button.Tag -and $Button.Tag.PSObject.Properties['base_text']) {
+        $baseText = [string]$Button.Tag.base_text
+        $Button.Text = Convert-DanewUiText -Text $baseText
+    }
+
     $Button.Enabled = $Available
     if ($Button.Tag -and $Button.Tag.PSObject.Properties['enabled_back_color']) {
         if ($Available) {
@@ -341,6 +352,38 @@ function Set-DanewSummaryVisual {
     }
 }
 
+function Set-DanewAnalysisCompletionState {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('idle', 'running', 'done', 'error')]
+        [string]$State,
+        [string]$Text = ''
+    )
+
+    if (-not $analysisCompletionLabel) {
+        return
+    }
+
+    switch ($State) {
+        'idle' {
+            $analysisCompletionLabel.Text = 'Analyse: en attente'
+            $analysisCompletionLabel.ForeColor = [System.Drawing.Color]::FromArgb(219, 234, 254)
+        }
+        'running' {
+            $analysisCompletionLabel.Text = 'Analyse: en cours...'
+            $analysisCompletionLabel.ForeColor = [System.Drawing.Color]::FromArgb(191, 219, 254)
+        }
+        'done' {
+            $analysisCompletionLabel.Text = if ([string]::IsNullOrWhiteSpace($Text)) { '[OK] Analyse terminee' } else { '[OK] ' + $Text }
+            $analysisCompletionLabel.ForeColor = [System.Drawing.Color]::FromArgb(134, 239, 172)
+        }
+        'error' {
+            $analysisCompletionLabel.Text = if ([string]::IsNullOrWhiteSpace($Text)) { '[X] Analyse en echec' } else { '[X] ' + $Text }
+            $analysisCompletionLabel.ForeColor = [System.Drawing.Color]::FromArgb(254, 202, 202)
+        }
+    }
+}
+
 function Set-DanewStepState {
     param(
         [Parameter(Mandatory = $true)]
@@ -402,12 +445,35 @@ function Update-DanewRecentActivity {
         )
 
         if (@($lines).Count -eq 0) {
-            $lines = @('No recent activity')
+            $lines = @('Aucune activite recente')
         }
         $recentActivityBox.Text = ($lines -join [Environment]::NewLine)
     }
     catch {
-        $recentActivityBox.Text = 'Recent activity unavailable'
+        $recentActivityBox.Text = 'Activite recente indisponible'
+    }
+}
+
+function Get-DanewActionDisplayText {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Action
+    )
+
+    switch ($Action) {
+        'open-sav-report' { return 'Ouvrir le rapport SAV' }
+        'open-timeline-report' { return 'Ouvrir la chronologie complete' }
+        'open-timeline-fast-report' { return 'Ouvrir la vue rapide EVTX' }
+        'open-storage-report' { return 'Ouvrir le rapport stockage' }
+        'recommended-actions' { return 'Afficher les actions recommandees' }
+        'analyze-offline-logs-fast' { return 'Analyse rapide des journaux Windows' }
+        'analyze-offline-logs-full' { return 'Analyse complete des journaux Windows' }
+        'analyze-crash-causes' { return 'Analyser les causes de crash' }
+        'check-browser' { return 'Verifier navigateur HTML' }
+        'create-usb-media' { return 'Preparer outil USB' }
+        'refresh-status' { return 'Actualiser le statut' }
+        'start-diagnostic' { return 'Diagnostic complet' }
+        default { return $Action }
     }
 }
 
@@ -658,19 +724,66 @@ function Get-DanewReportJson {
 function Get-DanewFirstExistingReportPath {
     param(
         [Parameter(Mandatory = $true)]
-        [string[]]$Names
+        [string[]]$Names,
+        [AllowNull()]
+        [datetime]$MinLastWriteTime = $null
     )
 
     foreach ($root in @(Get-DanewReportSearchRoots)) {
         foreach ($name in @($Names)) {
             $path = Join-Path $root $name
             if (Test-Path -Path $path -ErrorAction SilentlyContinue) {
+                if ($MinLastWriteTime) {
+                    try {
+                        $item = Get-Item -Path $path -ErrorAction Stop
+                        if ($item.LastWriteTime -lt $MinLastWriteTime) {
+                            continue
+                        }
+                    }
+                    catch {
+                        continue
+                    }
+                }
                 return $path
             }
         }
     }
 
     return ''
+}
+
+function Get-DanewAvailableReportPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Names,
+        [AllowNull()]
+        [object]$MinLastWriteTime = $null
+    )
+
+    $resolvedMinTime = $null
+    if ($null -ne $MinLastWriteTime) {
+        $rawMinTime = [string]$MinLastWriteTime
+        if (-not [string]::IsNullOrWhiteSpace($rawMinTime)) {
+            try {
+                $resolvedMinTime = [datetime]$MinLastWriteTime
+            }
+            catch {
+                $resolvedMinTime = $null
+            }
+        }
+    }
+
+    if ($null -ne $resolvedMinTime) {
+        $path = Get-DanewFirstExistingReportPath -Names $Names -MinLastWriteTime $resolvedMinTime
+    }
+    else {
+        $path = Get-DanewFirstExistingReportPath -Names $Names
+    }
+    if (-not [string]::IsNullOrWhiteSpace($path)) {
+        return $path
+    }
+
+    return (Get-DanewFirstExistingReportPath -Names $Names)
 }
 
 function Test-DanewDriveLetterAvailable {
@@ -706,20 +819,18 @@ function Get-DanewPortableBrowserPath {
         }
     }
 
-    Add-DanewBrowserCandidate -Path (Join-Path $RootPath 'tools\browser\FirefoxPortable.exe')
-    Add-DanewBrowserCandidate -Path (Join-Path $RootPath 'tools\browser\chrome.exe')
-    Add-DanewBrowserCandidate -Path (Join-Path $RootPath 'tools\browser\chromium.exe')
-    Add-DanewBrowserCandidate -Path (Join-Path $RootPath 'tools\browser\msedge.exe')
+    foreach ($exeName in @('chromium.exe', 'chrome.exe', 'msedge.exe', 'FirefoxPortable.exe', 'firefox.exe')) {
+        Add-DanewBrowserCandidate -Path (Join-Path $RootPath ('tools\browser\' + $exeName))
+    }
 
     try {
         $dataVolumes = @(Get-Volume -FileSystemLabel 'DANEW_DATA' -ErrorAction SilentlyContinue)
         foreach ($volume in $dataVolumes) {
             if (-not [string]::IsNullOrWhiteSpace([string]$volume.DriveLetter)) {
                 $root = [string]$volume.DriveLetter + ':\'
-                Add-DanewBrowserCandidate -Path (Join-Path $root 'tools\browser\FirefoxPortable.exe')
-                Add-DanewBrowserCandidate -Path (Join-Path $root 'tools\browser\chrome.exe')
-                Add-DanewBrowserCandidate -Path (Join-Path $root 'tools\browser\chromium.exe')
-                Add-DanewBrowserCandidate -Path (Join-Path $root 'tools\browser\msedge.exe')
+                foreach ($exeName in @('chromium.exe', 'chrome.exe', 'msedge.exe', 'FirefoxPortable.exe', 'firefox.exe')) {
+                    Add-DanewBrowserCandidate -Path (Join-Path $root ('tools\browser\' + $exeName))
+                }
             }
         }
     }
@@ -732,10 +843,9 @@ function Get-DanewPortableBrowserPath {
         }
 
         $root = $drive + ':\'
-        Add-DanewBrowserCandidate -Path (Join-Path $root 'tools\browser\FirefoxPortable.exe')
-        Add-DanewBrowserCandidate -Path (Join-Path $root 'tools\browser\chrome.exe')
-        Add-DanewBrowserCandidate -Path (Join-Path $root 'tools\browser\chromium.exe')
-        Add-DanewBrowserCandidate -Path (Join-Path $root 'tools\browser\msedge.exe')
+        foreach ($exeName in @('chromium.exe', 'chrome.exe', 'msedge.exe', 'FirefoxPortable.exe', 'firefox.exe')) {
+            Add-DanewBrowserCandidate -Path (Join-Path $root ('tools\browser\' + $exeName))
+        }
     }
 
     foreach ($candidate in @($candidates)) {
@@ -745,6 +855,191 @@ function Get-DanewPortableBrowserPath {
     }
 
     return ''
+}
+
+function Get-DanewPortableBrowserCandidates {
+    $paths = New-Object System.Collections.ArrayList
+
+    function Add-DanewPortableBrowserCandidate {
+        param([string]$Path)
+        if ([string]::IsNullOrWhiteSpace($Path)) {
+            return
+        }
+        if ((Test-Path -Path $Path -ErrorAction SilentlyContinue) -and (-not @($paths | Where-Object { $_ -ieq $Path }))) {
+            [void]$paths.Add($Path)
+        }
+    }
+
+    $first = Get-DanewPortableBrowserPath
+    Add-DanewPortableBrowserCandidate -Path $first
+
+    $roots = New-Object System.Collections.ArrayList
+    [void]$roots.Add($RootPath)
+    try {
+        $dataVolumes = @(Get-Volume -FileSystemLabel 'DANEW_DATA' -ErrorAction SilentlyContinue)
+        foreach ($volume in $dataVolumes) {
+            if (-not [string]::IsNullOrWhiteSpace([string]$volume.DriveLetter)) {
+                [void]$roots.Add([string]$volume.DriveLetter + ':\')
+            }
+        }
+    }
+    catch {
+    }
+    foreach ($drive in @('E', 'D', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'Y', 'Z')) {
+        if (Test-DanewDriveLetterAvailable -DriveLetter $drive) {
+            [void]$roots.Add($drive + ':\')
+        }
+    }
+
+    foreach ($root in @($roots)) {
+        foreach ($exeName in @('chromium.exe', 'chrome.exe', 'msedge.exe', 'FirefoxPortable.exe', 'firefox.exe')) {
+            Add-DanewPortableBrowserCandidate -Path (Join-Path ([string]$root) ('tools\browser\' + $exeName))
+        }
+    }
+
+    return @($paths)
+}
+
+function Get-DanewBrowserUserDataDirectory {
+    try {
+        $base = [string]$config.reports_path
+        if ([string]::IsNullOrWhiteSpace($base)) {
+            $base = Join-Path $RootPath 'reports'
+        }
+        $dir = Join-Path $base 'browser-profile'
+        if (-not (Test-Path -Path $dir -ErrorAction SilentlyContinue)) {
+            New-Item -Path $dir -ItemType Directory -Force | Out-Null
+        }
+        return $dir
+    }
+    catch {
+        return ''
+    }
+}
+
+function Get-DanewBrowserLaunchArguments {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$BrowserPath,
+        [Parameter(Mandatory = $true)]
+        [string]$TargetPath
+    )
+
+    $exe = [System.IO.Path]::GetFileName($BrowserPath).ToLowerInvariant()
+    if ($exe -like 'firefox*') {
+        return @('-new-window', $TargetPath)
+    }
+
+    $profileDir = Get-DanewBrowserUserDataDirectory
+    $args = @(
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--disable-background-networking',
+        '--disable-component-update',
+        '--disable-crash-reporter',
+        '--disable-breakpad',
+        '--disable-crashpad',
+        '--disable-features=Crashpad',
+        '--disable-gpu',
+        '--allow-file-access-from-files'
+    )
+    if (-not [string]::IsNullOrWhiteSpace($profileDir)) {
+        $args += ('--user-data-dir=' + $profileDir)
+    }
+    $args += $TargetPath
+    return @($args)
+}
+
+function Start-DanewPortableBrowser {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$BrowserPath,
+        [Parameter(Mandatory = $true)]
+        [string]$TargetPath
+    )
+
+    $workingDir = Split-Path -Parent $BrowserPath
+    $args = @(Get-DanewBrowserLaunchArguments -BrowserPath $BrowserPath -TargetPath $TargetPath)
+    $proc = Start-Process -FilePath $BrowserPath -ArgumentList $args -WorkingDirectory $workingDir -PassThru -ErrorAction Stop
+    Start-Sleep -Milliseconds 1200
+    $exe = [System.IO.Path]::GetFileName($BrowserPath).ToLowerInvariant()
+    if ($proc -and $proc.HasExited -and ($exe -notlike 'firefox*')) {
+        throw ('Navigateur ferme immediatement avec code ' + [string]$proc.ExitCode)
+    }
+    return $true
+}
+
+function Test-DanewPortableBrowserOperational {
+    param(
+        [AllowEmptyString()]
+        [string]$BrowserPath
+    )
+
+    if ([string]::IsNullOrWhiteSpace($BrowserPath)) {
+        return $false
+    }
+
+    if ($script:BrowserOperationalCachePath -ieq $BrowserPath) {
+        return [bool]$script:BrowserOperationalCacheResult
+    }
+
+    $ok = $false
+    try {
+        if (-not (Test-Path -Path $BrowserPath -ErrorAction SilentlyContinue)) {
+            $ok = $false
+        }
+        else {
+            $workingDir = Split-Path -Parent $BrowserPath
+            if ([string]::IsNullOrWhiteSpace($workingDir) -or -not (Test-Path -Path $workingDir -ErrorAction SilentlyContinue)) {
+                $ok = $false
+            }
+            else {
+                $args = @(Get-DanewBrowserLaunchArguments -BrowserPath $BrowserPath -TargetPath 'about:blank')
+                $args = @($args | Where-Object { $_ -ne 'about:blank' })
+                $args += '--version'
+                $proc = Start-Process -FilePath $BrowserPath -ArgumentList $args -WorkingDirectory $workingDir -PassThru -WindowStyle Hidden -ErrorAction Stop
+                if ($proc) {
+                    if (-not $proc.WaitForExit(5000)) {
+                        try { $proc.Kill() } catch {}
+                    }
+                    $ok = ($proc.ExitCode -eq 0)
+                }
+            }
+        }
+    }
+    catch {
+        $ok = $false
+    }
+
+    $script:BrowserOperationalCachePath = $BrowserPath
+    $script:BrowserOperationalCacheResult = $ok
+    return $ok
+}
+
+function Convert-DanewPathToFileUri {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    try {
+        return ([System.Uri]::new($Path)).AbsoluteUri
+    }
+    catch {
+        return $Path
+    }
+}
+
+function Test-DanewLikelyWinPE {
+    try {
+        $systemRoot = [string]$env:SystemRoot
+        if ($systemRoot -like 'X:\*') {
+            return $true
+        }
+    }
+    catch {
+    }
+    return $false
 }
 
 function Get-DanewReportSearchRoots {
@@ -800,14 +1095,18 @@ function Open-DanewReportFile {
         [string]$Title
     )
 
+    $script:LastReportOpenError = ''
+
     if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -Path $Path -ErrorAction SilentlyContinue)) {
+        $script:LastReportOpenError = 'Rapport introuvable: ' + [string]$Path
         [System.Windows.Forms.MessageBox]::Show('Le rapport n est pas encore disponible. Lancez d abord l analyse.', $Title, [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
         return $false
     }
 
     $extension = [System.IO.Path]::GetExtension($Path)
+    $isHtmlReport = ($extension -and $extension.ToLowerInvariant() -in @('.html', '.htm'))
     $browser = ''
-    if ($extension -and $extension.ToLowerInvariant() -in @('.html', '.htm')) {
+    if ($isHtmlReport) {
         $browser = Get-DanewPortableBrowserPath
     }
 
@@ -820,10 +1119,11 @@ function Open-DanewReportFile {
 
         if (-not [string]::IsNullOrWhiteSpace($BrowserPath)) {
             try {
-                Start-Process -FilePath $BrowserPath -ArgumentList @($TargetPath) | Out-Null
+                [void](Start-DanewPortableBrowser -BrowserPath $BrowserPath -TargetPath $TargetPath)
                 return $true
             }
             catch {
+                $script:LastReportOpenError = 'Echec ouverture via navigateur portable: ' + $_.Exception.Message
             }
         }
 
@@ -832,6 +1132,7 @@ function Open-DanewReportFile {
             return $true
         }
         catch {
+            $script:LastReportOpenError = 'Echec Start-Process direct: ' + $_.Exception.Message
         }
 
         try {
@@ -839,18 +1140,73 @@ function Open-DanewReportFile {
             return $true
         }
         catch {
+            $script:LastReportOpenError = 'Echec Invoke-Item: ' + $_.Exception.Message
+        }
+
+        try {
+            $startArgs = '/c start "" "' + $TargetPath + '"'
+            Start-Process -FilePath 'cmd.exe' -ArgumentList $startArgs | Out-Null
+            return $true
+        }
+        catch {
+            $script:LastReportOpenError = 'Echec cmd/start: ' + $_.Exception.Message
         }
 
         return $false
     }
 
-    if (-not [string]::IsNullOrWhiteSpace($browser)) {
-        try {
-            Start-Process -FilePath $browser -ArgumentList @($Path) | Out-Null
-            return $true
+    if ($isHtmlReport -and -not [string]::IsNullOrWhiteSpace($browser)) {
+        $targetUri = Convert-DanewPathToFileUri -Path $Path
+        $browserErrors = @()
+        foreach ($candidateBrowser in @(Get-DanewPortableBrowserCandidates)) {
+            try {
+                [void](Start-DanewPortableBrowser -BrowserPath $candidateBrowser -TargetPath $targetUri)
+                try {
+                    $tracePath = Join-Path ([string]$config.reports_path) 'report-opening.log'
+                    $line = (Get-Date).ToString('s') + ' | title=' + $Title + ' | path=' + $Path + ' | browser=' + $candidateBrowser + ' | status=started'
+                    Add-Content -Path $tracePath -Value $line -Encoding UTF8
+                }
+                catch {
+                }
+                return $true
+            }
+            catch {
+                $browserErrors += ([string]$candidateBrowser + ' => ' + $_.Exception.Message)
+            }
         }
-        catch {
+        $script:LastReportOpenError = 'Echec navigateurs portables: ' + ($browserErrors -join ' ; ')
+    }
+
+    if ($isHtmlReport -and [string]::IsNullOrWhiteSpace($browser)) {
+        $script:LastReportOpenError = 'Navigateur HTML non disponible. Aucun navigateur portable detecte dans tools\\browser.'
+        if (Test-DanewLikelyWinPE) {
+            $message = 'Impossible d ouvrir ce rapport HTML dans WinPE sans navigateur portable.' + [Environment]::NewLine +
+                'Chemin: ' + $Path + [Environment]::NewLine +
+                'Attendu: tools\\browser\\chromium.exe, chrome.exe, msedge.exe, FirefoxPortable.exe ou firefox.exe.' + [Environment]::NewLine +
+                'Action: recopier le navigateur portable sur la partition DATA, puis relancer.'
+            [System.Windows.Forms.MessageBox]::Show(
+                $message,
+                $Title,
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Warning
+            ) | Out-Null
+            return $false
         }
+    }
+
+    if ($isHtmlReport -and -not [string]::IsNullOrWhiteSpace($browser) -and -not [string]::IsNullOrWhiteSpace($script:LastReportOpenError)) {
+        $message = 'Le navigateur portable a ete detecte mais son lancement a echoue.' + [Environment]::NewLine +
+            'Navigateur: ' + $browser + [Environment]::NewLine +
+            'Rapport: ' + $Path + [Environment]::NewLine +
+            'Raison: ' + $script:LastReportOpenError + [Environment]::NewLine +
+            'Action: verifier les dependances WinPE du navigateur ou remplacer par une version portable compatible.'
+        [System.Windows.Forms.MessageBox]::Show(
+            $message,
+            $Title,
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Warning
+        ) | Out-Null
+        return $false
     }
 
     try {
@@ -858,14 +1214,24 @@ function Open-DanewReportFile {
         return $true
     }
     catch {
+        $script:LastReportOpenError = 'Echec ouverture fichier: ' + $_.Exception.Message
     }
 
     if (Try-DanewOpenTarget -TargetPath $Path -BrowserPath '') {
         return $true
     }
 
+    try {
+        $tracePath = Join-Path ([string]$config.reports_path) 'report-opening.log'
+        $line = (Get-Date).ToString('s') + ' | title=' + $Title + ' | path=' + $Path + ' | browser=' + $browser + ' | error=' + $script:LastReportOpenError
+        Add-Content -Path $tracePath -Value $line -Encoding UTF8
+    }
+    catch {
+    }
+
     $message = 'Impossible d ouvrir ce rapport automatiquement.' + [Environment]::NewLine +
         'Chemin: ' + $Path + [Environment]::NewLine +
+        'Raison: ' + $script:LastReportOpenError + [Environment]::NewLine +
         'Astuce: ouvrez le dossier reports et choisissez un rapport TXT/CSV/JSON si HTML indisponible.'
     [System.Windows.Forms.MessageBox]::Show(
         $message,
@@ -884,23 +1250,24 @@ function Open-DanewSpecificReport {
     )
 
     $path = ''
+    $cutoff = $script:ReportAvailabilityCutoff
     $title = 'Rapport SAV Danew'
     switch ($Kind) {
         'sav' {
-            $path = Get-DanewFirstExistingReportPath -Names @('sav-diagnostic-report.html', 'REPORTS_INDEX.html', 'reports-index.html', 'one-click-diagnostic-report.html', 'offline-windows-failure-report.html')
+            $path = Get-DanewAvailableReportPath -Names @('sav-diagnostic-report.html', 'REPORTS_INDEX.html', 'reports-index.html', 'one-click-diagnostic-report.html', 'offline-windows-failure-report.html') -MinLastWriteTime $cutoff
             $title = 'OUVRIR LE RAPPORT SAV'
         }
         'timeline' {
-            $path = Get-DanewFirstExistingReportPath -Names @('timeline-raw.html', 'evtx-events.html', 'REPORTS_INDEX.html', 'timeline-raw.json')
+            $path = Get-DanewAvailableReportPath -Names @('timeline-raw.html', 'evtx-events.html', 'REPORTS_INDEX.html', 'timeline-raw.json') -MinLastWriteTime $cutoff
             $path = Ensure-DanewFullTimelineReport -Path $path
             $title = 'Lire les logs Windows (classes)'
         }
         'timeline-fast-by-file' {
-            $path = Get-DanewFirstExistingReportPath -Names @('evtx-by-file.html', 'timeline-raw.html', 'evtx-events.html', 'REPORTS_INDEX.html', 'timeline-raw.json')
+            $path = Get-DanewAvailableReportPath -Names @('evtx-by-file.html', 'timeline-raw.html', 'evtx-events.html', 'REPORTS_INDEX.html', 'timeline-raw.json') -MinLastWriteTime $cutoff
             $title = 'Lire les logs Windows (rapide par fichier EVTX)'
         }
         'storage' {
-            $path = Get-DanewFirstExistingReportPath -Names @('storage-diagnostics.html', 'REPORTS_INDEX.html', 'storage-diagnostics.json', 'storage-analysis.json', 'reports-index.html', 'storage-analysis.html', 'storage-visibility-diagnosis.json')
+            $path = Get-DanewAvailableReportPath -Names @('storage-diagnostics.html', 'REPORTS_INDEX.html', 'storage-diagnostics.json', 'storage-analysis.json', 'reports-index.html', 'storage-analysis.html', 'storage-visibility-diagnosis.json') -MinLastWriteTime $cutoff
             $title = 'Ouvrir le rapport de stockage'
         }
     }
@@ -963,12 +1330,15 @@ function Ensure-DanewFullTimelineReport {
 }
 
 function Update-DanewReportAvailability {
-    $savPath = Get-DanewFirstExistingReportPath -Names @('sav-diagnostic-report.html', 'REPORTS_INDEX.html', 'reports-index.html', 'one-click-diagnostic-report.html', 'offline-windows-failure-report.html')
-    $timelinePath = Get-DanewFirstExistingReportPath -Names @('timeline-raw.html', 'evtx-events.html', 'timeline-raw.json', 'evtx-events.csv')
-    $timelineFastPath = Get-DanewFirstExistingReportPath -Names @('evtx-by-file.html', 'timeline-raw.html', 'evtx-events.html', 'timeline-raw.json', 'evtx-events.csv')
-    $recommendedPath = Get-DanewFirstExistingReportPath -Names @('sav-diagnostic-report.json', 'root-cause-analysis.json', 'severity-analysis.json', 'offline-windows-analysis.json', 'timeline-raw.json', 'one-click-diagnostic-report.json')
-    $evtxExportPath = Get-DanewFirstExistingReportPath -Names @('evtx-events.csv', 'evtx-events.json', 'timeline-raw.json', 'evtx-sav-summary.txt')
-    $anyReportPath = Get-DanewFirstExistingReportPath -Names @(
+    $cutoff = $script:ReportAvailabilityCutoff
+    $browserPath = Get-DanewPortableBrowserPath
+    $browserOperational = Test-DanewPortableBrowserOperational -BrowserPath $browserPath
+    $savNames = @('sav-diagnostic-report.html', 'REPORTS_INDEX.html', 'reports-index.html', 'one-click-diagnostic-report.html', 'offline-windows-failure-report.html')
+    $timelineNames = @('timeline-raw.html', 'evtx-events.html', 'timeline-raw.json', 'evtx-events.csv')
+    $timelineFastNames = @('evtx-by-file.html', 'timeline-raw.html', 'evtx-events.html', 'timeline-raw.json', 'evtx-events.csv')
+    $recommendedNames = @('sav-diagnostic-report.json', 'root-cause-analysis.json', 'severity-analysis.json', 'offline-windows-analysis.json', 'timeline-raw.json', 'one-click-diagnostic-report.json')
+    $evtxExportNames = @('evtx-events.csv', 'evtx-events.json', 'timeline-raw.json', 'evtx-sav-summary.txt')
+    $anyReportNames = @(
         'sav-diagnostic-report.html',
         'evtx-by-file.html',
         'timeline-raw.html',
@@ -981,60 +1351,105 @@ function Update-DanewReportAvailability {
         'timeline-raw.json'
     )
 
+    $savPath = Get-DanewAvailableReportPath -Names $savNames -MinLastWriteTime $cutoff
+    $timelinePath = Get-DanewAvailableReportPath -Names $timelineNames -MinLastWriteTime $cutoff
+    $timelineFastPath = Get-DanewAvailableReportPath -Names $timelineFastNames -MinLastWriteTime $cutoff
+    $recommendedPath = Get-DanewAvailableReportPath -Names $recommendedNames -MinLastWriteTime $cutoff
+    $evtxExportPath = Get-DanewAvailableReportPath -Names $evtxExportNames -MinLastWriteTime $cutoff
+    $anyReportPath = Get-DanewAvailableReportPath -Names $anyReportNames -MinLastWriteTime $cutoff
+
+    $hasTimeline = (-not [string]::IsNullOrWhiteSpace($timelinePath)) -and $browserOperational
+    $hasTimelineFast = (-not [string]::IsNullOrWhiteSpace($timelineFastPath)) -and $browserOperational
+    $hasSav = (-not [string]::IsNullOrWhiteSpace($savPath)) -and $browserOperational
+    $hasRecommended = -not [string]::IsNullOrWhiteSpace($recommendedPath)
+    $hasEvtx = -not [string]::IsNullOrWhiteSpace($evtxExportPath)
+    $hasAnyReport = -not [string]::IsNullOrWhiteSpace($anyReportPath)
+
+    $availabilityChecks = @(
+        $hasTimeline,
+        $hasTimelineFast,
+        $hasSav,
+        $hasRecommended,
+        $hasEvtx,
+        $hasEvtx,
+        $hasAnyReport
+    )
+    $availableCount = @($availabilityChecks | Where-Object { $_ }).Count
+    $pendingCount = @($availabilityChecks | Where-Object { -not $_ }).Count
+    if ($simpleActionsGroup) {
+        $suffix = if ($browserOperational) {
+            ' - ' + [string]$availableCount + ' disponibles, ' + [string]$pendingCount + ' a generer'
+        }
+        else {
+            ' - navigateur HTML indisponible'
+        }
+        $simpleActionsGroup.Text = Convert-DanewUiText -Text ('Rapports et actions rapides' + $suffix)
+    }
+
     if ($openTimelineReportButton) {
-        $hasTimeline = -not [string]::IsNullOrWhiteSpace($timelinePath)
-        $timelineLabel = '1. COMPLET TOUS LES LOGS'
-        if ($hasTimeline) { $timelineLabel = '1. COMPLET TOUS LES LOGS' }
+        $timelineLabel = '1. LOGS COMPLETS'
+        if ($openTimelineReportButton.Tag -and $openTimelineReportButton.Tag.PSObject.Properties['base_text']) {
+            $openTimelineReportButton.Tag.base_text = $timelineLabel
+        }
         $openTimelineReportButton.Text = Convert-DanewUiText -Text $timelineLabel
-        Set-DanewButtonAvailability -Button $openTimelineReportButton -Available $hasTimeline -ToolTip $toolTip -AvailableHint 'Ouvre la vue complete des journaux Windows recuperes.' -UnavailableHint 'Rapport complet indisponible. Lancez ANALYSE COMPLETE ou genere un rapport timeline.'
+        $timelineUnavailableHint = if (-not $browserOperational) { 'Rapport present mais navigateur non operationnel dans cet environnement. Verifiez Chromium portable.' } else { 'Rapport complet indisponible pour cette session. Lancez ANALYSE COMPLETE.' }
+        Set-DanewButtonAvailability -Button $openTimelineReportButton -Available $hasTimeline -ToolTip $toolTip -AvailableHint 'Ouvre la vue complete des journaux Windows recuperes.' -UnavailableHint $timelineUnavailableHint
     }
 
     if ($openTimelineFastReportButton) {
-        $hasTimelineFast = -not [string]::IsNullOrWhiteSpace($timelineFastPath)
-        $timelineFastLabel = '2. RAPIDE CRIT/ERR/AVERT.'
-        if ($hasTimelineFast) { $timelineFastLabel = '2. RAPIDE CRIT/ERR/AVERT.' }
+        $timelineFastLabel = '2. LOGS RAPIDES'
+        if ($openTimelineFastReportButton.Tag -and $openTimelineFastReportButton.Tag.PSObject.Properties['base_text']) {
+            $openTimelineFastReportButton.Tag.base_text = $timelineFastLabel
+        }
         $openTimelineFastReportButton.Text = Convert-DanewUiText -Text $timelineFastLabel
-        Set-DanewButtonAvailability -Button $openTimelineFastReportButton -Available $hasTimelineFast -ToolTip $toolTip -AvailableHint 'Ouvre la vue rapide des evenements critiques, erreurs et avertissements.' -UnavailableHint 'Rapport rapide indisponible. Lancez ANALYSE RAPIDE ou ANALYSE COMPLETE.'
+        $timelineFastUnavailableHint = if (-not $browserOperational) { 'Rapport present mais navigateur non operationnel dans cet environnement. Verifiez Chromium portable.' } else { 'Rapport rapide indisponible pour cette session. Lancez ANALYSE RAPIDE ou ANALYSE COMPLETE.' }
+        Set-DanewButtonAvailability -Button $openTimelineFastReportButton -Available $hasTimelineFast -ToolTip $toolTip -AvailableHint 'Ouvre la vue rapide des evenements critiques, erreurs et avertissements.' -UnavailableHint $timelineFastUnavailableHint
     }
 
     if ($openSavReportButton) {
-        $hasSav = -not [string]::IsNullOrWhiteSpace($savPath)
         $savLabel = '3. RAPPORT SAV'
-        if ($hasSav) { $savLabel = '3. OUVRIR LE RAPPORT SAV' }
+        if ($openSavReportButton.Tag -and $openSavReportButton.Tag.PSObject.Properties['base_text']) {
+            $openSavReportButton.Tag.base_text = $savLabel
+        }
         $openSavReportButton.Text = Convert-DanewUiText -Text $savLabel
-        Set-DanewButtonAvailability -Button $openSavReportButton -Available $hasSav -ToolTip $toolTip -AvailableHint 'Ouvre le rapport SAV principal.' -UnavailableHint 'Rapport SAV indisponible. Lancez ANALYSER CAUSES DE CRASH ou une analyse des journaux.'
+        $savUnavailableHint = if (-not $browserOperational) { 'Rapport present mais navigateur non operationnel dans cet environnement. Verifiez Chromium portable.' } else { 'Rapport SAV indisponible pour cette session. Lancez ANALYSER CAUSES DE CRASH ou une analyse des journaux.' }
+        Set-DanewButtonAvailability -Button $openSavReportButton -Available $hasSav -ToolTip $toolTip -AvailableHint 'Ouvre le rapport SAV principal.' -UnavailableHint $savUnavailableHint
     }
 
     if ($recommendedActionsButton) {
-        $hasRecommended = -not [string]::IsNullOrWhiteSpace($recommendedPath)
-        $recommendedLabel = '4. ACTIONS RECOMMANDEES'
-        if ($hasRecommended) { $recommendedLabel = '4. ACTIONS RECOMMANDEES' }
+        $recommendedLabel = '4. ACTIONS SAV'
+        if ($recommendedActionsButton.Tag -and $recommendedActionsButton.Tag.PSObject.Properties['base_text']) {
+            $recommendedActionsButton.Tag.base_text = $recommendedLabel
+        }
         $recommendedActionsButton.Text = Convert-DanewUiText -Text $recommendedLabel
-        Set-DanewButtonAvailability -Button $recommendedActionsButton -Available $hasRecommended -ToolTip $toolTip -AvailableHint 'Affiche les actions SAV conseillees selon le diagnostic.' -UnavailableHint 'Actions recommandees indisponibles. Lancez d abord une analyse des journaux.'
+        Set-DanewButtonAvailability -Button $recommendedActionsButton -Available $hasRecommended -ToolTip $toolTip -AvailableHint 'Affiche les actions SAV conseillees selon le diagnostic.' -UnavailableHint 'Actions recommandees indisponibles pour cette session. Lancez d abord une analyse des journaux.'
     }
 
     if ($exportEvtxTargetedButton) {
-        $hasEvtx = -not [string]::IsNullOrWhiteSpace($evtxExportPath)
-        $evtxLabel = '5. EXPORT EVTX CIBLE'
-        if ($hasEvtx) { $evtxLabel = '5. EXPORT EVTX CIBLE' }
+        $evtxLabel = '5. EXPORT EVTX'
+        if ($exportEvtxTargetedButton.Tag -and $exportEvtxTargetedButton.Tag.PSObject.Properties['base_text']) {
+            $exportEvtxTargetedButton.Tag.base_text = $evtxLabel
+        }
         $exportEvtxTargetedButton.Text = Convert-DanewUiText -Text $evtxLabel
-        Set-DanewButtonAvailability -Button $exportEvtxTargetedButton -Available $hasEvtx -ToolTip $toolTip -AvailableHint 'Genere les exports EVTX physiques dans reports.' -UnavailableHint 'Export EVTX indisponible. Lancez d abord ANALYSE RAPIDE ou ANALYSE COMPLETE.'
+        Set-DanewButtonAvailability -Button $exportEvtxTargetedButton -Available $hasEvtx -ToolTip $toolTip -AvailableHint 'Genere les exports EVTX physiques dans reports.' -UnavailableHint 'Export EVTX indisponible pour cette session. Lancez d abord ANALYSE RAPIDE ou ANALYSE COMPLETE.'
     }
 
     if ($exportEvtxZipButton) {
-        $hasEvtx = -not [string]::IsNullOrWhiteSpace($evtxExportPath)
-        $evtxZipLabel = '6. EXPORT ZIP EVTX'
-        if ($hasEvtx) { $evtxZipLabel = '6. EXPORT ZIP EVTX' }
+        $evtxZipLabel = '6. ZIP EVTX'
+        if ($exportEvtxZipButton.Tag -and $exportEvtxZipButton.Tag.PSObject.Properties['base_text']) {
+            $exportEvtxZipButton.Tag.base_text = $evtxZipLabel
+        }
         $exportEvtxZipButton.Text = Convert-DanewUiText -Text $evtxZipLabel
-        Set-DanewButtonAvailability -Button $exportEvtxZipButton -Available $hasEvtx -ToolTip $toolTip -AvailableHint 'Cree un ZIP des fichiers EVTX lisibles avec les artefacts utiles.' -UnavailableHint 'Export ZIP EVTX indisponible. Lancez d abord ANALYSE RAPIDE ou ANALYSE COMPLETE.'
+        Set-DanewButtonAvailability -Button $exportEvtxZipButton -Available $hasEvtx -ToolTip $toolTip -AvailableHint 'Cree un ZIP des fichiers EVTX lisibles avec les artefacts utiles.' -UnavailableHint 'Export ZIP EVTX indisponible pour cette session. Lancez d abord ANALYSE RAPIDE ou ANALYSE COMPLETE.'
     }
 
     if ($exportSavPackageButton) {
-        $hasAnyReport = -not [string]::IsNullOrWhiteSpace($anyReportPath)
-        $savPackageLabel = '7. EXPORT DOSSIER SAV'
-        if ($hasAnyReport) { $savPackageLabel = '7. EXPORTER LE DOSSIER SAV' }
+        $savPackageLabel = '7. DOSSIER SAV'
+        if ($exportSavPackageButton.Tag -and $exportSavPackageButton.Tag.PSObject.Properties['base_text']) {
+            $exportSavPackageButton.Tag.base_text = $savPackageLabel
+        }
         $exportSavPackageButton.Text = Convert-DanewUiText -Text $savPackageLabel
-        Set-DanewButtonAvailability -Button $exportSavPackageButton -Available $hasAnyReport -ToolTip $toolTip -AvailableHint 'Cree un package SAV avec les rapports disponibles.' -UnavailableHint 'Package SAV indisponible. Generez au moins un rapport avant export.'
+        Set-DanewButtonAvailability -Button $exportSavPackageButton -Available $hasAnyReport -ToolTip $toolTip -AvailableHint 'Cree un package SAV avec les rapports disponibles.' -UnavailableHint 'Package SAV indisponible pour cette session. Generez au moins un rapport avant export.'
     }
 }
 
@@ -1229,12 +1644,15 @@ function New-DanewActionButton {
     $button.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
     $button.FlatAppearance.BorderSize = 2
     $button.Font = New-Object System.Drawing.Font('Segoe UI', 9.5, [System.Drawing.FontStyle]::Bold)
+    $button.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
+    $button.UseMnemonic = $false
+    $button.AutoEllipsis = $true
     $button.Cursor = [System.Windows.Forms.Cursors]::Hand
 
     $baseBackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
-    $baseBorderColor = [System.Drawing.Color]::FromArgb(59, 130, 246)
-    $baseForeColor = [System.Drawing.Color]::FromArgb(30, 64, 175)
-    $hoverBackColor = [System.Drawing.Color]::FromArgb(219, 234, 254)
+    $baseBorderColor = [System.Drawing.Color]::FromArgb(148, 163, 184)
+    $baseForeColor = [System.Drawing.Color]::FromArgb(30, 41, 59)
+    $hoverBackColor = [System.Drawing.Color]::FromArgb(241, 245, 249)
 
     if ($Tone -eq 'primary') {
         $baseBackColor = [System.Drawing.Color]::FromArgb(37, 99, 235)
@@ -1259,6 +1677,7 @@ function New-DanewActionButton {
     $button.ForeColor = $baseForeColor
     $button.FlatAppearance.BorderColor = $baseBorderColor
     $button.Tag = [pscustomobject]@{
+        base_text = [string]$Text
         enabled_back_color = $baseBackColor
         enabled_fore_color = $baseForeColor
         enabled_border_color = $baseBorderColor
@@ -1460,29 +1879,59 @@ function Invoke-GuiAction {
         return
     }
 
+    $actionDisplay = Get-DanewActionDisplayText -Action $Action
+    $isAnalysisAction = $Action -in @('analyze-offline-logs', 'analyze-offline-logs-fast', 'analyze-offline-logs-full', 'analyze-crash-causes')
+
     $script:IsActionRunning = $true
     Set-DanewActionButtonsEnabled -Enabled $false
-    Set-DanewSummaryVisual -Status 'RUNNING' -Text 'Preparation de l action...'
+    Set-DanewSummaryVisual -Status 'RUNNING' -Text ('Preparation : ' + $actionDisplay)
+    if ($isAnalysisAction) {
+        Set-DanewAnalysisCompletionState -State 'running'
+    }
+    if ($offlineOperationLabel) {
+        $offlineOperationLabel.Text = 'Operation en cours : ' + $actionDisplay
+    }
+    Add-DiagnosticProgressLine -Line ('[UI] Demarrage action : ' + $actionDisplay)
 
     try {
         if ($Action -eq 'open-sav-report') {
-            [void](Open-DanewSpecificReport -Kind 'sav')
-            Set-DanewSummaryVisual -Status 'PASS' -Text 'Rapport SAV ouvert'
+            $opened = Open-DanewSpecificReport -Kind 'sav'
+            if ($opened) {
+                Set-DanewSummaryVisual -Status 'PASS' -Text 'Rapport SAV ouvert'
+            }
+            else {
+                Set-DanewSummaryVisual -Status 'WARNING' -Text 'Ouverture rapport SAV echec'
+            }
             return
         }
         elseif ($Action -eq 'open-timeline-report') {
-            [void](Open-DanewSpecificReport -Kind 'timeline')
-            Set-DanewSummaryVisual -Status 'PASS' -Text 'Logs Windows classes ouverts'
+            $opened = Open-DanewSpecificReport -Kind 'timeline'
+            if ($opened) {
+                Set-DanewSummaryVisual -Status 'PASS' -Text 'Logs Windows classes ouverts'
+            }
+            else {
+                Set-DanewSummaryVisual -Status 'WARNING' -Text 'Ouverture logs classes echec'
+            }
             return
         }
         elseif ($Action -eq 'open-timeline-fast-report') {
-            [void](Open-DanewSpecificReport -Kind 'timeline-fast-by-file')
-            Set-DanewSummaryVisual -Status 'PASS' -Text 'Logs Windows rapides par fichier ouverts'
+            $opened = Open-DanewSpecificReport -Kind 'timeline-fast-by-file'
+            if ($opened) {
+                Set-DanewSummaryVisual -Status 'PASS' -Text 'Logs Windows rapides par fichier ouverts'
+            }
+            else {
+                Set-DanewSummaryVisual -Status 'WARNING' -Text 'Ouverture logs rapides echec'
+            }
             return
         }
         elseif ($Action -eq 'open-storage-report') {
-            [void](Open-DanewSpecificReport -Kind 'storage')
-            Set-DanewSummaryVisual -Status 'PASS' -Text 'Rapport de stockage ouvert'
+            $opened = Open-DanewSpecificReport -Kind 'storage'
+            if ($opened) {
+                Set-DanewSummaryVisual -Status 'PASS' -Text 'Rapport de stockage ouvert'
+            }
+            else {
+                Set-DanewSummaryVisual -Status 'WARNING' -Text 'Ouverture rapport stockage echec'
+            }
             return
         }
         elseif ($Action -eq 'recommended-actions') {
@@ -1610,6 +2059,7 @@ function Invoke-GuiAction {
                 $summaryLabel.Text = $analysisLabel + ' terminee. Global=' + (Get-DanewLocalizedStatusText ([string]$offline.overall_status))
             }
             Set-DanewSummaryVisual -Status ([string]$offline.overall_status) -Text ('Analyse hors ligne terminee : ' + (Get-DanewLocalizedStatusText ([string]$offline.overall_status)))
+            Set-DanewAnalysisCompletionState -State 'done' -Text 'Analyse hors ligne terminee'
             if ($offlineOperationLabel) {
                 $offlineOperationLabel.Text = 'Operation en cours : terminee'
             }
@@ -1618,6 +2068,11 @@ function Invoke-GuiAction {
             }
             Add-DiagnosticProgressLine -Line 'Analyse des journaux hors ligne terminee. Consulter le resume SAV pour le detail.'
             Add-DiagnosticProgressLine -Line ('Temps total ecoule : ' + (Get-DanewElapsedText -Since $script:OfflineProgressStart))
+
+            $offlineDoneMessage = $analysisLabel + ' terminee.' + [Environment]::NewLine +
+                'Global : ' + (Get-DanewLocalizedStatusText ([string]$offline.overall_status)) + [Environment]::NewLine +
+                'Evenements parses : ' + [string]$summary.total_events
+            [System.Windows.Forms.MessageBox]::Show($offlineDoneMessage, 'Outil de diagnostic SAV Danew', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
 
             if ([string]$failure.status -eq 'generated' -and -not [string]::IsNullOrWhiteSpace([string]$offline.artifacts.offline_windows_failure_report_html)) {
                 $askOpen = [System.Windows.Forms.MessageBox]::Show('Ouvrir maintenant le rapport d echec SAV ?', 'Outil de diagnostic SAV Danew', [System.Windows.Forms.MessageBoxButtons]::YesNo)
@@ -1662,6 +2117,7 @@ function Invoke-GuiAction {
                 $summaryLabel.Text = 'Analyse des causes de crash terminee. Severite=' + (Get-DanewLocalizedStatusText ([string]$crash.severity))
             }
             Set-DanewSummaryVisual -Status ([string]$crash.severity) -Text ('Analyse causes de crash terminee : ' + (Get-DanewLocalizedStatusText ([string]$crash.severity)))
+            Set-DanewAnalysisCompletionState -State 'done' -Text 'Analyse causes terminee'
             Add-DiagnosticProgressLine -Line '[100%] Step 2/2 - Analyse des causes de crash terminee'
 
             $message = 'Analyse des causes de crash terminee.' + [Environment]::NewLine +
@@ -1700,10 +2156,15 @@ function Invoke-GuiAction {
             [void](Update-DanewStatusPanel)
             [void](Update-DanewSavSummaryCard)
         }
+        Add-DiagnosticProgressLine -Line ('[UI] Action terminee : ' + $actionDisplay)
     }
     catch {
-        Set-DanewSummaryVisual -Status 'FAIL' -Text ('Failed: ' + $Action)
-        [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, 'Danew SAV Diagnostic Tool Error') | Out-Null
+        Set-DanewSummaryVisual -Status 'FAIL' -Text ('Echec : ' + $actionDisplay)
+        if ($isAnalysisAction) {
+            Set-DanewAnalysisCompletionState -State 'error' -Text 'Analyse en echec'
+        }
+        Add-DiagnosticProgressLine -Line ('[UI] ECHEC action : ' + $actionDisplay + ' | ' + $_.Exception.Message)
+        [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, 'Erreur outil de diagnostic SAV Danew') | Out-Null
     }
     finally {
         $script:IsActionRunning = $false
@@ -1791,15 +2252,15 @@ function Update-OfflineProgressFromLine {
         if ($offlineOperationLabel) {
             $script:OfflineProgressUpdates++
             $spinner = Get-DanewOfflineSpinnerSymbol
-            $offlineOperationLabel.Text = 'Current operation: [' + $stage + '] ' + $name + '  [' + $spinner + ']'
+            $offlineOperationLabel.Text = 'Operation en cours : [' + $stage + '] ' + $name + '  [' + $spinner + ']'
         }
 
         if ($summaryLabel) {
             if ([string]::IsNullOrWhiteSpace($details)) {
-                $summaryLabel.Text = 'Summary: ' + $name
+                $summaryLabel.Text = 'Resume : ' + $name
             }
             else {
-                $summaryLabel.Text = 'Summary: ' + $name + ' (' + $details + ')'
+                $summaryLabel.Text = 'Resume : ' + $name + ' (' + $details + ')'
             }
         }
 
@@ -1848,9 +2309,9 @@ function Update-OfflineProgressFromLine {
                 $offlineSubProgressBar.Value = $subValue
             }
             if ($summaryLabel) {
-                $summaryLabel.Text = 'Summary: Offline logs running - ' + [string]$value + '%'
+                $summaryLabel.Text = 'Resume : Analyse hors ligne en cours - ' + [string]$value + '%'
             }
-            Set-DanewSummaryVisual -Status 'RUNNING' -Text ('Offline logs running: ' + [string]$value + '%')
+            Set-DanewSummaryVisual -Status 'RUNNING' -Text ('Analyse hors ligne en cours : ' + [string]$value + '%')
         }
     }
 
@@ -1859,12 +2320,12 @@ function Update-OfflineProgressFromLine {
         if ($stepMatch.Success) {
             $script:OfflineProgressUpdates++
             $spinner = Get-DanewOfflineSpinnerSymbol
-            $offlineOperationLabel.Text = 'Current operation: ' + $stepMatch.Groups[1].Value.Trim() + '  [' + $spinner + ']'
+            $offlineOperationLabel.Text = 'Operation en cours : ' + $stepMatch.Groups[1].Value.Trim() + '  [' + $spinner + ']'
         }
         elseif ($Line -match '^\[(\d+)%\]') {
             $script:OfflineProgressUpdates++
             $spinner = Get-DanewOfflineSpinnerSymbol
-            $offlineOperationLabel.Text = 'Current operation: processing evidence  [' + $spinner + ']'
+            $offlineOperationLabel.Text = 'Operation en cours : traitement des preuves  [' + $spinner + ']'
         }
     }
 
@@ -1928,12 +2389,13 @@ function Invoke-StartDiagnostic {
     }
     Reset-DanewStepStates
     Set-DanewStepState -Name 'scan' -State 'running'
+    Set-DanewAnalysisCompletionState -State 'running'
     if ($summaryLabel) {
         $summaryLabel.Text = 'Diagnosis in progress...'
     }
     Set-DanewSummaryVisual -Status 'RUNNING' -Text 'Analyzing this PC...'
     if ($offlineOperationLabel) {
-        $offlineOperationLabel.Text = 'Current operation: collecting diagnostic evidence'
+        $offlineOperationLabel.Text = 'Operation en cours : collecte des preuves de diagnostic'
     }
 
     $progress = {
@@ -1968,6 +2430,7 @@ function Invoke-StartDiagnostic {
         Set-DanewSummaryVisual -Status ([string]$diag.summary.overall_status) -Text $summaryText
         [void](Update-DanewSavSummaryCard)
         Set-DanewSavSummaryDetailsVisible -Visible $true
+        Set-DanewAnalysisCompletionState -State 'done' -Text 'Diagnostic termine'
 
         $dataReportRoot = Copy-DanewReportToDataVolume -HtmlPath ([string]$result.output.artifacts.report_html_path) -JsonPath ([string]$result.output.artifacts.report_json_path)
         Add-DiagnosticProgressLine -Line ('Resume final : ' + $summaryText)
@@ -1986,6 +2449,7 @@ function Invoke-StartDiagnostic {
             $summaryLabel.Text = 'Diagnostic en echec'
         }
         Set-DanewSummaryVisual -Status 'FAIL' -Text 'Diagnostic en echec'
+        Set-DanewAnalysisCompletionState -State 'error' -Text 'Diagnostic en echec'
         Add-DiagnosticProgressLine -Line ('ECHEC - Analyse PC : ' + $_.Exception.Message)
         [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, 'Erreur outil diagnostic SAV Danew') | Out-Null
     }
@@ -2099,14 +2563,24 @@ $subtitleLabel.Width = 820
 $subtitleLabel.Height = 20
 $subtitleLabel.ForeColor = [System.Drawing.Color]::FromArgb(219, 234, 254)
 $subtitleLabel.Font = New-Object System.Drawing.Font('Segoe UI', 9)
-$subtitleLabel.Text = 'OEM offline crash, boot, and storage diagnosis assistant'
+$subtitleLabel.Text = 'Assistant de diagnostic hors ligne: crash, demarrage et stockage'
+
+$analysisCompletionLabel = New-Object System.Windows.Forms.Label
+$analysisCompletionLabel.Left = 72
+$analysisCompletionLabel.Top = 58
+$analysisCompletionLabel.Width = 290
+$analysisCompletionLabel.Height = 14
+$analysisCompletionLabel.ForeColor = [System.Drawing.Color]::FromArgb(219, 234, 254)
+$analysisCompletionLabel.Font = New-Object System.Drawing.Font('Segoe UI', 8.5, [System.Drawing.FontStyle]::Bold)
+$analysisCompletionLabel.Text = 'Analyse: en attente'
 
 [void]$headerPanel.Controls.Add($logoBox)
 [void]$headerPanel.Controls.Add($titleLabel)
 [void]$headerPanel.Controls.Add($subtitleLabel)
+[void]$headerPanel.Controls.Add($analysisCompletionLabel)
 
 $statusGroup = New-Object System.Windows.Forms.GroupBox
-$statusGroup.Text = 'SAV Summary'
+$statusGroup.Text = 'Resume SAV'
 $statusGroup.Left = 14
 $statusGroup.Top = 302
 $statusGroup.Width = 872
@@ -2493,7 +2967,7 @@ $savSummaryLabel = $summaryLabel
 $savOverallBadgeLabel = $overallBadgeLabel
 
 $primaryGroup = New-Object System.Windows.Forms.GroupBox
-$primaryGroup.Text = 'Actions principales de diagnostic'
+$primaryGroup.Text = 'Actions principales de diagnostic (1 -> 3)'
 $primaryGroup.Left = 14
 $primaryGroup.Top = 96
 $primaryGroup.Width = 872
@@ -2702,7 +3176,7 @@ $summaryLabel = $savSummaryLabel
 $overallBadgeLabel = $savOverallBadgeLabel
 
 $simpleActionsGroup = New-Object System.Windows.Forms.GroupBox
-$simpleActionsGroup.Text = 'Rapports et actions'
+$simpleActionsGroup.Text = 'Rapports et actions rapides'
 $simpleActionsGroup.Left = 14
 $simpleActionsGroup.Top = 586
 $simpleActionsGroup.Width = 872
@@ -2718,14 +3192,15 @@ $simplePanel.Width = 844
 $simplePanel.Height = 80
 $simplePanel.FlowDirection = 'LeftToRight'
 $simplePanel.WrapContents = $true
-$simplePanel.Padding = New-Object System.Windows.Forms.Padding(0)
+$simplePanel.Padding = New-Object System.Windows.Forms.Padding(0, 2, 0, 0)
 
-$openTimelineReportButton = New-DanewActionButton -Text '1. COMPLET TOUS LES LOGS' -Action 'open-timeline-report' -ToolTip $toolTip -Hint 'Ouvre la vue complete des journaux Windows recuperes. Permet de filtrer, trier et rechercher tous les evenements EVTX.' -Tone 'neutral'
+$openTimelineReportButton = New-DanewActionButton -Text '1. COMPLET TOUS LES LOGS' -Action 'open-timeline-report' -ToolTip $toolTip -Hint 'Ouvre la vue complete des journaux Windows recuperes. Permet de filtrer, trier et rechercher tous les evenements EVTX.' -Tone 'primary'
 $openTimelineFastReportButton = New-DanewActionButton -Text '2. RAPIDE CRIT/ERR/AVERT.' -Action 'open-timeline-fast-report' -ToolTip $toolTip -Hint 'Ouvre la vue rapide des journaux Windows limitee aux evenements critiques, erreurs et avertissements, regroupes par fichier EVTX.' -Tone 'primary'
-$openSavReportButton = New-DanewActionButton -Text '3. OUVRIR LE RAPPORT SAV' -Action 'open-sav-report' -ToolTip $toolTip -Hint 'Ouvre le rapport SAV principal. A utiliser apres analyse des journaux ou analyse des causes de crash. Si absent, ouvre l index des rapports.' -Tone 'neutral'
+$openSavReportButton = New-DanewActionButton -Text '3. OUVRIR LE RAPPORT SAV' -Action 'open-sav-report' -ToolTip $toolTip -Hint 'Ouvre le rapport SAV principal. A utiliser apres analyse des journaux ou analyse des causes de crash. Si absent, ouvre l index des rapports.' -Tone 'primary'
 [void]$simplePanel.Controls.Add($openTimelineReportButton)
 [void]$simplePanel.Controls.Add($openTimelineFastReportButton)
 [void]$simplePanel.Controls.Add($openSavReportButton)
+$simplePanel.SetFlowBreak($openSavReportButton, $true)
 $recommendedActionsButton = New-DanewActionButton -Text '4. ACTIONS RECOMMANDEES' -Action 'recommended-actions' -ToolTip $toolTip -Hint 'Affiche les actions SAV conseillees selon le diagnostic. Les actions sont informatives et non destructives.' -Tone 'neutral'
 [void]$simplePanel.Controls.Add($recommendedActionsButton)
 $exportEvtxTargetedButton = New-DanewActionButton -Text '5. EXPORT EVTX CIBLE' -Action 'export-evtx-targeted' -ToolTip $toolTip -Hint 'Genere les exports EVTX physiques dans reports: evenements filtres, evenements critiques, fenetre crash et resume SAV TXT. Ne depend pas du navigateur HTML.' -Tone 'neutral'
@@ -2784,7 +3259,7 @@ $recentActivityBox.BorderStyle = 'FixedSingle'
 $recentActivityBox.BackColor = [System.Drawing.Color]::FromArgb(248, 250, 252)
 $recentActivityBox.ForeColor = [System.Drawing.Color]::FromArgb(51, 65, 85)
 $recentActivityBox.Font = New-Object System.Drawing.Font('Consolas', 8.5)
-$recentActivityBox.Text = 'Recent activity: idle'
+$recentActivityBox.Text = 'Activite recente : inactif'
 
 [void]$simpleActionsGroup.Controls.Add($simplePanel)
 
@@ -2802,7 +3277,7 @@ $togglePanel.BackColor = [System.Drawing.Color]::FromArgb(243, 246, 252)
 [void]$togglePanel.Controls.Add($technicalToggleButton)
 
 $buttonGroup = New-Object System.Windows.Forms.GroupBox
-$buttonGroup.Text = 'OUTILS AVANCES'
+$buttonGroup.Text = 'OUTILS AVANCES (NIVEAU 2)'
 $buttonGroup.Name = 'AdvancedToolsPanel'
 $buttonGroup.Left = 14
 $buttonGroup.Top = 746
@@ -2860,16 +3335,16 @@ $systemPanel.AutoScroll = $false
 $systemPanel.Padding = New-Object System.Windows.Forms.Padding(8, 10, 8, 8)
 
 [void]$quickPanel.Controls.Add((New-DanewActionButton -Text 'ACTUALISER LE RESUME' -Action 'refresh-status' -ToolTip $toolTip -Hint 'Recharge les derniers rapports disponibles et met a jour le resume SAV affiche dans l interface.' -Tone 'neutral'))
-[void]$quickPanel.Controls.Add((New-DanewActionButton -Text 'OUVRIR LE RAPPORT STOCKAGE' -Action 'open-storage-report' -ToolTip $toolTip -Hint 'Open storage visibility and diagnostics evidence.' -Tone 'neutral'))
+[void]$quickPanel.Controls.Add((New-DanewActionButton -Text 'OUVRIR LE RAPPORT STOCKAGE' -Action 'open-storage-report' -ToolTip $toolTip -Hint 'Ouvre les preuves de visibilite de stockage et le diagnostic associe.' -Tone 'neutral'))
 [void]$quickPanel.Controls.Add((New-DanewActionButton -Text 'OUVRIR LE DOSSIER DES RAPPORTS' -Action 'open-reports-folder' -ToolTip $toolTip -Hint 'Ouvre le dossier reports contenant les rapports HTML, JSON, CSV et TXT generes.' -Tone 'neutral'))
 
 [void]$analysisPanel.Controls.Add((New-DanewActionButton -Text 'SCAN CAPACITES WINPE' -Action 'capability-analysis' -ToolTip $toolTip -Hint 'Analyse les capacites de l environnement WinPE: outils presents, drivers, packages et dependances. Utile pour valider une cle de diagnostic.' -Tone 'neutral'))
-[void]$analysisPanel.Controls.Add((New-DanewActionButton -Text 'DIAGNOSTIC COMPLET' -Action 'start-diagnostic' -ToolTip $toolTip -Hint 'Run the complete one-click diagnostic sequence.' -Tone 'neutral'))
+[void]$analysisPanel.Controls.Add((New-DanewActionButton -Text 'DIAGNOSTIC COMPLET' -Action 'start-diagnostic' -ToolTip $toolTip -Hint 'Execute la sequence complete en un clic du diagnostic SAV.' -Tone 'neutral'))
 [void]$analysisPanel.Controls.Add((New-DanewActionButton -Text 'ANALYSE COMPLETE LOGS' -Action 'analyze-offline-logs-full' -ToolTip $toolTip -Hint 'Lit les journaux Windows EVTX de l installation hors ligne detectee en mode complet. Genere timeline-raw.html, evtx-events.html et les exports CSV/TXT dans reports. Action en lecture seule.' -Tone 'neutral'))
 [void]$analysisPanel.Controls.Add((New-DanewActionButton -Text 'VERIFIER WINPE' -Action 'precheck-winpe' -ToolTip $toolTip -Hint 'Verifie que WinPE contient les composants necessaires: PowerShell, WinForms, EVTX, scripts, reports et exports. Genere winpe-precheck.json et winpe-precheck.txt.' -Tone 'neutral'))
 [void]$analysisPanel.Controls.Add((New-DanewActionButton -Text 'VERIFIER NAVIGATEUR HTML' -Action 'check-browser' -ToolTip $toolTip -Hint 'Verifie si un navigateur portable est disponible dans tools\\browser pour ouvrir les rapports HTML. Genere browser-detection.json et browser-detection.txt.' -Tone 'neutral'))
 
-[void]$systemPanel.Controls.Add((New-DanewActionButton -Text 'OUTILS USB' -Action 'create-usb-media' -ToolTip $toolTip -Hint 'Prepare or refresh the SAV USB tool.' -Tone 'warn'))
+[void]$systemPanel.Controls.Add((New-DanewActionButton -Text 'OUTILS USB' -Action 'create-usb-media' -ToolTip $toolTip -Hint 'Prepare ou met a jour l outil USB SAV.' -Tone 'warn'))
 [void]$systemPanel.Controls.Add((New-DanewActionButton -Text 'GENERER LE RAPPORT DE BASE' -Action 'generate-report' -ToolTip $toolTip -Hint 'Genere les rapports de base WinPE et environnement. Ne remplace pas l analyse des journaux Windows.' -Tone 'neutral'))
 [void]$systemPanel.Controls.Add((New-DanewActionButton -Text 'QUITTER' -Action 'exit' -ToolTip $toolTip -Hint 'Ferme l interface Danew SAV Diagnostic Tool.' -Tone 'danger'))
 

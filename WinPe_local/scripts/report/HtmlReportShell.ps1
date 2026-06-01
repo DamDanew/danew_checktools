@@ -284,7 +284,7 @@ function New-DanewReportTableHtml {
         $label = ConvertTo-DanewReportHtmlText $Headers[$i]
         $isSortable = (@($SortableColumns).Count -eq 0) -or ($i -in $SortableColumns)
         if ($isSortable) {
-            $headerCells += '<th data-column-index="' + [string]$i + '" data-sortable="true" data-sort-index="' + [string]$i + '" data-sort-direction="none" draggable="true"><button type="button" class="sort-header-button" data-sort-trigger="' + [string]$i + '"><span>' + $label + '</span><span class="sort-indicator" aria-hidden="true">+/-</span></button><span class="column-resize-handle" data-column-resize title="Redimensionner la colonne"></span></th>'
+            $headerCells += '<th data-column-index="' + [string]$i + '" data-sortable="true" data-sort-index="' + [string]$i + '" data-sort-direction="none" draggable="true"><button type="button" class="sort-header-button" data-sort-trigger="' + [string]$i + '"><span>' + $label + '</span><span class="sort-indicator" aria-hidden="true"></span></button><span class="column-resize-handle" data-column-resize title="Redimensionner la colonne"></span></th>'
         }
         else {
             $headerCells += '<th data-column-index="' + [string]$i + '" draggable="true">' + $label + '<span class="column-resize-handle" data-column-resize title="Redimensionner la colonne"></span></th>'
@@ -423,6 +423,7 @@ h1 {
     border: 1px solid var(--line);
     background: var(--panel-strong);
     color: var(--text);
+    transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 .toolbar button {
     padding: 12px 14px;
@@ -431,11 +432,40 @@ h1 {
     background: var(--panel-strong);
     cursor: pointer;
     color: var(--text);
+    transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
 }
 .toolbar button.primary-button {
     background: var(--accent);
     border-color: var(--accent);
     color: #ffffff;
+}
+.toolbar button:hover,
+.ghost-button:hover {
+    border-color: rgba(15,118,110,0.35);
+    box-shadow: 0 6px 18px rgba(23,32,51,0.10);
+}
+.toolbar button:active,
+.ghost-button:active {
+    transform: translateY(1px);
+}
+.toolbar input:focus-visible,
+.toolbar button:focus-visible,
+.ghost-button:focus-visible,
+.sort-header-button:focus-visible {
+    outline: none;
+    border-color: rgba(15,118,110,0.55);
+    box-shadow: 0 0 0 3px rgba(15,118,110,0.18);
+}
+.toolbar-count {
+    display: inline-flex;
+    align-items: center;
+    min-height: 42px;
+    padding: 0 10px;
+    border: 1px dashed var(--line);
+    border-radius: 14px;
+    background: rgba(255,255,255,0.55);
+    color: var(--muted);
+    font-size: 13px;
 }
 .hero-metrics {
     display: grid;
@@ -561,15 +591,16 @@ h1 {
     cursor: pointer;
 }
 .sort-indicator {
+    width: 1.1em;
+    text-align: center;
     font-size: 12px;
     opacity: 0.65;
 }
+.sort-indicator::before { content: '↕'; }
 th[data-sort-direction="asc"] .sort-indicator { opacity: 1; color: var(--accent-strong); }
-th[data-sort-direction="asc"] .sort-indicator::before { content: '^'; }
-th[data-sort-direction="asc"] .sort-indicator { font-size: 0; }
+th[data-sort-direction="asc"] .sort-indicator::before { content: '▲'; }
 th[data-sort-direction="desc"] .sort-indicator { opacity: 1; color: var(--accent-strong); }
-th[data-sort-direction="desc"] .sort-indicator::before { content: 'v'; }
-th[data-sort-direction="desc"] .sort-indicator { font-size: 0; }
+th[data-sort-direction="desc"] .sort-indicator::before { content: '▼'; }
 table {
     width: 100%;
     border-collapse: collapse;
@@ -615,6 +646,7 @@ body.column-resizing {
     user-select: none;
 }
 tbody tr:nth-child(even) { background: rgba(15,118,110,0.03); }
+tbody tr:hover { background: rgba(15,118,110,0.08); }
 tbody tr[hidden] { display: none; }
 ul.report-list {
     margin: 0;
@@ -659,7 +691,15 @@ noscript .noscript-card {
     .report-shell { width: min(100% - 16px, 1320px); margin: 12px auto 24px auto; }
     .hero, .report-card { padding: 16px; border-radius: 18px; }
     .hero-top { flex-direction: column; }
-    .toolbar { flex-direction: column; }
+    .toolbar {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+    }
+    .toolbar input,
+    .toolbar-count {
+        grid-column: 1 / -1;
+    }
 }
 </style>
 $AdditionalStyleHtml
@@ -680,6 +720,8 @@ $AdditionalStyleHtml
 </div>
 <div class="toolbar report-toolbar">
 <input type="search" placeholder="$safeSearchPlaceholder" data-report-search>
+<button type="button" data-action="clear-search">Effacer filtre</button>
+<div class="toolbar-count" data-report-count aria-live="polite"></div>
 $AdditionalToolbarHtml
 <button type="button" class="primary-button" data-action="expand-all">Developper tout</button>
 <button type="button" data-action="collapse-all">Reduire tout</button>
@@ -709,6 +751,7 @@ $AdditionalContentHtml
 
         button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
         target.hidden = !expanded;
+        button.textContent = expanded ? 'Reduire' : 'Developper';
     }
 
     function parseSortableValue(value) {
@@ -919,6 +962,7 @@ $AdditionalContentHtml
     }
 
     var search = document.querySelector('[data-report-search]');
+    var reportCount = document.querySelector('[data-report-count]');
     var sections = Array.prototype.slice.call(document.querySelectorAll('[data-section-card]'));
 
     sections.forEach(function (section) {
@@ -927,6 +971,7 @@ $AdditionalContentHtml
             button.addEventListener('click', function () {
                 setExpanded(button, button.getAttribute('aria-expanded') !== 'true');
             });
+            setExpanded(button, button.getAttribute('aria-expanded') === 'true');
         }
     });
 
@@ -961,11 +1006,27 @@ $AdditionalContentHtml
         });
     }
 
+    var clearSearch = document.querySelector('[data-action="clear-search"]');
+    if (clearSearch) {
+        clearSearch.addEventListener('click', function () {
+            if (!search) {
+                return;
+            }
+            search.value = '';
+            applySearch();
+            search.focus();
+        });
+    }
+
     function applySearch() {
         var term = search ? normalize(search.value) : '';
+        var totalRows = 0;
+        var totalVisibleRows = 0;
+        var totalVisibleSections = 0;
         sections.forEach(function (section) {
             var baseMatch = term === '' || normalize(section.getAttribute('data-search')).indexOf(term) !== -1;
             var rows = Array.prototype.slice.call(section.querySelectorAll('[data-search-row]'));
+            totalRows += rows.length;
             var visibleRows = 0;
             rows.forEach(function (row) {
                 var match = term === '' || normalize(row.getAttribute('data-search-row')).indexOf(term) !== -1;
@@ -974,6 +1035,7 @@ $AdditionalContentHtml
                     visibleRows += 1;
                 }
             });
+            totalVisibleRows += visibleRows;
 
             var emptyState = section.querySelector('[data-empty-state]');
             if (emptyState) {
@@ -981,8 +1043,46 @@ $AdditionalContentHtml
             }
 
             section.hidden = !(baseMatch || visibleRows > 0);
+            if (!section.hidden) {
+                totalVisibleSections += 1;
+            }
         });
+
+        if (reportCount) {
+            if (term === '') {
+                reportCount.textContent = totalRows + ' lignes visibles • ' + totalVisibleSections + ' sections';
+            }
+            else {
+                var suffix = totalVisibleRows > 1 ? 's' : '';
+                reportCount.textContent = totalVisibleRows + ' resultat' + suffix + ' • ' + totalVisibleSections + ' sections pour "' + (search ? search.value : '') + '"';
+            }
+        }
     }
+
+    function isTypingTarget(target) {
+        if (!target) {
+            return false;
+        }
+        var tagName = (target.tagName || '').toLowerCase();
+        return tagName === 'input' || tagName === 'textarea' || target.isContentEditable;
+    }
+
+    document.addEventListener('keydown', function (event) {
+        if (!search) {
+            return;
+        }
+        if (event.key === '/' && !event.ctrlKey && !event.altKey && !event.metaKey && !isTypingTarget(event.target)) {
+            event.preventDefault();
+            search.focus();
+            search.select();
+            return;
+        }
+        if (event.key === 'Escape' && document.activeElement === search) {
+            search.value = '';
+            applySearch();
+            search.blur();
+        }
+    });
 
     if (search) {
         search.addEventListener('input', applySearch);

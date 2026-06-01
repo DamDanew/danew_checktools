@@ -2,13 +2,14 @@ Danew WinPE browser slot
 
 Place one portable offline browser executable here to open local HTML reports in WinPE.
 
-Preferred names:
-- chrome.exe
+Preferred names (resolution order):
 - chromium.exe
+- chrome.exe
 - msedge.exe
+- FirefoxPortable.exe
 
 Expected path on the USB data partition:
-E:\tools\browser\chrome.exe
+E:\tools\browser\chromium.exe
 
 Notes:
 - Do not require internet access.

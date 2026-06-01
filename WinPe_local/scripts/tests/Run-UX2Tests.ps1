@@ -193,12 +193,17 @@ $reportsOpenOk = Test-UX2PatternSet -Content $content -Patterns @(
 )
 $results += Add-UX2Result -Name 'existing_reports_still_open_correctly' -Passed $reportsOpenOk -Details 'SAV, timeline, storage, and index fallback paths remain wired.'
 
+$reportAvailabilityFallback = ($content -match 'function Get-DanewAvailableReportPath') -and
+    ($content -match 'Get-DanewFirstExistingReportPath -Names \$Names -MinLastWriteTime \$MinLastWriteTime') -and
+    ($content -match 'Get-DanewFirstExistingReportPath -Names \$Names')
+$results += Add-UX2Result -Name 'existing_reports_enable_buttons_after_restart' -Passed $reportAvailabilityFallback -Details 'Report buttons use current-session reports first, then fall back to existing reports after GUI restart.'
+
 $savFallbackOrder = ($content -match "sav-diagnostic-report\.html', 'REPORTS_INDEX\.html', 'reports-index\.html")
 $results += Add-UX2Result -Name 'sav_report_falls_back_to_index' -Passed $savFallbackOrder -Details 'SAV button opens reports index before one-click fallback when SAV report is absent.'
 
 $unsupportedPatterns = @('PresentationFramework', 'System.Xaml', 'WebView2', 'Electron', 'WPF')
 $unsupportedFound = @($unsupportedPatterns | Where-Object { $content -match [regex]::Escape($_) })
-$portableBrowserOnly = ($content -match 'tools\\browser\\chromium\.exe') -and ($content -notmatch 'Add-Type.+Chromium')
+$portableBrowserOnly = ($content -match 'chromium\.exe') -and ($content -match 'FirefoxPortable\.exe') -and ($content -notmatch 'Add-Type.+Chromium')
 $results += Add-UX2Result -Name 'no_winpe_incompatible_dependency' -Passed (@($unsupportedFound).Count -eq 0 -and $portableBrowserOnly) -Details ($(if (@($unsupportedFound).Count -eq 0 -and $portableBrowserOnly) { 'WinForms/System.Drawing only; optional portable browser launcher path allowed.' } else { 'Found: ' + ($unsupportedFound -join ', ') }))
 
 $launcherCoreOk = $false

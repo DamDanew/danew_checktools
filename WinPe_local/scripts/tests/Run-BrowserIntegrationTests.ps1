@@ -68,17 +68,32 @@ function New-BrowserIntegrationFixture {
 
 $results = @()
 
-$noBrowser = New-BrowserIntegrationFixture -Name 'missing'
-$noBrowserResult = Export-DanewBrowserDetection -RootPath $noBrowser.root -Config $noBrowser.config
-$results += Add-BrowserIntegrationResult -Name 'no_browser_warning_not_crash' -Passed ($noBrowserResult.detection.status -eq 'WARNING' -and -not $noBrowserResult.detection.executable_exists) -Details ('status=' + [string]$noBrowserResult.detection.status)
+$previousDriveScan = $env:DANEW_BROWSER_DISABLE_DRIVE_SCAN
+$env:DANEW_BROWSER_DISABLE_DRIVE_SCAN = '1'
+try {
+    $noBrowser = New-BrowserIntegrationFixture -Name 'missing'
+    $noBrowserResult = Export-DanewBrowserDetection -RootPath $noBrowser.root -Config $noBrowser.config
+    $results += Add-BrowserIntegrationResult -Name 'no_browser_warning_not_crash' -Passed ($noBrowserResult.detection.status -eq 'WARNING' -and -not $noBrowserResult.detection.executable_exists) -Details ('status=' + [string]$noBrowserResult.detection.status)
 
-foreach ($browser in @('chromium.exe', 'chrome.exe', 'msedge.exe')) {
-    $fixture = New-BrowserIntegrationFixture -Name ($browser -replace '\.exe$', '') -BrowserExe $browser
-    $detected = Export-DanewBrowserDetection -RootPath $fixture.root -Config $fixture.config
-    $results += Add-BrowserIntegrationResult -Name (($browser -replace '\.exe$', '') + '_present_pass') -Passed ($detected.detection.status -eq 'PASS' -and $detected.detection.browser_executable -eq $browser) -Details ('path=' + [string]$detected.detection.browser_path)
+    $browserDetections = @{}
+    foreach ($browser in @('chromium.exe', 'chrome.exe', 'msedge.exe')) {
+        $fixture = New-BrowserIntegrationFixture -Name ($browser -replace '\.exe$', '') -BrowserExe $browser
+        $detected = Export-DanewBrowserDetection -RootPath $fixture.root -Config $fixture.config
+        $browserDetections[$browser] = $detected
+        $results += Add-BrowserIntegrationResult -Name (($browser -replace '\.exe$', '') + '_present_pass') -Passed ($detected.detection.status -eq 'PASS' -and $detected.detection.browser_executable -eq $browser) -Details ('path=' + [string]$detected.detection.browser_path)
+    }
+}
+finally {
+    if ($null -eq $previousDriveScan) {
+        Remove-Item Env:\DANEW_BROWSER_DISABLE_DRIVE_SCAN -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:DANEW_BROWSER_DISABLE_DRIVE_SCAN = $previousDriveScan
+    }
 }
 
-$commandGenerated = @($noBrowserResult.detection.report_opening | Where-Object { $_.name -eq 'REPORTS_INDEX.html' -and $_.exists -and -not [string]::IsNullOrWhiteSpace([string]$_.open_command) }).Count -eq 1
+$commandSource = $browserDetections['chromium.exe']
+$commandGenerated = @($commandSource.detection.report_opening | Where-Object { $_.name -eq 'REPORTS_INDEX.html' -and $_.exists -and -not [string]::IsNullOrWhiteSpace([string]$_.open_command) }).Count -eq 1
 $results += Add-BrowserIntegrationResult -Name 'report_open_command_generated' -Passed $commandGenerated -Details 'REPORTS_INDEX.html has a prepared command.'
 
 $fallbackMessageOk = ([string]$noBrowserResult.detection.fallback_message -eq 'Navigateur HTML non disponible. Consultez les rapports TXT/CSV dans le dossier reports.')

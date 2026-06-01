@@ -109,7 +109,7 @@ function Get-DanewBrowserCandidatePaths {
             return
         }
 
-        foreach ($exeName in @('chrome.exe', 'chromium.exe', 'msedge.exe')) {
+        foreach ($exeName in @('chromium.exe', 'chrome.exe', 'msedge.exe', 'FirefoxPortable.exe', 'firefox.exe')) {
             $path = ''
             try {
                 $path = Join-Path $BasePath ('tools\browser\' + $exeName)
@@ -142,19 +142,22 @@ function Get-DanewBrowserCandidatePaths {
         }
     }
 
-    try {
-        $dataVolumes = @(Get-Volume -FileSystemLabel 'DANEW_DATA' -ErrorAction SilentlyContinue)
-        foreach ($volume in $dataVolumes) {
-            if (-not [string]::IsNullOrWhiteSpace([string]$volume.DriveLetter)) {
-                Add-DanewBrowserCandidatePath -BasePath ([string]$volume.DriveLetter + ':\') -Source 'DANEW_DATA'
+    $disableDriveScan = ([string]$env:DANEW_BROWSER_DISABLE_DRIVE_SCAN -eq '1')
+    if (-not $disableDriveScan) {
+        try {
+            $dataVolumes = @(Get-Volume -FileSystemLabel 'DANEW_DATA' -ErrorAction SilentlyContinue)
+            foreach ($volume in $dataVolumes) {
+                if (-not [string]::IsNullOrWhiteSpace([string]$volume.DriveLetter)) {
+                    Add-DanewBrowserCandidatePath -BasePath ([string]$volume.DriveLetter + ':\') -Source 'DANEW_DATA'
+                }
             }
         }
-    }
-    catch {
-    }
+        catch {
+        }
 
-    foreach ($drive in @('E', 'D', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'Y', 'Z')) {
-        Add-DanewBrowserCandidatePath -BasePath ($drive + ':\') -Source 'drive-scan'
+        foreach ($drive in @('E', 'D', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'Y', 'Z')) {
+            Add-DanewBrowserCandidatePath -BasePath ($drive + ':\') -Source 'drive-scan'
+        }
     }
 
     return @($candidates)
@@ -216,6 +219,39 @@ function Get-DanewPortableBrowserDetection {
         }
     }
 
+    function Get-DanewBrowserOpenCommandText {
+        param(
+            [object]$Browser,
+            [string]$TargetPath
+        )
+
+        if (-not $Browser) {
+            return ''
+        }
+
+        $exe = [System.IO.Path]::GetFileName([string]$Browser.path).ToLowerInvariant()
+        if ($exe -like 'firefox*') {
+            return '"' + [string]$Browser.path + '" -new-window "' + $TargetPath + '"'
+        }
+
+        $profileDir = Join-Path ([string]$Config.reports_path) 'browser-profile'
+        $args = @(
+            '--no-first-run',
+            '--no-default-browser-check',
+            '--disable-background-networking',
+            '--disable-component-update',
+            '--disable-crash-reporter',
+            '--disable-breakpad',
+            '--disable-crashpad',
+            '--disable-features=Crashpad',
+            '--disable-gpu',
+            '--allow-file-access-from-files',
+            ('--user-data-dir="' + $profileDir + '"'),
+            ('"' + $TargetPath + '"')
+        )
+        return '"' + [string]$Browser.path + '" ' + ($args -join ' ')
+    }
+
     $reports = @()
     foreach ($name in @('REPORTS_INDEX.html', 'reports-index.html', 'sav-diagnostic-report.html', 'timeline-raw.html', 'evtx-by-file.html', 'evtx-events.html')) {
         $path = Join-Path ([string]$Config.reports_path) $name
@@ -225,7 +261,7 @@ function Get-DanewPortableBrowserDetection {
             path = $path
             exists = $exists
             status = if ($exists) { 'PASS' } else { 'WARNING' }
-            open_command = if ($detected -and $exists) { '"' + [string]$detected.path + '" "' + $path + '"' } elseif ($exists) { 'start "" "' + $path + '"' } else { '' }
+            open_command = if ($detected -and $exists) { Get-DanewBrowserOpenCommandText -Browser $detected -TargetPath $path } elseif ($exists) { 'start "" "' + $path + '"' } else { '' }
         }
     }
 
@@ -1473,8 +1509,30 @@ function Invoke-DanewLauncherAction {
                 $result = [pscustomobject]@{ action = $Action; output = $offline }
             }
             'analyze-crash-causes' {
-                Write-DanewDiagnosticProgress -ProgressCallback $ProgressCallback -Message '[5%] Step 1/2 - Analyse des journaux hors ligne pour crash'
-                $offline = Invoke-DanewOfflineLogsAnalysis -RootPath $RootPath -Config $Config -ProgressCallback $ProgressCallback
+                $eventsPath = Join-Path $Config.reports_path 'evtx-events.json'
+                $offlineAnalysisPath = Join-Path $Config.reports_path 'offline-windows-analysis.json'
+                $storagePath = Join-Path $Config.reports_path 'storage-diagnostics.json'
+                $bitlockerPath = Join-Path $Config.reports_path 'bitlocker-analysis.json'
+                $timelinePath = Join-Path $Config.reports_path 'timeline-raw.json'
+
+                $canReuseOfflineArtifacts = (Test-Path -Path $eventsPath) -and (Test-Path -Path $offlineAnalysisPath)
+
+                if ($canReuseOfflineArtifacts) {
+                    Write-DanewDiagnosticProgress -ProgressCallback $ProgressCallback -Message '[5%] Step 1/2 - Reutilisation des artefacts hors ligne existants'
+                    $offline = [pscustomobject]@{
+                        artifacts = [pscustomobject]@{
+                            evtx_events_json = $eventsPath
+                            offline_windows_analysis = $offlineAnalysisPath
+                            storage_diagnostics = $storagePath
+                            bitlocker_analysis = $bitlockerPath
+                            timeline_raw_json = $timelinePath
+                        }
+                    }
+                }
+                else {
+                    Write-DanewDiagnosticProgress -ProgressCallback $ProgressCallback -Message '[5%] Step 1/2 - Analyse des journaux hors ligne pour crash'
+                    $offline = Invoke-DanewOfflineLogsAnalysis -RootPath $RootPath -Config $Config -ProgressCallback $ProgressCallback
+                }
                 Write-DanewDiagnosticProgress -ProgressCallback $ProgressCallback -Message '[92%] Step 2/2 - Correlation et determination des causes de crash'
                 $crash = Invoke-DanewCrashCauseAnalysis -RootPath $RootPath -Config $Config -OfflineAnalysis $offline
                 Write-DanewDiagnosticProgress -ProgressCallback $ProgressCallback -Message '[100%] Step 2/2 - Analyse causes de crash terminee'

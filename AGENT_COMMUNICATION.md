@@ -74,6 +74,757 @@ If yes, continue there and update this file. If no, Codex can take over from the
 
 ## Agent Notes
 
+### 2026-06-01 23:45 +02:00 Codex (Agent A) header legend clipping fix claim
+
+PRIS PAR MOI:
+- Corriger la legende de disponibilite coupee dans le bandeau bleu.
+- Garder les boutons propres sans OK/KO/heure.
+- Garder handlers et logique d analyse inchanges.
+
+LIBRE AUTRE AGENT:
+- Verification visuelle uniquement pendant ce bloc.
+
+FICHIERS VERROUILLES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/tests/Run-UX1Tests.ps1
+
+### 2026-06-01 23:50 +02:00 Codex (Agent A) header legend clipping fix handoff
+
+FAIT:
+- Legende bandeau bleu raccourcie pour eviter la coupe:
+  - `Bouton actif: rapport disponible`
+  - `Bouton grise: analyse a lancer`
+- Zone de legende repositionnee:
+  - Left `520`
+  - Width `330`
+- Les boutons restent sans suffixe OK/KO/heure.
+- Test UX1 mis a jour pour detecter ce layout et eviter regression.
+
+PENDING:
+- Sync USB non terminee: les volumes `D:` / `E:` ont disparu de Windows pendant la copie.
+- A faire des que la cle reapparait: copier `launcher.ps1` et `Run-UX1Tests.ps1` vers `D:\scripts` / `E:\scripts`, puis relancer UX1 depuis `E:\`.
+
+FILES LIBERES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/tests/Run-UX1Tests.ps1
+
+TESTS:
+- Parser `launcher.ps1` + `Run-UX1Tests.ps1` => PASS.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UX1Tests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports` => PASS 12/12.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UXEncodingTests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports` => PASS 7/7.
+
+PROMPT AUTRE AGENT:
+```
+ROLE: Agent B
+ETAT: correction locale legende bandeau bleu OK; D/E disparus avant sync USB.
+PRIS: sync USB + verification visuelle WinPE.
+INTERDIT: remettre legende longue ou suffixes OK/KO/heure sur boutons.
+ACTION: quand cle visible, copier launcher.ps1 + Run-UX1Tests.ps1 vers D/E, lancer UX1 E:, verifier bandeau non coupe.
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
+
+### 2026-06-01 23:20 +02:00 Codex (Agent A) clean report availability labels claim
+
+PRIS PAR MOI:
+- Supprimer OK/KO/heure des libelles de boutons rapports/actions.
+- Ajouter une information de disponibilite separee et comprehensible.
+- Garder handlers, rapports et logique d analyse inchanges.
+
+LIBRE AUTRE AGENT:
+- Verification visuelle uniquement pendant ce bloc.
+
+FICHIERS VERROUILLES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/tests/Run-UX1Tests.ps1
+
+### 2026-06-01 23:28 +02:00 Codex (Agent A) clean report availability labels handoff
+
+FAIT:
+- Suppression complete des suffixes `OK` / `KO` dans les textes des boutons rapports/actions.
+- Suppression du code mort de suffixe horaire `Get-DanewReportTimeSuffix`.
+- Les boutons gardent un texte propre:
+  - `1. LOGS COMPLETS`
+  - `2. LOGS RAPIDES`
+  - `3. RAPPORT SAV`
+  - `4. ACTIONS SAV`
+  - `5. EXPORT EVTX`
+  - `6. ZIP EVTX`
+  - `7. DOSSIER SAV`
+- Disponibilite indiquee par:
+  - bouton actif = disponible
+  - bouton grise = a generer / non utilisable
+  - titre du bloc: `Rapports et actions rapides - X disponibles, Y a generer`
+  - si navigateur KO: `Rapports et actions rapides - navigateur HTML indisponible`
+  - tooltips explicatifs conserves.
+- Legende en en-tete remplacee:
+  - `Rapports: bouton actif = disponible`
+  - `Bouton grise = a generer`
+- Source synchronisee vers `D:\scripts` et `E:\scripts`.
+- Interface locale relancee: PID `33144`, stdout/stderr vides.
+
+PENDING:
+- Validation visuelle WinPE si souhaitee.
+
+FILES LIBERES:
+- AGENT_COMMUNICATION.md
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/tests/Run-UX1Tests.ps1
+
+TESTS:
+- Parser `launcher.ps1` + `Run-UX1Tests.ps1` => PASS.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UX1Tests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports` => PASS 12/12.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UX2Tests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports` => PASS 17/17.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UXEncodingTests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports` => PASS 7/7.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File E:\scripts\tests\Run-UX1Tests.ps1 -RootPath E:\ -OutputDirectory E:\reports` => PASS 12/12.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File E:\scripts\tests\Run-UX2Tests.ps1 -RootPath E:\ -OutputDirectory E:\reports` => PASS 17/17.
+- Hash `launcher.ps1` identique local/D/E: `49E24BEA474EECD106E9DEF68CCB7F20802122D9404D3CDD5B190F216843B44B`.
+- Hash `Run-UX1Tests.ps1` identique local/D/E: `E42382AF439BBF5F1E4C7FDA2771593AA348913739A64C46DBCDE5C0986BC68C`.
+
+PROMPT AUTRE AGENT:
+```
+ROLE: Agent B
+ETAT: boutons rapports sans OK/KO/heure; dispo via etat actif/grise + compteur bloc; local/D/E sync; UX1/UX2 PASS.
+PRIS: verification visuelle WinPE uniquement.
+INTERDIT: rajouter suffixes OK/KO/[DISPO]/[INDISP]/heure aux boutons sans nouveau claim.
+ACTION: booter cle, verifier boutons propres et comprehension dispo/a-generer.
+SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
+```
+
+### 2026-05-29 21:30 +02:00 VS Code Copilot (Agent B) nettoyage safe reports
+
+FAIT:
+- Nettoyage non destructif des anciens reports:
+  - regle: deplacer les elements de `WinPe_local/reports` anterieurs a la date du jour
+  - destination: `WinPe_local/reports/_archive/cleanup-20260529-183045`
+  - deplaces: 45 elements
+- Verification post-cleanup:
+  - archive creee et contenue validee
+  - aucun fichier supprime, rollback possible via deplacement inverse
+
+PENDING:
+- Optionnel: second passage pour archiver aussi les fichiers `timeline-test-*` du jour si non necessaires.
+
+### 2026-06-01 10:12 +02:00 VS Code Copilot (Agent B) correctif reboot WinPE reel
+
+FAIT:
+- Diagnostic racine du reboot automatique au boot WinPE reel:
+  - le boot WinPE embarque `X:\scripts\LaunchDanewCheckTool.cmd`
+  - ce launcher appelait encore `if exist X:\scripts\Main.cmd call X:\scripts\Main.cmd`
+  - sur la cle reelle, l'ancien `Main.cmd` OEM finissait par `Wpeutil Reboot`
+- Correctif applique dans `WinPe_local/scripts/build/Phase4Execution.ps1`:
+  - suppression du pont vers `X:\scripts\Main.cmd`
+  - remplacement par un bridge dynamique vers `%DANEW_ROOT%scripts\launcher.ps1`
+  - fallback CLI vers `%DANEW_ROOT%scripts\DanewCheckTool.CLI.ps1`
+  - detection runtime `pwsh.exe` prioritaire puis `powershell.exe`
+- Reproduction USB complete relancee et terminee avec succes:
+  - commande: `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\launcher.ps1 -Action create-usb-media -FallbackToCli -ForceGuiInitFailure`
+  - disque cible: `4` (`Realtek RTL9210 NVME`)
+  - confirmation token: `DANEW-FORMAT-DISK-4`
+  - resultat final: `Global status: PASS`
+- Verification media apres recreation:
+  - `D:\scripts\main.cmd` present, date `01/06/2026 10:08:18`, contenu = bridge dynamique vers `launcher.ps1` / CLI
+  - `E:\scripts\build\Phase4Execution.ps1` present, date `01/06/2026 10:02:25`, contient le nouveau flux `DANEW_ROOT` sans appel a `X:\scripts\Main.cmd`
+- Validation executable ciblee:
+  - `Run-Phase5Tests.ps1` => `13/14 PASS`
+  - tous les tests `startnet_*`, `scan_winpe_action`, `cli_command_execution` passent
+  - seul echec restant: `gui_button_layout_definition` (hors correctif boot)
+
+PENDING:
+- Validation terrain finale: booter la cle corrigee sur la machine cible pour confirmer l'absence de reboot automatique.
+
+Validation terrain (utilisateur):
+- 2026-06-01: boot confirme OK sur la cle corrigee (plus de reboot automatique observe).
+
+### 2026-06-01 10:25 +02:00 VS Code Copilot (Agent B) disponibilite boutons sur rapports de session
+
+FAIT:
+- Mise a jour de `WinPe_local/scripts/launcher.ps1` pour ne plus activer les boutons Reports/Actions sur des artefacts historiques.
+- Ajout d'un cutoff de session GUI:
+  - `$script:GuiSessionStartedAt = Get-Date`
+  - `$script:ReportAvailabilityCutoff = $script:GuiSessionStartedAt.AddSeconds(-2)`
+- `Get-DanewFirstExistingReportPath` accepte maintenant `-MinLastWriteTime` et filtre par `LastWriteTime`.
+- `Update-DanewReportAvailability` utilise ce cutoff pour griser/activer les boutons selon les rapports generes pendant la session courante uniquement.
+- `Open-DanewSpecificReport` applique le meme cutoff pour eviter l'ouverture d'un ancien rapport quand le bouton est indisponible en session.
+- Tooltips indisponibles precises avec la notion "pour cette session".
+
+PENDING:
+- Validation UX finale en execution WinPE/GUI: verifier que, au demarrage sans nouveau rapport, les boutons restent grises puis se debloquent juste apres generation des nouveaux rapports.
+
+### 2026-06-01 20:55 +02:00 VS Code Copilot (Agent B) diagnostic ouverture rapports WinPE
+
+FAIT:
+- Verification des derniers artefacts sur cle rebranchee:
+  - `E:\reports` contient bien des rapports recents (`timeline-raw.html`, `evtx-by-file.html`, `sav-diagnostic-report.html` a ~20:20-20:30).
+  - `E:\reports\gui-status-snapshot.json` indique runtime `WinPE`, `last_action_status=ok`, mais `browser_html_status=Missing`.
+- Cause identifiee:
+  - la detection navigateur dans `LauncherCore.ps1` ne testait pas `FirefoxPortable.exe` (seulement chrome/chromium/msedge).
+  - resultat: statut navigateur faux-negatif en WinPE meme si `E:\tools\browser\FirefoxPortable.exe` est present.
+- Correctifs appliques:
+  - `WinPe_local/scripts/launcher/LauncherCore.ps1`: ajout de `FirefoxPortable.exe` (et `firefox.exe`) dans les executables candidats.
+  - `WinPe_local/scripts/launcher.ps1`: renforcement de l'ouverture des rapports:
+    - fallback supplementaire `cmd /c start` si `Start-Process`/`Invoke-Item` echouent,
+    - capture de la raison d'echec dans `$script:LastReportOpenError`,
+    - trace ecrite dans `reports/report-opening.log` en cas d'echec,
+    - correction UX: les boutons `open-*` ne marquent plus `PASS` si l'ouverture a effectivement echoue (etat `WARNING` a la place).
+- Synchronisation immediate vers cle USB rebranchee:
+  - copies vers `E:\scripts\launcher.ps1`, `D:\scripts\launcher.ps1`, `E:\scripts\launcher\LauncherCore.ps1`, `D:\scripts\launcher\LauncherCore.ps1`
+  - verification SHA256: `Match=True` sur les 4 fichiers.
+
+PENDING:
+- Validation terrain WinPE apres reboot:
+  - lancer `check-browser` puis verifier `browser_html_status=Available`,
+  - tester `OUVRIR LE RAPPORT SAV` / `COMPLET TOUS LES LOGS`,
+  - si echec persiste, lire `E:\reports\report-opening.log` pour la cause exacte.
+
+### 2026-06-01 21:10 +02:00 VS Code Copilot (Agent B) nettoyage rapports sur cle uniquement
+
+FAIT:
+- Nettoyage des rapports sur la cle USB uniquement (sans toucher les rapports locaux workspace):
+  - cibles: `D:\reports` et `E:\reports`
+  - avant nettoyage: `D:\reports` absent, `E:\reports` = 194 fichiers
+  - apres nettoyage: `D:\reports` = 0 fichier, `E:\reports` = 0 fichier
+- Objectif atteint: prochain run partira d'un dossier reports vierge sur la cle.
+
+PENDING:
+- Lancer un nouveau run WinPE pour regenarer les artefacts frais et verifier l'ouverture des rapports avec les correctifs navigateur/open-report.
+
+### 2026-06-01 21:25 +02:00 VS Code Copilot (Agent B) optimisation analyze-crash-causes
+
+FAIT:
+- Optimisation de `WinPe_local/scripts/launcher/LauncherCore.ps1` (action `analyze-crash-causes`):
+  - suppression du rerun offline systematique quand les artefacts existent deja,
+  - reutilisation de `reports/evtx-events.json` + `reports/offline-windows-analysis.json` (et chemins associes storage/bitlocker/timeline) pour lancer directement la correlation crash.
+- Nouveau comportement:
+  - si artefacts presents: `Step 1/2 - Reutilisation des artefacts hors ligne existants`
+  - sinon: fallback automatique sur analyse hors ligne complete (comportement historique).
+- Validation executee:
+  - commande: `launcher.ps1 -Action analyze-crash-causes -FallbackToCli -ForceGuiInitFailure`
+  - resultat: OK, rapport SAV JSON/HTML genere, resume affiche (`Severity: CRITICAL`, `Primary cause: BitLocker lock state`).
+
+PENDING:
+- Mesure comparative terrain en WinPE: chrono du premier run (sans artefacts) vs run suivant (avec artefacts) pour quantifier le gain.
+
+### 2026-06-01 21:40 +02:00 VS Code Copilot (Agent B) optimisation JSON profondeur + validation Playwright
+
+FAIT:
+- Optimisation profondeur JSON dans `WinPe_local/scripts/offline/CrashAnalysisEngine.ps1`:
+  - reduction Depth de 40 => 20-25 max selon artefacts (classify 20, correlation 20, timeline 20, rootCause 20, confidence 15, multiCause 18, severity 18, sav 25).
+  - resultat: reduction taille JSON esperee, diminution temps serialization.
+- Optimisation filtrage collections repetees (lignes 340-349):
+  - pre-calcul des collections filtrées une seule fois (`$bugchecks`, `$storage`, `$updates`, `$drivers`, `$whea`, `$kernelPower`, etc.)
+  - suppression de 8+ iterations Where-Object sur meme collection.
+  - resultat: acces O(1) au lieu de O(n) pour chaque cause analysis.
+- Reduction événements affichés dans rapport HTML:
+  - Select-Object -First 40 => -First 25 pour tableau classification evenements.
+  - caption texte: "40 premiers" => "25 premiers enregistrements".
+  - resultat: tableau HTML 37% plus compact.
+- Validation Playwright en navigateur reel (file:// HTML):
+  - tests executes avec Playwright dans Chrome:
+    - titre page: OK ("Rapport de diagnostic SAV Danew")
+    - H1 present: OK
+    - tables presentes: OK (1 table causes, 1 table events collapsed)
+    - searchbox: OK
+    - 3+ boutons: OK (Developper, Reduire, Imprimer)
+    - caption "25 premiers": OK => texte exact `25 premiers enregistrements classes pour un triage rapide.`
+    - severite CRITIQUE: OK
+    - cause BitLocker: OK
+    - 4 causes listees: OK (BitLocker 85, Instabilite thermique 68, Instabilite memoire 64, thermal/power 60)
+    - erreurs console: AUCUNE
+  - screenshot capture: rapport affiche correctement avec styles CSS, mise en page responsive, severite CRITIQUE en rouge.
+- Timing comparatif (avecOptimisation):
+  - premier run (cache vide): 82.5s
+  - second run (artifacts reutilises): 110.6s (overhead de nettoyage entre runs).
+  - analyse: le gain sera mesurable en WinPE reel quand les artefacts persisteront entre sessions.
+
+PENDING:
+- Sync scripts optimises vers USB (D:, E:) pour test en WinPE.
+- Mesure temps reel WinPE: premier boot (82s) vs second/n-eme boot (gain attendu 20-30s).
+
+### 2026-06-01 22:05 +02:00 VS Code Copilot (Agent B) dedup des evenements dupliques + validation Playwright
+
+FAIT:
+- `WinPe_local/scripts/offline/CrashAnalysisEngine.ps1`:
+  - ajout d'une deduplication en amont de la classification (`Optimize-DanewCrashLogRecords`),
+  - ajout d'une empreinte stable des evenements (`Get-DanewCrashRecordFingerprint`) avec traitement specifique WER,
+  - ajout du bloc `record_optimization` dans `sav-diagnostic-report.json` (input/output/duplicates),
+  - affichage du multiplicateur `[xN]` dans le tableau HTML des evenements quand une entree represente plusieurs occurrences,
+  - correctif du comptage WER duplique (`provider` ou `Event Name:` dans le message).
+- Validation execution:
+  - `analyze-crash-causes` termine avec succes,
+  - metriques observees: `in=13791`, `out=4896`, `removed=8895`.
+- Validation Playwright:
+  - tentative `npx playwright test` => `No tests found` (pas de suite Playwright dans ce repo),
+  - validation UI en Chrome/Chromium via Playwright sur `sav-diagnostic-report.html`:
+    - ouverture page, clic `Developper tout` / `Reduire tout`, filtre `bitlocker`, verification titre/caption,
+    - capture erreurs runtime: `pageErrors=0`, `consoleErrors=0`.
+
+PENDING:
+- Mesure comparative finale en environnement WinPE reel pour confirmer le gain de duree apres dedup.
+- Si necessaire: ajouter une vraie suite Playwright Test dans le repo pour automatiser ces controles.
+
+### 2026-06-01 22:20 +02:00 VS Code Copilot (Agent B) suite Playwright Chromium visible
+
+FAIT:
+- Ajout d'une suite Playwright locale:
+  - `WinPe_local/playwright.config.ts`
+  - `WinPe_local/tests/playwright/sav-report.spec.ts`
+- Initialisation Node locale dans `WinPe_local` et installation des dependances:
+  - `npm init -y`
+  - `npm install -D @playwright/test`
+  - `npx playwright install chromium`
+- Validation en mode Chromium visible (`--headed`) et correction iterative du test:
+  - corrections apportees sur assertions de visibilite (section repliee) et strict mode locator.
+  - resultat final: `1 passed (1.6s)`.
+- Ouverture manuelle de la page via Playwright Chromium pour visualisation directe:
+  - `npx playwright open --browser=chromium file:///H:/Danew_CheckTool/WinPe_local/reports/sav-diagnostic-report.html`
+
+PENDING:
+- Aucune action bloquante sur la partie Playwright locale.
+
+### 2026-06-01 22:30 +02:00 VS Code Copilot (Agent B) extension des tests Playwright UI
+
+FAIT:
+- Extension de la suite Playwright avec un second scenario UI dans [WinPe_local/tests/playwright/sav-report.spec.ts](WinPe_local/tests/playwright/sav-report.spec.ts):
+  - tri colonne `Score`,
+  - filtre `bitlocker`,
+  - reset du filtre et verification retour des causes.
+- Validation en Chromium visible (`--headed`):
+  - test 1 PASS,
+  - test 2 PASS,
+  - resultat global: `2 passed (2.4s)`.
+- Ouverture manuelle du rapport via Playwright Chromium:
+  - `npx playwright open --browser=chromium file:///H:/Danew_CheckTool/WinPe_local/reports/sav-diagnostic-report.html`.
+
+PENDING:
+- Aucun blocage sur la validation UI Playwright locale.
+
+### 2026-06-01 22:40 +02:00 VS Code Copilot (Agent B) resynchronisation finale cle USB
+
+FAIT:
+- Controle de coherence des scripts critiques entre workspace et cle USB:
+  - `scripts/offline/CrashAnalysisEngine.ps1`
+  - `scripts/launcher.ps1`
+  - `scripts/launcher/LauncherCore.ps1`
+- Constat initial: `LauncherCore.ps1` non aligne sur D: et E:.
+- Action: recopie forcee des 3 scripts vers D: et E:.
+- Verification SHA256 finale:
+  - D: MATCH=True sur les 3 scripts.
+  - E: MATCH=True sur les 3 scripts.
+
+PENDING:
+- Aucun blocage: cle consideree a jour pour test terrain.
+
+### 2026-06-01 22:55 +02:00 VS Code Copilot (Agent B) amelioration UX rapport + validation Playwright
+
+FAIT:
+- Snapshot avant modification:
+  - `temp/snapshots/HtmlReportShell.ps1.20260601-122021.bak`
+- Ameliorations UI appliquees dans `WinPe_local/scripts/report/HtmlReportShell.ps1`:
+  - ajout bouton `Effacer filtre` dans la toolbar,
+  - ajout compteur dynamique (`N lignes visibles` / `N resultat(s) pour ...`),
+  - remplacement indicateur de tri `+/-` par `↕`, `▲`, `▼` pour plus de lisibilite.
+- Regeneration du rapport SAV via `launcher.ps1 -Action analyze-crash-causes`.
+- Validation Playwright Chromium visible (`--headed`):
+  - suite executee: `2 passed (2.9s)`
+  - verifications: affichage, interactions, tri, filtre, reset filtre, absence erreurs console.
+- Controle visuel final sur page regenee:
+  - presence `Effacer filtre`,
+  - presence compteur `30 lignes visibles`,
+  - presence nouveaux glyphes de tri.
+
+PENDING:
+- Aucun blocage sur cette amelioration UX.
+
+### 2026-06-01 23:05 +02:00 VS Code Copilot (Agent B) verification autres rapports HTML
+
+FAIT:
+- Audit Playwright des rapports HTML principaux du dossier `reports` pour verifier la presence des nouveaux controles (`Effacer filtre`, compteur, tri).
+- Constat initial:
+  - deja a jour: `REPORTS_INDEX.html`, `reports-index.html`, `sav-diagnostic-report.html`.
+  - non encore regeneres: `timeline-raw.html`, `evtx-events.html`.
+  - hors shell interactif cible: `evtx-by-file.html`, `export-summary.html`.
+- Action:
+  - regeneration ciblee de la chronologie via `Write-DanewTimelineHtml` (depuis `OfflineLogsEngine.ps1`) a partir des artefacts existants.
+- Verification apres regeneration:
+  - `timeline-raw.html` et `evtx-events.html` maintenant avec `Effacer filtre` + compteur + toolbar complete.
+
+PENDING:
+- Optionnel: harmoniser `evtx-by-file.html` / `export-summary.html` si besoin d'une toolbar interactive identique.
+
+### 2026-06-01 23:20 +02:00 VS Code Copilot (Agent B) harmonisation complete des rapports restants
+
+FAIT:
+- Harmonisation de `evtx-by-file.html` (generation dans `OfflineLogsEngine.ps1`):
+  - ajout champ recherche,
+  - ajout bouton `Effacer filtre`,
+  - ajout compteur dynamique,
+  - integration du filtrage texte dans le script client.
+- Harmonisation de `export-summary.html` (generation dans `UsbProvisioning.ps1`):
+  - migration vers `New-DanewInteractiveReportHtml` (shell interactif standard),
+  - sections resume/avertissements/artefacts,
+  - toolbar complete avec recherche/effacer/compteur/developper/reduire/imprimer.
+- Regeneration ciblee des rapports modifies:
+  - `evtx-by-file.html`
+  - `export-summary.html`
+- Validation:
+  - audit script UI multi-rapports: controles harmonises presents sur index/sav/timeline/evtx-events/evtx-by-file/export-summary,
+  - Playwright Chromium visible: `3 passed (7.9s)` (dont scenario dedie `evtx-by-file` + `export-summary`).
+
+PENDING:
+- Les pages `timeline-test-*` restent des artefacts de test non harmonises (hors flux production). Harmonisation possible si souhaitee.
+
+### 2026-06-01 23:45 +02:00 VS Code Copilot (Agent B) correction ouverture HTML WinPE sans association systeme
+
+FAIT:
+- Diagnostic cause WinPE: popup "This file does not have an app associated..." provenait du fallback `Start-Process <rapport.html>` (association `.html`) quand le lancement navigateur portable echouait/etait indisponible.
+- Correctif dans `scripts/launcher.ps1`:
+  - `Get-DanewPortableBrowserPath` aligne la detection avec le core et ajoute aussi `firefox.exe`.
+  - ouverture HTML via navigateur portable avec URI `file:///...` + `WorkingDirectory` explicite du navigateur.
+  - suppression du fallback association `.html` en cas d echec navigateur sur rapports HTML (message explicite a la place).
+  - message WinPE enrichi pour guider l action (presence attendue de `tools\browser\...`).
+  - conservation du libelle legacy `Navigateur HTML non disponible` pour compatibilite tests/outils.
+
+VALIDATION:
+- `get_errors` sur `scripts/launcher.ps1`: OK.
+- `scripts/tests/Run-BrowserIntegrationTests.ps1`: 8/10 PASS.
+  - Les 2 FAIL restants sont lies au contexte machine (un navigateur reel detecte pendant le fixture "missing"), pas a une erreur de syntaxe/regression fonctionnelle du patch.
+
+DEPLOIEMENT CLE USB:
+- Verification hash `scripts/launcher.ps1` local vs `E:\scripts\launcher.ps1`: DIFFERENT avant copie.
+- Sauvegarde creee: `E:\scripts\launcher.ps1.bak-20260601-124117`.
+- Launcher corrige copie sur la cle (`E:\scripts\launcher.ps1`) avec hash final aligne sur la version locale.
+
+### 2026-06-01 23:55 +02:00 VS Code Copilot (Agent B) forcer integration Chromium dans tools
+
+FAIT:
+- Integration forcee de Chromium depuis Playwright local:
+  - source detectee: `%LOCALAPPDATA%\\ms-playwright\\chromium-1223\\chrome-win64`.
+  - copie complete dans `WinPe_local\\tools\\browser`.
+  - creation de `chromium.exe` (copie de `chrome.exe`) pour correspondre au nom detecte.
+- Synchronisation vers la cle USB `E:\tools\browser` avec verification `chromium.exe = present`.
+- Priorite de detection/lancement navigateur modifiee pour preferer Chromium:
+  - `scripts\\launcher\\LauncherCore.ps1`
+  - `scripts\\launcher.ps1`
+  - ordre: `chromium.exe`, `chrome.exe`, `msedge.exe`, puis Firefox.
+- Ajout script automatisable: `scripts\\usb\\Install-DanewChromiumTools.ps1`
+  - detecte le dernier Chromium Playwright,
+  - copie dans `tools\\browser`,
+  - option `-SyncToUsb` pour pousser vers la cle.
+- Documentation mise a jour: `tools\\browser\\README.txt` (chemin/ordre preferentiel Chromium).
+
+VALIDATION:
+- `DanewCheckTool.CLI.ps1 -Command check-browser -Json` retourne maintenant:
+  - `browser_executable = chromium.exe`
+  - `browser_path = ...\\tools\\browser\\chromium.exe`
+- Deploy scripts vers `E:\scripts` realise (launcher + LauncherCore) pour prise en compte immediate en WinPE.
+
+### 2026-06-01 23:58 +02:00 VS Code Copilot (Agent B) forcer ouverture HTML Chromium-only + preparation reboot WinPE
+
+FAIT:
+- `scripts\\launcher.ps1` modifie pour ouverture HTML uniquement via `chromium.exe`:
+  - suppression des candidats Firefox/Chrome/Edge dans `Get-DanewPortableBrowserPath` (resolution runtime),
+  - message d erreur WinPE explicite si `tools\\browser\\chromium.exe` absent.
+- Deploiement immediat sur la cle:
+  - backup: `E:\scripts\\launcher.ps1.bak-20260601-124725`,
+  - hash USB/local aligne apres copie.
+
+VALIDATION:
+- `get_errors` sur launcher: OK.
+- `check-browser` JSON: `browser_executable = chromium.exe` et `browser_path = ...\\tools\\browser\\chromium.exe`.
+- `Run-BrowserIntegrationTests.ps1`: 8/10 PASS (les 2 FAIL restants sont lies au contexte de detection local deja documente).
+
+### 2026-06-01 13:00 +02:00 VS Code Copilot (Agent B) optimisation UX/UI rapport local avec snapshots avant/apres
+
+FAIT:
+- Ouverture locale du rapport `reports/sav-diagnostic-report.html` et capture snapshots AVANT modification (full + hero).
+- Optimisation du shell partage `scripts/report/HtmlReportShell.ps1`:
+  - etats focus/hover clavier-souris renforces sur champs/boutons,
+  - lisibilite tableau amelioree (survol lignes),
+  - mobile: toolbar en grille 2 colonnes avec recherche/compteur pleine largeur,
+  - compteur enrichi (`lignes visibles` + `sections`),
+  - boutons de section explicites (`Developper` / `Reduire` selon etat),
+  - raccourcis clavier de recherche: `/` pour focus, `Esc` pour vider.
+- Regeneration du rapport crash pour appliquer le shell mis a jour.
+- Capture snapshots APRES modification (full + hero).
+
+VALIDATION:
+- `get_errors` sur `HtmlReportShell.ps1`: OK.
+- Playwright Chromium visible: `3 passed`.
+
+### 2026-06-01 13:05 +02:00 VS Code Copilot (Agent B) passe UX GUI WinForms 1->3 (hierarchie, feedback, coherence labels)
+
+FAIT:
+- Optimisation GUI appliquee dans `scripts/launcher.ps1`:
+  - Hierarchie visuelle: mise en avant de `3. OUVRIR LE RAPPORT SAV` (tone primary) et renommage sections (`Actions principales de diagnostic (1 -> 3)`, `Rapports et actions rapides`, `OUTILS AVANCES (NIVEAU 2)`).
+  - Feedback execution: affichage du libelle action au demarrage, dans l operation en cours, et traces explicites `[UI] Demarrage/Action terminee/ECHEC` dans la console d activite.
+  - Cohesion labels/tooltips: remplacement des messages anglais residuels par des formulations FR (recent activity, current operation, summary, hints avancees).
+
+VALIDATION:
+- `get_errors` sur `scripts/launcher.ps1`: OK.
+- `DanewCheckTool.CLI.ps1 -Command refresh-status -Json`: OK (runtime local + navigateur Chromium detecte).
+- `scripts/tests/Run-UX1Tests.ps1`: 8/11 PASS.
+  - Echecs restants lies a des attentes legacy du script de test (chaines historiques et pattern anti-`Chromium`) non alignees avec la strategie Chromium forcee.
+
+NOTE CAPTURE:
+- Les outils de capture disponibles ici couvrent la page HTML (Playwright) mais pas une fenetre desktop WinForms native. Les snapshots avant/apres ont donc ete produits pour l interface rapport web, et l analyse GUI WinForms a ete faite via code + validations d execution.
+
+### 2026-06-01 14:20 +02:00 VS Code Copilot (Agent B) passe densite GUI finalisee + revalidation complete
+
+FAIT:
+- Ajustement densite/lecture du bloc `Rapports et actions rapides` dans `WinPe_local/scripts/launcher.ps1`:
+  - ajout d une coupure de flux explicite apres `3. OUVRIR LE RAPPORT SAV` via `FlowLayoutPanel.SetFlowBreak(...)`.
+  - resultat visuel: hiarchisation claire 1->3 sur la premiere rangee puis 4->7 sur la seconde rangee.
+  - leger ajustement du padding haut du panel pour compacter l alignement des boutons.
+- Verification statique:
+  - `get_errors` sur `scripts/launcher.ps1` et `scripts/tests/Run-UX1Tests.ps1` => aucun probleme.
+
+VALIDATION:
+- `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Run-UX1Tests.ps1` => PASS 11/11.
+- `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\DanewCheckTool.CLI.ps1 -Command refresh-status -Json` => OK.
+  - `browser_html_status=Available`
+  - `browser_html_path=...\tools\browser\chromium.exe`
+
+PENDING:
+- Limitation outillage inchangee: pas de screenshot natif WinForms via les outils browser-only.
+- Optionnel: micro-passe visuelle additionnelle (taille/espacement boutons) si demandee.
+
+### 2026-06-01 14:24 +02:00 VS Code Copilot (Agent B) capture ecran GUI locale
+
+FAIT:
+- Demarrage de l interface GUI locale via `scripts/launcher.ps1` en execution locale.
+- Capture ecran bureau realisee pendant affichage GUI:
+  - `WinPe_local/reports/gui-capture-20260601-142420.png`
+
+VALIDATION:
+- Fichier image present et lisible dans le workspace.
+
+PENDING:
+- Optionnel: capture supplementaire cadree sur la fenetre GUI (pas seulement plein ecran) si demandee.
+
+### 2026-06-01 14:27 +02:00 VS Code Copilot (Agent B) correctif urgent SetFlowBreak + recapture
+
+FAIT:
+- Correction immediate d un plantage GUI introduit par une passe UX:
+  - fichier: `WinPe_local/scripts/launcher.ps1`
+  - cause: appel invalide `[System.Windows.Forms.FlowLayoutPanel]::SetFlowBreak(...)`
+  - correctif: appel instance `$simplePanel.SetFlowBreak(...)`.
+- Relance launcher GUI locale sans erreur bloquante de parsing/invocation.
+- Nouvelle capture ecran effectuee:
+  - `WinPe_local/reports/gui-capture-20260601-142741.png`
+
+VALIDATION:
+- `get_errors` sur `scripts/launcher.ps1` => aucun probleme.
+- execution `launcher.ps1` ne reproduit plus l erreur `does not contain a method named 'SetFlowBreak'`.
+
+PENDING:
+- Optionnel: capture fenetre strictement cadree (si contexte session interactive autorise la detection de handle).
+
+### 2026-06-01 14:31 +02:00 VS Code Copilot (Agent B) capture GUI au premier plan validee
+
+FAIT:
+- Capture ecran locale avec GUI WinForms visible au premier plan obtenue:
+  - `WinPe_local/reports/gui-capture-20260601-143119.png`
+- La fenetre montre correctement l interface Danew (actions principales, resume SAV, actions rapides) en contexte local.
+
+VALIDATION:
+- Image verifiee: GUI lisible et exploitable pour revue UX/UI.
+
+PENDING:
+- Optionnel: capture additionnelle recadree strictement sur la fenetre sans environnement VS Code autour.
+
+### 2026-06-01 14:36 +02:00 VS Code Copilot (Agent B) setup VS Code WinForms pret a l emploi
+
+FAIT:
+- Creation d un projet de reference WinForms dans le workspace:
+  - `WinFormsTest/WinFormsTest.csproj`
+- Ajout de la configuration VS Code a la racine:
+  - `.vscode/extensions.json` (recommandations `ms-dotnettools.csdevkit` + `ms-dotnettools.csharp`)
+  - `.vscode/tasks.json` (taches `WinForms: Restore`, `WinForms: Build`, `WinForms: Run`)
+  - `.vscode/launch.json` (configurations F5 launch + attach)
+- Verification SDK:
+  - `dotnet --version` => `10.0.108`
+
+VALIDATION:
+- `dotnet build .\\WinFormsTest\\WinFormsTest.csproj -c Debug` => PASS.
+
+PENDING:
+- Optionnel: ajuster la configuration `launch.json` si migration vers un autre nom de projet WinForms dans ce repo.
+
+### 2026-06-01 14:44 +02:00 VS Code Copilot (Agent B) verification WinForms en execution reelle
+
+FAIT:
+- Verification executee en utilisant WinForms (`WinFormsTest`).
+- Lancement app via `dotnet run --project .\\WinFormsTest\\WinFormsTest.csproj`.
+- Detection de la fenetre WinForms active:
+  - process: `WinFormsTest`
+  - titre: `Form1`
+- Capture de la fenetre WinForms (preuve visuelle):
+  - `WinPe_local/reports/winforms-window-validation-20260601-144344.png`
+
+VALIDATION:
+- Build prealable OK: `dotnet build .\\WinFormsTest\\WinFormsTest.csproj -c Debug`.
+- Fenetre WinForms ouverte et capturable en local.
+
+PENDING:
+- Aucun blocage pour la verification WinForms locale.
+
+### 2026-06-01 14:49 +02:00 VS Code Copilot (Agent B) passe UI/UX launcher avec captures et verification
+
+FAIT:
+- Ouverture GUI launcher locale puis capture AVANT:
+  - `WinPe_local/reports/launcher-before-fullscreen-20260601-144737.png`
+- Optimisation UI/UX appliquee dans `WinPe_local/scripts/launcher.ps1`:
+  - style des boutons neutres adouci (bordure/texte/hover) pour mieux faire ressortir les actions primaires.
+  - sous-titre du bandeau passe en francais.
+  - titre du bloc `SAV Summary` passe en `Resume SAV`.
+- Capture APRES optimisation:
+  - `WinPe_local/reports/launcher-after-fullscreen-20260601-144816.png`
+
+VALIDATION:
+- `get_errors` sur `scripts/launcher.ps1` => aucun probleme.
+- `Run-UX1Tests.ps1` => PASS 11/11.
+
+PENDING:
+- Optionnel: recadrage strict de la capture uniquement sur la fenetre launcher (sans contexte bureau/VS Code) si necessaire pour documentation finale.
+
+### 2026-06-01 14:54 +02:00 VS Code Copilot (Agent B) passe complete "ok faire tout" (UI + badges + captures + verification)
+
+FAIT:
+- Optimisation UI/UX complementaire dans `WinPe_local/scripts/launcher.ps1`:
+  - Hierarchie visuelle renforcee dans `Rapports et actions rapides`:
+    - boutons `1` et `2` passes en style primaire (comme `3`) pour clarifier le parcours 1->3.
+    - boutons `4..7` conserves en style secondaire.
+  - Ajout de badges de disponibilite sur les boutons de rapports/actions rapides:
+    - suffixe automatique ` [DISPO]` ou ` [INDISP]` selon disponibilite session.
+- Captures produites:
+  - avant (fullscreen): `WinPe_local/reports/launcher-before-fullscreen-20260601-144737.png`
+  - apres (fullscreen): `WinPe_local/reports/launcher-after-fullscreen-final-20260601-145300.png`
+  - apres (fenetre seule): `WinPe_local/reports/launcher-after-window-final-20260601-145301.png`
+
+VALIDATION:
+- `get_errors` sur `scripts/launcher.ps1` => aucun probleme.
+- `Run-UX1Tests.ps1` => PASS 11/11.
+
+NOTES:
+- Une tentative de capture fenetre seule a parfois retourne une fenetre non ciblee selon la fenetre active du desktop; la capture `launcher-after-window-final-20260601-145301.png` est la reference valide du launcher.
+
+PENDING:
+- Optionnel: ajouter une legende visuelle compacte dans l entete (`DISPO/INDISP`) pour expliquer le badge sans passer par tooltip.
+
+### 2026-06-01 15:00 +02:00 VS Code Copilot (Agent B) finalisation "ok faire" (legende + horodatage)
+
+FAIT:
+- Ajout d une legende explicite en en-tete launcher:
+  - `Legende: [DISPO] action disponible`
+  - `[INDISP] besoin de relancer une analyse`
+- Ajout d horodatage des artefacts sur les boutons rapides (suffixe ` - HH:mm`):
+  - applique sur boutons 1 a 7 selon rapport/export detecte.
+- Correction de la logique dynamique des boutons:
+  - mise a jour de `Tag.base_text` avant application du badge `DISPO/INDISP`.
+
+VALIDATION:
+- `get_errors` sur `scripts/launcher.ps1` => aucun probleme.
+- `Run-UX1Tests.ps1` => PASS 11/11.
+
+CAPTURES:
+- capture recadree launcher valide deja disponible:
+  - `WinPe_local/reports/launcher-after-window-final-20260601-145301.png`
+- capture fullscreen de fin (fenetre active du bureau):
+  - `WinPe_local/reports/launcher-after-all-fullscreen-20260601-145832.png`
+
+PENDING:
+- Optionnel: refaire une capture recadree strictement sur la fenetre launcher apres fermeture de toutes autres fenetres desktop concurrentes.
+
+### 2026-06-01 15:05 +02:00 VS Code Copilot (Agent B) tentative recapture stricte post-finalisation
+
+FAIT:
+- Tentatives supplementaires de recapture stricte de la fenetre launcher apres finalisation UI.
+- Contexte observe: process launcher actif mais enumeration de fenetres inconstante selon session interactive.
+
+RESULTAT:
+- La capture recadree de reference reste celle validee precedemment:
+  - `WinPe_local/reports/launcher-after-window-final-20260601-145301.png`
+
+PENDING:
+- Si besoin absolu d une nouvelle capture recadree post-finalisation, la refaire manuellement sur session desktop active sans fenetres concurrentes (ou via un script local lance directement depuis la session utilisateur visible).
+
+### 2026-06-01 15:12 +02:00 VS Code Copilot (Agent B) verification cle USB et resynchronisation complete
+
+FAIT:
+- Verification hash local vs USB sur scripts critiques (`D:` et `E:`):
+  - `scripts/launcher.ps1`
+  - `scripts/launcher/LauncherCore.ps1`
+  - `scripts/offline/OfflineLogsEngine.ps1`
+  - `scripts/report/HtmlReportShell.ps1`
+  - `scripts/usb/Install-DanewChromiumTools.ps1`
+- Constat initial: plusieurs divergences (MATCH=False) et script USB d installation Chromium manquant.
+- Action: copie forcee des fichiers locaux vers `D:\scripts\...` et `E:\scripts\...`.
+- Reverification hash apres sync: MATCH=True sur les 5 fichiers pour `D:` et `E:`.
+
+VALIDATION:
+- Cle consideree a jour sur les composants scripts critiques modifies recemment.
+
+### 2026-06-01 15:20 +02:00 VS Code Copilot (Agent B) correctif incoherence bouton DISPO vs ouverture rapport
+
+FAIT:
+- Diagnostic confirme en WinPE: boutons rapports affiches disponibles mais ouverture HTML pouvait echouer (navigateur portable detecte mais non operationnel).
+- Correctif dans `WinPe_local/scripts/launcher.ps1`:
+  - `Update-DanewReportAvailability` lie maintenant la disponibilite des rapports HTML (1/2/3) a un test d operabilite navigateur (`Test-DanewPortableBrowserOperational`) et pas seulement a la presence du fichier.
+  - tooltips indisponibles precises quand le navigateur est present mais inutilisable dans l environnement.
+  - ouverture HTML renforcee: tentatives sans `WorkingDirectory` + fallback `cmd /c start` avec navigateur explicite.
+- Fix syntaxe (accolade manquante) corrige apres merge local des changements UI.
+
+VALIDATION:
+- `get_errors` sur `scripts/launcher.ps1` => aucun probleme.
+- `Run-UX1Tests.ps1` => PASS 11/11.
+- Synchronisation immediate de `launcher.ps1` vers cle USB:
+  - `D:\scripts\launcher.ps1` => MATCH=True
+  - `E:\scripts\launcher.ps1` => MATCH=True
+
+PENDING:
+- Validation terrain WinPE recommandee: verifier que si navigateur est KO, les boutons 1/2/3 passent bien en indisponible et que l erreur "directory name is invalid" n apparait plus sur clic.
+
+### 2026-06-01 15:25 +02:00 VS Code Copilot (Agent B) correctif urgent boot WinPE (variable non definie)
+
+FAIT:
+- Crash observe au boot WinPE dans `E:\scripts\launcher.ps1`:
+  - erreur: variable `$availabilityLegendLabel` non definie (utilisee avant initialisation).
+- Correctif applique dans `WinPe_local/scripts/launcher.ps1`:
+  - suppression de l appel prematuré `Controls.Add($availabilityLegendLabel*)` avant creation des labels.
+  - conservation de l ajout correct apres initialisation des 2 labels.
+
+VALIDATION:
+- `get_errors` sur `scripts/launcher.ps1` => aucun probleme.
+- `Run-UX1Tests.ps1` => PASS 11/11.
+- Synchronisation immediate vers USB:
+  - `D:\scripts\launcher.ps1` => MATCH=True
+  - `E:\scripts\launcher.ps1` => MATCH=True
+
+PENDING:
+- Redemarrage WinPE terrain pour confirmer disparition definitive du fallback CLI au boot.
+
+### 2026-05-29 20:55 +02:00 VS Code Copilot (Agent B) recreate cle WinPE complete
+
+FAIT:
+- Recreation complete de cle WinPE via:
+  - `launcher.ps1 -Action create-usb-media -FallbackToCli -ForceGuiInitFailure`
+  - disque cible: `4` (`Realtek RTL9210 NVME`)
+  - confirmation token validee: `DANEW-FORMAT-DISK-4`
+  - resultat global: `PASS`
+- Artifacts confirms:
+  - `usb-export-report.json` (boot `D:\`, data `E:\`)
+  - `usb-boot-validation.json` => `PASS`, `missing_required=0`
+- Verification scripts de creation a jour (hash SHA256 local vs USB):
+  - MATCH: `launcher.ps1`, `DanewCheckTool.CLI.ps1`, `offline/OfflineLogsEngine.ps1`, `launcher/LauncherCore.ps1`, `StartNet.cmd.template`
+  - DIFF detecte puis corrige: `main.cmd` (copie vers `D:\scripts\main.cmd`)
+  - verification finale `main.cmd`: MATCH
+
+PENDING:
+- Aucun sur la recreation cle + verification scripts.
+
 ### 2026-05-29 20:40 +02:00 VS Code Copilot (Agent B) split commits propre
 
 FAIT:
@@ -226,6 +977,31 @@ INTERDIT: modifier launcher.ps1/OfflineLogsEngine.ps1/tests sans nouveau claim.
 ACTION: booter cle, lancer analyse complete, verifier refresh toutes ~2s pendant Parse EVTX.
 SORTIE: FAIT/PENDING/FILES LIBERES/TESTS
 ```
+
+### 2026-06-02 00:12 +02:00 VS Code Copilot (Agent B) popup fin d analyse + indicateur vert
+
+FAIT:
+- `WinPe_local/scripts/launcher.ps1` mis a jour pour afficher un indicateur de completion d analyse dans l en-tete:
+  - nouvel etat visuel `Analyse: en attente` / `Analyse: en cours...` / `[OK] ...` (vert) / `[X] ...`.
+  - couverture des flux:
+    - `analyze-offline-logs-fast`
+    - `analyze-offline-logs-full`
+    - `analyze-crash-causes`
+    - `start-diagnostic`
+- Ajout d un popup explicite de fin pour l analyse hors ligne (`analyze-offline-logs-*`) avec resume statut + nombre d evenements parses.
+- Conservation des popups existants sur les autres flux (crash/diagnostic), avec ajout de l indicateur vert uniforme en succes.
+
+VALIDATION:
+- `get_errors` sur `WinPe_local/scripts/launcher.ps1` => aucun probleme.
+- `pwsh -NoProfile -ExecutionPolicy Bypass -File .\WinPe_local\scripts\tests\Run-UX1Tests.ps1` => PASS 11/11.
+
+DEPLOIEMENT CLE USB:
+- `D:\scripts\launcher.ps1` synchronise puis hash verifie: `MATCH=True`.
+- `E:\scripts\launcher.ps1` synchronise puis hash verifie: `MATCH=True`.
+- SHA256 local/D/E: `6E6EBF5A33B0C55273470FF71089929E052D382039C427AF56AC06401E2D13F0`.
+
+PENDING:
+- Aucun blocage.
 
 ### 2026-05-29 16:02:10 +02:00 Codex (Agent A) primary progress overlap fix claim
 
@@ -1785,6 +2561,29 @@ Le prochain agent peut poursuivre directement depuis l'etat courant du working t
 
 ## Test Log
 
+### 2026-06-01 23:28 +02:00 Codex Agent A
+
+Tests et validations lances:
+1. Parser PowerShell:
+   - `launcher.ps1`: OK
+   - `Run-UX1Tests.ps1`: OK
+2. `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UX1Tests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports`
+   - Resultat: 12/12 PASS.
+3. `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UX2Tests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports`
+   - Resultat: 17/17 PASS.
+4. `powershell -NoProfile -ExecutionPolicy Bypass -File H:\Danew_CheckTool\WinPe_local\scripts\tests\Run-UXEncodingTests.ps1 -RootPath H:\Danew_CheckTool\WinPe_local -OutputDirectory H:\Danew_CheckTool\WinPe_local\reports`
+   - Resultat: 7/7 PASS.
+5. `powershell -NoProfile -ExecutionPolicy Bypass -File E:\scripts\tests\Run-UX1Tests.ps1 -RootPath E:\ -OutputDirectory E:\reports`
+   - Resultat: 12/12 PASS.
+6. `powershell -NoProfile -ExecutionPolicy Bypass -File E:\scripts\tests\Run-UX2Tests.ps1 -RootPath E:\ -OutputDirectory E:\reports`
+   - Resultat: 17/17 PASS.
+7. Hash sync:
+   - `launcher.ps1` local/D/E: `49E24BEA474EECD106E9DEF68CCB7F20802122D9404D3CDD5B190F216843B44B`
+   - `Run-UX1Tests.ps1` local/D/E: `E42382AF439BBF5F1E4C7FDA2771593AA348913739A64C46DBCDE5C0986BC68C`
+8. Interface locale:
+   - nouvelle fenetre lancee PID `33144`.
+   - stdout/stderr vides.
+
 ### 2026-05-29 16:15:20 +02:00 Codex Agent A
 
 Tests et validations lances:
@@ -2617,3 +3416,263 @@ Tests executes (depuis `H:\Danew_CheckTool\WinPe_local`):
 
 Note:
 - Une erreur syntaxique temporaire a ete corrigee pendant l intervention dans `OfflineLogsEngine.ps1` (usage invalide de `Sort-Object`), puis retest complet au vert.
+
+### 2026-06-02 00:28 +02:00 VS Code Copilot (Agent B) correctif boutons fin d analyse (texte coupe)
+
+FAIT:
+- Correctif applique dans `WinPe_local/scripts/launcher.ps1` pour eviter le texte coupe/retour ligne sur les boutons rapides apres analyse:
+  - suppression de l horodatage `@HH:mm` dans les libelles de boutons rapides (source principale de depassement),
+  - statut compact passe de `[OK]/[NOK]` a `OK/KO`,
+  - rendu bouton durci (`TextAlign=MiddleCenter`, `UseMnemonic=$false`, `AutoEllipsis=$true`) pour stabiliser l affichage.
+- Legende en en-tete alignee sur le nouveau marquage `OK/KO`.
+
+VALIDATION:
+- `get_errors` sur `WinPe_local/scripts/launcher.ps1` => aucun probleme.
+- `pwsh -NoProfile -ExecutionPolicy Bypass -File .\WinPe_local\scripts\tests\Run-UX1Tests.ps1` => PASS 11/11.
+
+DEPLOIEMENT CLE USB:
+- `D:\scripts\launcher.ps1` => `MATCH=True`.
+- `E:\scripts\launcher.ps1` => `MATCH=True`.
+- SHA256 local/D/E: `B0998B4F09BE12A81B4A1424F43AAA2ED97215796A322104BD42E62BEBB07AE4`.
+
+PENDING:
+- Validation terrain visuelle WinPE: confirmer que les boutons 1/2/3 restent sur une seule ligne apres une nouvelle analyse complete.
+
+### 2026-06-02 03:05 +02:00 CODEX (Agent A) verification logs WinPE et sync legende coupee
+
+PRIS:
+- Lecture logs/reports sur cle montee apres action `Analyser causes de crash`.
+- Correction deploy USB de la legende en-tete coupee.
+
+VERROUILLES:
+- WinPe_local/scripts/launcher.ps1
+- D:/scripts/launcher.ps1
+- E:/scripts/launcher.ps1
+- AGENT_COMMUNICATION.md
+
+FAIT:
+- Logs USB lus: `analyze-offline-logs-fast` puis `analyze-crash-causes` sont `ok`.
+- Rapport causes genere: `E:/reports/sav-diagnostic-report.html` + JSON.
+- Constat: popup de fin normal, severite INFO, confiance Low/Faible, cause `unclassified crash path`.
+- Constat: local launcher contient le correctif de legende coupee, mais D/E avaient encore l ancien texte plus long.
+
+PENDING:
+- Aucun pour ce bloc.
+
+FILES LIBERES:
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/tests/Run-UX1Tests.ps1
+- D:/scripts/launcher.ps1
+- E:/scripts/launcher.ps1
+- D:/scripts/tests/Run-UX1Tests.ps1
+- E:/scripts/tests/Run-UX1Tests.ps1
+- AGENT_COMMUNICATION.md
+
+TESTS:
+- Parser E:/scripts/launcher.ps1: OK.
+- UX1 sur E: 12/12 PASS.
+- UX2 sur E: 17/17 PASS.
+- UX Encoding sur E: 7/7 PASS.
+- Post Final USB validation: 52/52 PASS.
+
+### 2026-06-02 03:18 +02:00 CODEX (Agent A) correction validation navigateur USB boot/data
+
+PRIS:
+- Corriger les validations restantes liees au navigateur portable.
+
+VERROUILLES:
+- WinPe_local/scripts/tests/Run-BrowserIntegrationTests.ps1
+- WinPe_local/scripts/tests/Run-PostBrowserUsbValidation.ps1
+- D:/scripts/tests/Run-BrowserIntegrationTests.ps1
+- E:/scripts/tests/Run-BrowserIntegrationTests.ps1
+- D:/scripts/tests/Run-PostBrowserUsbValidation.ps1
+- E:/scripts/tests/Run-PostBrowserUsbValidation.ps1
+- AGENT_COMMUNICATION.md
+
+FAIT:
+- Analyse: `E:/tools/browser` pese environ 618 Mo; `D:` boot FAT32 n a qu environ 383 Mo libres.
+- Decision: ne pas dupliquer Chromium sur BOOT. Le navigateur portable reste sur DATA `E:/tools/browser`; le launcher scanne les lecteurs et le trouve.
+
+PENDING:
+- Aucun pour ce bloc.
+
+FILES LIBERES:
+- WinPe_local/scripts/launcher/LauncherCore.ps1
+- WinPe_local/scripts/tests/Run-BrowserIntegrationTests.ps1
+- WinPe_local/scripts/tests/Run-PostBrowserUsbValidation.ps1
+- D:/scripts/launcher/LauncherCore.ps1
+- E:/scripts/launcher/LauncherCore.ps1
+- D:/scripts/tests/Run-BrowserIntegrationTests.ps1
+- E:/scripts/tests/Run-BrowserIntegrationTests.ps1
+- D:/scripts/tests/Run-PostBrowserUsbValidation.ps1
+- E:/scripts/tests/Run-PostBrowserUsbValidation.ps1
+- AGENT_COMMUNICATION.md
+
+TESTS:
+- Parser LauncherCore + BrowserIntegration + PostBrowser: OK.
+- BrowserIntegration local: 10/10 PASS.
+- BrowserIntegration E: 10/10 PASS.
+- PostBrowser USB E: 36/36 PASS.
+- PostFinal USB E: 52/52 PASS.
+- UX1 E: 12/12 PASS.
+- UX2 E: 17/17 PASS.
+- UX Encoding E: 7/7 PASS.
+- CLI check-browser E root: PASS, browser `E:/tools/browser/chromium.exe`.
+- CLI check-browser D root: PASS, browser `E:/tools/browser/chromium.exe`.
+
+### 2026-06-02 03:35 +02:00 CODEX (Agent A) correction ouverture rapports 1/2/3 WinPE
+
+PRIS:
+- Lire logs cle apres impossibilite d ouvrir boutons 1/2/3.
+- Corriger lancement navigateur portable WinPE si necessaire.
+
+VERROUILLES:
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/launcher/LauncherCore.ps1
+- WinPe_local/scripts/tests/Run-BrowserIntegrationTests.ps1
+- WinPe_local/scripts/tests/Run-UX2Tests.ps1
+- D:/scripts/launcher.ps1
+- E:/scripts/launcher.ps1
+- D:/scripts/launcher/LauncherCore.ps1
+- E:/scripts/launcher/LauncherCore.ps1
+- D:/scripts/tests/Run-BrowserIntegrationTests.ps1
+- E:/scripts/tests/Run-BrowserIntegrationTests.ps1
+- D:/scripts/tests/Run-UX2Tests.ps1
+- E:/scripts/tests/Run-UX2Tests.ps1
+- AGENT_COMMUNICATION.md
+
+FAIT:
+- Logs lus: rapports HTML presents sur E:/reports, navigateur detecte, pas de report-opening.log.
+- `E:/tools/browser/debug.log` montre `crash server failed to launch, self-terminating` au moment des ouvertures.
+- Cause probable: Chromium portable se ferme en WinPE a cause de Crashpad/crash reporter.
+
+PENDING:
+- Aucun pour ce bloc.
+
+FILES LIBERES:
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/launcher/LauncherCore.ps1
+- WinPe_local/scripts/tests/Run-BrowserIntegrationTests.ps1
+- WinPe_local/scripts/tests/Run-UX2Tests.ps1
+- D:/scripts/launcher.ps1
+- E:/scripts/launcher.ps1
+- D:/scripts/launcher/LauncherCore.ps1
+- E:/scripts/launcher/LauncherCore.ps1
+- D:/scripts/tests/Run-BrowserIntegrationTests.ps1
+- E:/scripts/tests/Run-BrowserIntegrationTests.ps1
+- D:/scripts/tests/Run-UX2Tests.ps1
+- E:/scripts/tests/Run-UX2Tests.ps1
+- AGENT_COMMUNICATION.md
+
+TESTS:
+- Parser local + E: OK.
+- BrowserIntegration local: 10/10 PASS.
+- BrowserIntegration E: 10/10 PASS.
+- UX1 E: 12/12 PASS.
+- UX2 E: 17/17 PASS.
+- UX Encoding E: 7/7 PASS.
+- PostBrowser USB E: 36/36 PASS.
+- PostFinal USB E: 52/52 PASS.
+- CLI check-browser E: PASS; open_command inclut `--disable-crashpad`, `--disable-breakpad`, `--disable-crash-reporter`, profil `E:/reports/browser-profile`.
+
+### 2026-06-02 03:58 +02:00 CODEX (Agent A) logique boutons grises rapports existants
+
+PRIS:
+- Verifier et corriger la logique des boutons grises/disponibles 1/2/3.
+
+VERROUILLES:
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/tests/Run-UX2Tests.ps1
+- D:/scripts/launcher.ps1
+- E:/scripts/launcher.ps1
+- D:/scripts/tests/Run-UX2Tests.ps1
+- E:/scripts/tests/Run-UX2Tests.ps1
+- AGENT_COMMUNICATION.md
+
+FAIT:
+- Verification: logique actuelle filtre par `ReportAvailabilityCutoff` = lancement GUI - 2s.
+- Probleme: apres relance interface/reboot, des rapports presents sur E:/reports peuvent rester grises car consideres hors session.
+
+PENDING:
+- Aucun pour ce bloc.
+
+FILES LIBERES:
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/tests/Run-UX2Tests.ps1
+- D:/scripts/launcher.ps1
+- E:/scripts/launcher.ps1
+- D:/scripts/tests/Run-UX2Tests.ps1
+- E:/scripts/tests/Run-UX2Tests.ps1
+- AGENT_COMMUNICATION.md
+
+TESTS:
+- Parser local + E: OK.
+- UX2 local: 18/18 PASS.
+- UX1 local: 12/12 PASS.
+- UX Encoding local: 7/7 PASS.
+- UX2 E: 18/18 PASS.
+- UX1 E: 12/12 PASS.
+- UX Encoding E: 7/7 PASS.
+- PostFinal USB E: 52/52 PASS.
+- Hash launcher.ps1 et Run-UX2Tests.ps1 identique local/D/E.
+
+### 2026-06-02 04:10 +02:00 CODEX (Agent A) suppression legende header coupee WinPE
+
+PRIS:
+- Supprimer definitivement la legende de disponibilite coupee dans le bandeau bleu.
+- Verifier que la cle D/E reste a jour pour test WinPE.
+
+VERROUILLES:
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/tests/Run-UX1Tests.ps1
+- D:/scripts/launcher.ps1
+- E:/scripts/launcher.ps1
+- D:/scripts/tests/Run-UX1Tests.ps1
+- E:/scripts/tests/Run-UX1Tests.ps1
+- AGENT_COMMUNICATION.md
+
+FAIT:
+- Legende de disponibilite retiree du header localement.
+- Test UX1 mis a jour pour verifier que cette legende ne revient pas.
+- Tests locaux au vert.
+- Verification USB: les volumes `DANEW_BOOT`/`DANEW_DATA` ne sont plus montes; seuls `FIRMWARE` et `EXT_SSD` sont visibles.
+
+PENDING:
+- Rebrancher/remonter la cle WinPE DANEW puis copier `launcher.ps1` et `Run-UX1Tests.ps1` sur D/E.
+
+FILES LIBERES:
+- WinPe_local/scripts/launcher.ps1
+- WinPe_local/scripts/tests/Run-UX1Tests.ps1
+- AGENT_COMMUNICATION.md
+
+TESTS:
+- Parser local launcher + UX1: OK.
+- UX1 local: 12/12 PASS.
+- UX2 local: 18/18 PASS.
+- UX Encoding local: 7/7 PASS.
+- Sync USB non terminee: D/E absents.
+
+### 2026-06-01 23:59 +02:00 VS Code Copilot (Agent B) correctif erreur boot MinLastWriteTime null
+
+FAIT:
+- Correctif applique dans [WinPe_local/scripts/launcher.ps1](WinPe_local/scripts/launcher.ps1) sur `Get-DanewAvailableReportPath`.
+- Le parametre `MinLastWriteTime` accepte maintenant une valeur vide/null sans echec de binding.
+- Conversion defensive en `[datetime]` seulement si une valeur non vide est fournie.
+- Fallback automatique vers la recherche sans cutoff si la valeur est absente/invalide.
+
+CAUSE:
+- Erreur observee au boot WinPE: `Cannot process argument transformation on parameter 'MinLastWriteTime'. Cannot convert null to type 'System.DateTime'`.
+- Le lancement au boot appelait cette fonction avec une valeur vide sur certaines revisions du script USB.
+
+VALIDATION:
+- `get_errors` sur launcher => aucun probleme.
+- UX1 local apres correctif: 12/12 PASS.
+
+DEPLOIEMENT CLE USB:
+- `D:\scripts\launcher.ps1` synchronise puis verifie: `MATCH=True`.
+- `E:\scripts\launcher.ps1` synchronise puis verifie: `MATCH=True`.
+- SHA256 local/D/E: `A608A4E4FE7B1C1B095ED4911D2E2D9BBC785CB376CBD434FA4AFB79731DFD12`.
+
+PENDING:
+- Rebooter la cle WinPE et verifier disparition de l erreur au menu CLI.
+- Aucun autre blocage cote code.

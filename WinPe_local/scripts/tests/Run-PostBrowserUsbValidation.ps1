@@ -59,7 +59,12 @@ foreach ($targetRoot in @('D:\', 'E:\')) {
 
     if ($targetExists) {
         $browserDir = Join-Path $targetRoot 'tools\browser'
-        $results += Add-PostBrowserResult -Name ('target_' + $targetName + '_browser_folder_exists') -Passed (Test-Path -Path $browserDir) -Details $browserDir
+        if ($targetName -eq 'D') {
+            $results += Add-PostBrowserResult -Name 'target_D_browser_folder_optional' -Passed $true -Details ($browserDir + ' optional on lightweight BOOT partition; browser is validated on DATA.')
+        }
+        else {
+            $results += Add-PostBrowserResult -Name ('target_' + $targetName + '_browser_folder_exists') -Passed (Test-Path -Path $browserDir) -Details $browserDir
+        }
 
         foreach ($rel in @($files)) {
             $src = Join-Path $RootPath $rel
@@ -88,16 +93,15 @@ if (@($providedBrowsers).Count -eq 0) {
 }
 else {
     foreach ($browser in @($providedBrowsers)) {
-        foreach ($targetRoot in @('D:\', 'E:\')) {
-            $dst = Join-Path $targetRoot ('tools\browser\' + $browser.Name)
-            $dstExists = Test-Path -Path $dst
-            $hashOk = $false
-            if ($dstExists) {
-                $hashOk = ((Get-FileHash -Algorithm SHA256 -Path $browser.FullName).Hash -eq (Get-FileHash -Algorithm SHA256 -Path $dst).Hash)
-            }
-            $results += Add-PostBrowserResult -Name ('manual_browser_' + $targetRoot.Substring(0, 1) + '_' + $browser.Name) -Passed ($dstExists -and $hashOk) -Details $dst
+        $dst = Join-Path 'E:\' ('tools\browser\' + $browser.Name)
+        $dstExists = Test-Path -Path $dst
+        $hashOk = $false
+        if ($dstExists) {
+            $hashOk = ((Get-FileHash -Algorithm SHA256 -Path $browser.FullName).Hash -eq (Get-FileHash -Algorithm SHA256 -Path $dst).Hash)
         }
+        $results += Add-PostBrowserResult -Name ('manual_browser_E_' + $browser.Name) -Passed ($dstExists -and $hashOk) -Details $dst
     }
+    $results += Add-PostBrowserResult -Name 'manual_browser_D_optional' -Passed $true -Details 'Portable browser binaries are intentionally not duplicated on BOOT; DANEW_DATA carries tools/browser.'
 }
 
 if (-not (Test-Path -Path $OutputDirectory)) {

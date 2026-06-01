@@ -3891,8 +3891,10 @@ body { font-family: Segoe UI, Arial, sans-serif; background: #f8fafc; color: #1f
 .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .chip { background: #eef2ff; color: #1d4ed8; border: 1px solid #c7d2fe; border-radius: 999px; padding: 4px 10px; font-weight: 600; }
 .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+.toolbar input { min-width: 280px; border: 1px solid #cbd5e1; border-radius: 10px; background: #ffffff; padding: 8px 12px; }
 .toolbar button { border: 1px solid #cbd5e1; border-radius: 10px; background: #ffffff; padding: 8px 12px; cursor: pointer; font-weight: 600; }
 .toolbar button.active { background: #1d4ed8; color: #ffffff; border-color: #1d4ed8; }
+.toolbar-count { display: inline-flex; align-items: center; min-height: 38px; padding: 0 10px; border: 1px dashed #cbd5e1; border-radius: 10px; color: #475569; font-size: 13px; }
 .card { background: #ffffff; border: 1px solid #dbe3ea; border-radius: 14px; padding: 12px; margin-bottom: 12px; overflow-x: auto; }
 table { width: 100%; min-width: 960px; table-layout: fixed; border-collapse: collapse; }
 th, td { border: 1px solid #dbe3ea; padding: 7px; vertical-align: top; text-align: left; overflow-wrap: anywhere; word-break: break-word; }
@@ -3927,6 +3929,9 @@ $limitNotice
 </section>
 
 <section class="toolbar">
+<input type="search" data-report-search placeholder="Filtrer source, id, famille, message..." />
+<button type="button" data-action="clear-search">Effacer filtre</button>
+<span class="toolbar-count" data-report-count aria-live="polite"></span>
 <button type="button" data-mode-btn="errors" class="active">Mode 1: Rapide - Critique/Erreur/Avert.</button>
 <button type="button" data-mode-btn="all">Mode 2: Complet - Tous les evenements</button>
 </section>
@@ -3971,6 +3976,36 @@ $(($byFileSections -join "`n"))
 (function () {
     var root = document.body;
     var buttons = document.querySelectorAll('[data-mode-btn]');
+    var searchBox = document.querySelector('[data-report-search]');
+    var clearSearch = document.querySelector('[data-action="clear-search"]');
+    var reportCount = document.querySelector('[data-report-count]');
+
+    function normalize(value) {
+        return (value || '').toString().toLowerCase();
+    }
+
+    function applySearchByTerm() {
+        var term = searchBox ? normalize(searchBox.value) : '';
+        var rows = Array.prototype.slice.call(document.querySelectorAll('[data-search-row]'));
+        var visible = 0;
+        rows.forEach(function (row) {
+            var match = term === '' || normalize(row.getAttribute('data-search-row')).indexOf(term) !== -1;
+            row.hidden = !match;
+            if (match) {
+                visible += 1;
+            }
+        });
+
+        if (reportCount) {
+            if (term === '') {
+                reportCount.textContent = visible + ' lignes visibles';
+            }
+            else {
+                var suffix = visible > 1 ? 's' : '';
+                reportCount.textContent = visible + ' resultat' + suffix + ' pour "' + (searchBox ? searchBox.value : '') + '"';
+            }
+        }
+    }
     function setColumnWidth(table, columnIndex, width) {
         var safeWidth = Math.max(64, Math.round(width));
         var rows = Array.prototype.slice.call(table.querySelectorAll('tr'));
@@ -4065,6 +4100,19 @@ $(($byFileSections -join "`n"))
                 btn.classList.remove('active');
             }
         });
+        applySearchByTerm();
+    }
+
+    if (searchBox) {
+        searchBox.addEventListener('input', applySearchByTerm);
+    }
+    if (clearSearch) {
+        clearSearch.addEventListener('click', function () {
+            if (!searchBox) { return; }
+            searchBox.value = '';
+            applySearchByTerm();
+            searchBox.focus();
+        });
     }
     buttons.forEach(function (btn) {
         btn.addEventListener('click', function () {
@@ -4073,6 +4121,7 @@ $(($byFileSections -join "`n"))
     });
     initInteractiveTables();
     setMode('errors');
+    applySearchByTerm();
 }());
 </script>
 </body>

@@ -58,14 +58,22 @@ $results += Add-UX1Result -Name 'launcher_parser_ok' -Passed (-not $errors) -Det
 $content = Get-Content -Path $launcherPath -Raw -Encoding UTF8
 
 $mainButtons = @(
-    'ANALYZE THIS PC',
-    'Open SAV Diagnostic Report',
-    'Open Timeline Report',
-    'Open Storage Report',
-    'Export SAV Package',
-    'Recommended Actions'
+    'ANALYSE COMPLETE',
+    'ANALYSER CAUSES',
+    '1. COMPLET TOUS LES LOGS',
+    '3. OUVRIR LE RAPPORT SAV',
+    '7. EXPORTER LE DOSSIER SAV',
+    '4. ACTIONS RECOMMANDEES'
 )
 $results += Add-UX1Result -Name 'main_buttons_visible' -Passed (Test-UX1PatternSet -Content $content -Patterns $mainButtons) -Details ($mainButtons -join ', ')
+
+$cleanAvailabilityLabels = ($content -notmatch '\$availabilityLabel') -and
+    ($content -notmatch 'Bouton actif: rapport disponible') -and
+    ($content -notmatch 'Bouton grise: analyse a lancer') -and
+    ($content -notmatch '\$availabilityLegendLabel') -and
+    ($content -match 'disponibles, ') -and
+    ($content -match 'navigateur HTML indisponible')
+$results += Add-UX1Result -Name 'report_buttons_without_ok_ko_suffix' -Passed $cleanAvailabilityLabels -Details 'Report buttons keep clean text; availability is shown by disabled state and group summary, not header legend text.'
 
 $advancedCollapsed = ($content -match 'Set-DanewAdvancedToolsVisible\s+-Visible\s+\$false') -and ($content -match '\$buttonGroup\.Visible\s*=\s*\$Visible') -and ($content -match "Name\s*=\s*'AdvancedToolsPanel'")
 $results += Add-UX1Result -Name 'advanced_tools_collapsed_by_default' -Passed $advancedCollapsed -Details 'Advanced tools panel is driven by hidden default toggle.'
@@ -95,7 +103,7 @@ $reportHandlers = @(
 )
 $results += Add-UX1Result -Name 'main_report_buttons_functional' -Passed (Test-UX1PatternSet -Content $content -Patterns $reportHandlers) -Details 'SAV, timeline, and storage open handlers are present.'
 
-$layoutFits = ($content -match 'ClientSize\s*=\s*New-Object System\.Drawing\.Size\(900,\s*720\)') -and ($content -match 'MinimumSize\s*=\s*New-Object System\.Drawing\.Size\(900,\s*700\)') -and ($content -match '\$togglePanel\.Top\s*=\s*662')
+$layoutFits = ($content -match 'ClientSize\s*=\s*New-Object System\.Drawing\.Size\(900,\s*720\)') -and ($content -match 'MinimumSize\s*=\s*New-Object System\.Drawing\.Size\(900,\s*700\)') -and ($content -match '\$togglePanel\.Top\s*=\s*if \(\$Visible\) \{ 698 \} else \{ 530 \}')
 $results += Add-UX1Result -Name 'layout_fits_1366x768' -Passed $layoutFits -Details 'Collapsed layout uses 900x720 client area.'
 
 $requiredHandlers = @(
@@ -155,7 +163,7 @@ $results += Add-UX1Result -Name 'launchercore_actions_still_working' -Passed $la
 $htmlOpeningOk = (Test-UX1PatternSet -Content $content -Patterns @('Open-DanewReportFile', 'Start-Process -FilePath $Path', 'Open-DanewSpecificReport -Kind ''sav''', 'Open-DanewSpecificReport -Kind ''timeline''', 'Open-DanewSpecificReport -Kind ''storage'''))
 $results += Add-UX1Result -Name 'html_report_opening_still_works' -Passed $htmlOpeningOk -Details 'Report opening still uses local Start-Process paths.'
 
-$unsupportedPatterns = @('PresentationFramework', 'System.Xaml', 'WebView2', 'Chromium', 'Electron', 'WPF')
+$unsupportedPatterns = @('PresentationFramework', 'System.Xaml', 'WebView2', 'Electron', 'WPF')
 $unsupportedFound = @($unsupportedPatterns | Where-Object { $content -match [regex]::Escape($_) })
 $results += Add-UX1Result -Name 'no_unsupported_winpe_dependency' -Passed (@($unsupportedFound).Count -eq 0) -Details ($(if (@($unsupportedFound).Count -eq 0) { 'WinForms/System.Drawing only.' } else { 'Found: ' + ($unsupportedFound -join ', ') }))
 

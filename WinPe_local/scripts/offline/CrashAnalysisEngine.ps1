@@ -85,6 +85,103 @@ function Convert-DanewCrashSeverityLevel {
     return 'INFO'
 }
 
+function Get-DanewWerMessageField {
+    param(
+        [string]$Message,
+        [string]$FieldName
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Message) -or [string]::IsNullOrWhiteSpace($FieldName)) {
+        return ''
+    }
+
+    $escaped = [Regex]::Escape($FieldName)
+    $match = [Regex]::Match($Message, "(?im)^\s*$escaped\s*:\s*(.*)$")
+    if ($match.Success) {
+        return [string]$match.Groups[1].Value.Trim()
+    }
+
+    return ''
+}
+
+function Get-DanewCrashRecordFingerprint {
+    param([object]$LogRecord)
+
+    $provider = [string](Get-DanewCrashSafeProperty -Object $LogRecord -Name 'provider' -DefaultValue '')
+    $eventId = [string](Get-DanewCrashSafeProperty -Object $LogRecord -Name 'event_id' -DefaultValue '')
+    $message = [string](Get-DanewCrashSafeProperty -Object $LogRecord -Name 'message' -DefaultValue '')
+    $channel = [string](Get-DanewCrashSafeProperty -Object $LogRecord -Name 'channel' -DefaultValue '')
+
+    $isWer = ($provider -match 'Windows Error Reporting') -or ($message -match '(?i)Event Name:\s*')
+    if (-not $isWer) {
+        $normalized = [Regex]::Replace(($provider + '|' + $eventId + '|' + $channel + '|' + $message), '\s+', ' ').Trim().ToLowerInvariant()
+        return $normalized
+    }
+
+    $eventName = Get-DanewWerMessageField -Message $message -FieldName 'Event Name'
+    $p1 = Get-DanewWerMessageField -Message $message -FieldName 'P1'
+    $p2 = Get-DanewWerMessageField -Message $message -FieldName 'P2'
+    $p3 = Get-DanewWerMessageField -Message $message -FieldName 'P3'
+    $p4 = Get-DanewWerMessageField -Message $message -FieldName 'P4'
+    $p5 = Get-DanewWerMessageField -Message $message -FieldName 'P5'
+    $p9 = Get-DanewWerMessageField -Message $message -FieldName 'P9'
+
+    # Report Id changes on every occurrence and is intentionally excluded from the fingerprint.
+    $werKey = "wer|$eventName|$p1|$p2|$p3|$p4|$p5|$p9"
+    return [Regex]::Replace($werKey, '\s+', ' ').Trim().ToLowerInvariant()
+}
+
+function Optimize-DanewCrashLogRecords {
+    param(
+        [AllowEmptyCollection()]
+        [object[]]$LogRecords
+    )
+
+    $deduped = New-Object System.Collections.ArrayList
+    $indexByFingerprint = @{}
+    $removedTotal = 0
+    $removedWer = 0
+
+    foreach ($logRecord in @($LogRecords)) {
+        if ($null -eq $logRecord) {
+            continue
+        }
+
+        $fingerprint = Get-DanewCrashRecordFingerprint -LogRecord $logRecord
+        if (-not $indexByFingerprint.ContainsKey($fingerprint)) {
+            $row = [ordered]@{}
+            foreach ($prop in $logRecord.PSObject.Properties) {
+                $row[$prop.Name] = $prop.Value
+            }
+            $row['duplicate_count'] = 1
+
+            $entry = [pscustomobject]$row
+            [void]$deduped.Add($entry)
+            $indexByFingerprint[$fingerprint] = @($deduped).Count - 1
+            continue
+        }
+
+        $removedTotal += 1
+        $provider = [string](Get-DanewCrashSafeProperty -Object $logRecord -Name 'provider' -DefaultValue '')
+        $message = [string](Get-DanewCrashSafeProperty -Object $logRecord -Name 'message' -DefaultValue '')
+        if (($provider -match 'Windows Error Reporting') -or ($message -match '(?i)Event Name:\s*')) {
+            $removedWer += 1
+        }
+
+        $existingIndex = [int]$indexByFingerprint[$fingerprint]
+        $existing = $deduped[$existingIndex]
+        $existing.duplicate_count = [int](Get-DanewCrashSafeProperty -Object $existing -Name 'duplicate_count' -DefaultValue 1) + 1
+    }
+
+    return [pscustomobject]@{
+        records = @($deduped)
+        input_count = @($LogRecords).Count
+        output_count = @($deduped).Count
+        removed_duplicates = $removedTotal
+        removed_wer_duplicates = $removedWer
+    }
+}
+
 function Get-DanewCrashClassification {
     param(
         [AllowEmptyCollection()]
@@ -337,14 +434,15 @@ function Get-DanewCrashRootCauseAnalysis {
     }
 
     $recordCount = @($records).Count
-    $bugchecks = @($records | Where-Object { $_ -and $_.categories -contains 'BugCheck / BSOD' } | Where-Object { $null -ne $_ })
-    $storage = @($records | Where-Object { $_ -and ($_.categories -contains 'Disk / Storage' -or $_.categories -contains 'NTFS corruption' -or $_.categories -contains 'Boot / BCD') } | Where-Object { $null -ne $_ })
-    $updates = @($records | Where-Object { $_ -and $_.categories -contains 'Windows Update failure' } | Where-Object { $null -ne $_ })
-    $drivers = @($records | Where-Object { $_ -and ($_.categories -contains 'DriverFrameworks issues' -or $_.categories -contains 'Service startup failures') } | Where-Object { $null -ne $_ })
-    $whea = @($records | Where-Object { $_ -and $_.categories -contains 'WHEA hardware errors' } | Where-Object { $null -ne $_ })
-    $kernelPower = @($records | Where-Object { $_ -and $_.categories -contains 'Kernel-Power shutdown' } | Where-Object { $null -ne $_ })
-    $rstLikeDrivers = @($records | Where-Object { $_ -and ($_.provider -match 'iaStor|RST|VMD|storport|RaidPort' -or [string]$_.message -match 'iaStor|RST|VMD|RaidPort') } | Where-Object { $null -ne $_ })
-    $bootDeviceCrash = @($bugchecks | Where-Object { [string]$_.message -match 'INACCESSIBLE_BOOT_DEVICE|0x0000007B|0x7B' } | Where-Object { $null -ne $_ })
+    $validRecords = @($records | Where-Object { $null -ne $_ })
+    $bugchecks = @($validRecords | Where-Object { $_.categories -contains 'BugCheck / BSOD' })
+    $storage = @($validRecords | Where-Object { $_.categories -contains 'Disk / Storage' -or $_.categories -contains 'NTFS corruption' -or $_.categories -contains 'Boot / BCD' })
+    $updates = @($validRecords | Where-Object { $_.categories -contains 'Windows Update failure' })
+    $drivers = @($validRecords | Where-Object { $_.categories -contains 'DriverFrameworks issues' -or $_.categories -contains 'Service startup failures' })
+    $whea = @($validRecords | Where-Object { $_.categories -contains 'WHEA hardware errors' })
+    $kernelPower = @($validRecords | Where-Object { $_.categories -contains 'Kernel-Power shutdown' })
+    $rstLikeDrivers = @($validRecords | Where-Object { $_.provider -match 'iaStor|RST|VMD|storport|RaidPort' -or [string]$_.message -match 'iaStor|RST|VMD|RaidPort' })
+    $bootDeviceCrash = @($bugchecks | Where-Object { [string]$_.message -match 'INACCESSIBLE_BOOT_DEVICE|0x0000007B|0x7B' })
     $bitlockerVolumes = @($BitLockerAnalysis.volumes | Where-Object { ([string]$_.lock_status -match 'Locked') -or ([string]$_.protection_status -match 'On|Protected') })
 
     if (@($bitlockerVolumes).Count -gt 0) {
@@ -468,15 +566,21 @@ function Write-DanewSavDiagnosticReportHtml {
     }
 
     $eventRows = @()
-    foreach ($classifiedRecord in @($CrashAnalysis.classification.records | Select-Object -First 40)) {
-        $rowSearch = ConvertTo-DanewReportHtmlText ($classifiedRecord.timestamp, $classifiedRecord.event_id, $classifiedRecord.provider, (@($classifiedRecord.categories) -join '; '), $classifiedRecord.message -join ' ')
+    foreach ($classifiedRecord in @($CrashAnalysis.classification.records | Select-Object -First 25)) {
+        $duplicateCount = [int](Get-DanewCrashSafeProperty -Object $classifiedRecord -Name 'duplicate_count' -DefaultValue 1)
+        $messageText = [string]$classifiedRecord.message
+        if ($duplicateCount -gt 1) {
+            $messageText = "$messageText [x$duplicateCount]"
+        }
+
+        $rowSearch = ConvertTo-DanewReportHtmlText ($classifiedRecord.timestamp, $classifiedRecord.event_id, $classifiedRecord.provider, (@($classifiedRecord.categories) -join '; '), $messageText -join ' ')
         $eventRows += @"
     <tr data-search-row="$rowSearch">
 <td>$([System.Security.SecurityElement]::Escape([string]$classifiedRecord.timestamp))</td>
 <td>$([System.Security.SecurityElement]::Escape([string]$classifiedRecord.event_id))</td>
 <td>$([System.Security.SecurityElement]::Escape([string]$classifiedRecord.provider))</td>
 <td>$([System.Security.SecurityElement]::Escape([string](@($classifiedRecord.categories) -join '; ')))</td>
-<td>$([System.Security.SecurityElement]::Escape([string]$classifiedRecord.message))</td>
+<td>$([System.Security.SecurityElement]::Escape($messageText))</td>
 </tr>
 "@
     }
@@ -528,7 +632,7 @@ function Write-DanewSavDiagnosticReportHtml {
         (New-DanewReportSectionHtml -Title 'Resume executif' -Caption 'Le bandeau de synthese reprend la chaine de cause racine la plus probable sans lancer de reparation.' -SearchText ('summary primary cause severity impact ' + [string](Get-DanewCrashSafeProperty -Object $CrashAnalysis.root_cause_analysis.primary_cause -Name 'cause' -DefaultValue '')) -BodyHtml $summaryBody)
         (New-DanewReportSectionHtml -Title 'Causes principales et secondaires' -Caption 'Recherche par texte de cause, score, confiance ou justification.' -SearchText 'causes confidence score reason root cause analysis' -BodyHtml (New-DanewReportTableHtml -Headers @('Cause', 'Confiance', 'Score', 'Justification') -Rows $causeRows -EmptyMessage 'Aucune cause ne correspond au filtre courant.'))
         (New-DanewReportSectionHtml -Title 'Intelligence de chronologie' -Caption 'Synthese de motifs extraite des enregistrements classes.' -SearchText 'timeline intelligence patterns confidence summary' -BodyHtml (New-DanewReportTableHtml -Headers @('Motif', 'Confiance', 'Resume') -Rows $timelineRows -EmptyMessage 'Aucune ligne de chronologie ne correspond au filtre courant.') -Collapsed $true)
-        (New-DanewReportSectionHtml -Title 'Classification des evenements' -Caption '40 premiers enregistrements classes pour un triage rapide.' -SearchText 'event classification provider category message' -BodyHtml (New-DanewReportTableHtml -Headers @('Horodatage', 'ID evenement', 'Fournisseur', 'Categorie', 'Message') -Rows $eventRows -EmptyMessage 'Aucun evenement classe ne correspond au filtre courant.') -Collapsed $true)
+        (New-DanewReportSectionHtml -Title 'Classification des evenements' -Caption '25 premiers enregistrements classes pour un triage rapide.' -SearchText 'event classification provider category message' -BodyHtml (New-DanewReportTableHtml -Headers @('Horodatage', 'ID evenement', 'Fournisseur', 'Categorie', 'Message') -Rows $eventRows -EmptyMessage 'Aucun evenement classe ne correspond au filtre courant.') -Collapsed $true)
         (New-DanewReportSectionHtml -Title 'Prochaines actions recommandees' -Caption 'Actions en lecture seule uniquement. Les reparations restent hors de cette phase.' -SearchText ('recommendations next steps ' + (@($CrashAnalysis.recommendations) -join ' ')) -BodyHtml $recommendationBody)
     )
 
@@ -582,8 +686,11 @@ function Invoke-DanewCrashCauseAnalysis {
         $logRecords = @()
     }
 
-    $classify = Get-DanewCrashClassification -LogRecords $logRecords
-    $timeline = Get-DanewCrashTimelineIntelligence -LogRecords $logRecords -ClassifiedRecords $classify.records
+    $optimizedLogs = Optimize-DanewCrashLogRecords -LogRecords $logRecords
+    $recordsForAnalysis = @($optimizedLogs.records)
+
+    $classify = Get-DanewCrashClassification -LogRecords $recordsForAnalysis
+    $timeline = Get-DanewCrashTimelineIntelligence -LogRecords $recordsForAnalysis -ClassifiedRecords $classify.records
     $correlation = Get-DanewCrashEvidenceCorrelation -LogRecords $classify.records -StorageDiagnostics $storageDiagnostics -BitLockerAnalysis $bitLockerAnalysis -OfflineAnalysis $offlineSummary -TimelineIntelligence $timeline
     $rootCause = Get-DanewCrashRootCauseAnalysis -ClassifiedRecords $classify.records -StorageDiagnostics $storageDiagnostics -BitLockerAnalysis $bitLockerAnalysis -OfflineAnalysis $offlineSummary -EvidenceCorrelation $correlation -TimelineIntelligence $timeline
     $severity = Get-DanewCrashSeverityAnalysis -RootCauseAnalysis $rootCause -OfflineAnalysis $offlineSummary -StorageDiagnostics $storageDiagnostics
@@ -663,6 +770,12 @@ function Invoke-DanewCrashCauseAnalysis {
         }
         severity_analysis = $severity
         recommendations = $recommendations
+        record_optimization = [pscustomobject]@{
+            input_count = [int]$optimizedLogs.input_count
+            output_count = [int]$optimizedLogs.output_count
+            removed_duplicates = [int]$optimizedLogs.removed_duplicates
+            removed_wer_duplicates = [int]$optimizedLogs.removed_wer_duplicates
+        }
         report_paths = [pscustomobject]@{
             classification = $classificationPath
             evidence_correlation = $evidenceCorrelationPath
@@ -676,14 +789,14 @@ function Invoke-DanewCrashCauseAnalysis {
         }
     }
 
-    $classify | ConvertTo-Json -Depth 40 | Set-Content -Path $classificationPath -Encoding UTF8
-    $correlation | ConvertTo-Json -Depth 40 | Set-Content -Path $evidenceCorrelationPath -Encoding UTF8
-    $rootCause | ConvertTo-Json -Depth 40 | Set-Content -Path $rootCausePath -Encoding UTF8
-    [pscustomobject]@{ causes = $confidenceRows } | ConvertTo-Json -Depth 20 | Set-Content -Path $confidencePath -Encoding UTF8
-    $timeline | ConvertTo-Json -Depth 40 | Set-Content -Path $timelineIntelPath -Encoding UTF8
-    $crash.multi_cause_analysis | ConvertTo-Json -Depth 30 | Set-Content -Path $multiCausePath -Encoding UTF8
-    $severity | ConvertTo-Json -Depth 30 | Set-Content -Path $severityPath -Encoding UTF8
-    $crash | ConvertTo-Json -Depth 40 | Set-Content -Path $savJsonPath -Encoding UTF8
+    $classify | ConvertTo-Json -Depth 20 | Set-Content -Path $classificationPath -Encoding UTF8
+    $correlation | ConvertTo-Json -Depth 20 | Set-Content -Path $evidenceCorrelationPath -Encoding UTF8
+    $rootCause | ConvertTo-Json -Depth 20 | Set-Content -Path $rootCausePath -Encoding UTF8
+    [pscustomobject]@{ causes = $confidenceRows } | ConvertTo-Json -Depth 15 | Set-Content -Path $confidencePath -Encoding UTF8
+    $timeline | ConvertTo-Json -Depth 20 | Set-Content -Path $timelineIntelPath -Encoding UTF8
+    $crash.multi_cause_analysis | ConvertTo-Json -Depth 18 | Set-Content -Path $multiCausePath -Encoding UTF8
+    $severity | ConvertTo-Json -Depth 18 | Set-Content -Path $severityPath -Encoding UTF8
+    $crash | ConvertTo-Json -Depth 25 | Set-Content -Path $savJsonPath -Encoding UTF8
     Write-DanewSavDiagnosticReportHtml -Path $savHtmlPath -CrashAnalysis $crash
 
     return $crash

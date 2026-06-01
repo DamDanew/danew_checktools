@@ -73,9 +73,34 @@ function New-DanewBuildWorkspace {
 
         @(
             '@echo off',
+            'setlocal enabledelayedexpansion',
             'echo Danew CheckTool Build Entry',
-            'if exist X:\\scripts\\Main.cmd call X:\\scripts\\Main.cmd',
-            'if exist X:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe (X:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -NoLogo -ExecutionPolicy Bypass -Command "Write-Host Danew WinPE Build Ready") else (echo [DANEW] PowerShell not found in this WinPE image.)'
+            'set DANEW_PS=',
+            'if exist X:\\Program Files\\PowerShell\\7\\pwsh.exe set DANEW_PS=X:\\Program Files\\PowerShell\\7\\pwsh.exe',
+            'if not defined DANEW_PS if exist X:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe set DANEW_PS=X:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+            'if not defined DANEW_PS (',
+            '  where pwsh.exe >nul 2>nul',
+            '  if not errorlevel 1 set DANEW_PS=pwsh.exe',
+            ')',
+            'if not defined DANEW_PS (',
+            '  where powershell.exe >nul 2>nul',
+            '  if not errorlevel 1 set DANEW_PS=powershell.exe',
+            ')',
+            'if not defined DANEW_PS (',
+            '  echo [DANEW] PowerShell is not available in this WinPE image.',
+            '  exit /b 127',
+            ')',
+            'set DANEW_ROOT=',
+            'for %%L in (D E F G H I J K L M N O P Q R S T U V W Y Z) do (',
+            '  if exist %%L:\\scripts\\launcher.ps1 set DANEW_ROOT=%%L:\\',
+            ')',
+            'if not defined DANEW_ROOT (',
+            '  echo [DANEW] launcher.ps1 not found on USB partitions.',
+            '  exit /b 1',
+            ')',
+            '"%DANEW_PS%" -NoLogo -ExecutionPolicy Bypass -File %DANEW_ROOT%scripts\\launcher.ps1 -RootPath %DANEW_ROOT% -FallbackToCli',
+            'if errorlevel 1 "%DANEW_PS%" -NoLogo -ExecutionPolicy Bypass -File %DANEW_ROOT%scripts\\DanewCheckTool.CLI.ps1 -RootPath %DANEW_ROOT% -Command Interactive',
+            'exit /b %errorlevel%'
         ) | Set-Content -Path $launch -Encoding ASCII
     }
 
