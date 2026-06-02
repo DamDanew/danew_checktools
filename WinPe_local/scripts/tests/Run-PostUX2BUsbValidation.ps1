@@ -55,11 +55,11 @@ $bootFallbackOk = $false
 $dataFallbackOk = $false
 if (Test-Path $bootScriptPath) {
     $bootContent = Get-Content -Path $bootScriptPath -Raw -Encoding UTF8
-    $bootFallbackOk = $bootContent -match "sav-diagnostic-report\.html', 'REPORTS_INDEX\.html', 'reports-index\.html', 'one-click-diagnostic-report\.html', 'offline-windows-failure-report\.html'"
+    $bootFallbackOk = $bootContent -match "REPORTS_INDEX\.html', 'reports-index\.html', 'sav-diagnostic-report\.html', 'one-click-diagnostic-report\.html', 'offline-windows-failure-report\.html'"
 }
 if (Test-Path $dataScriptPath) {
     $dataContent = Get-Content -Path $dataScriptPath -Raw -Encoding UTF8
-    $dataFallbackOk = $dataContent -match "sav-diagnostic-report\.html', 'REPORTS_INDEX\.html', 'reports-index\.html', 'one-click-diagnostic-report\.html', 'offline-windows-failure-report\.html'"
+    $dataFallbackOk = $dataContent -match "REPORTS_INDEX\.html', 'reports-index\.html', 'sav-diagnostic-report\.html', 'one-click-diagnostic-report\.html', 'offline-windows-failure-report\.html'"
 }
 
 $results += Add-PostUX2BResult -Name 'fallback_order_present_on_boot_data' -Passed ($bootFallbackOk -and $dataFallbackOk) -Details ('D=' + [string]$bootFallbackOk + '; E=' + [string]$dataFallbackOk)

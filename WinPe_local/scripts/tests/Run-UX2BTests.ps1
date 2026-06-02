@@ -45,8 +45,8 @@ $results += Add-UX2BResult -Name 'launcher_report_fallback_from_D' -Passed (($la
 
 $results += Add-UX2BResult -Name 'launcher_report_fallback_from_E' -Passed (($launcher -match 'foreach \(\$drive in @\(''E'', ''D''') -and ($launcher -match 'Add-DanewReportRoot -Path \(\$drive \+ '':\\reports''\)')) -Details 'Drive fallback scan includes E: reports root.'
 
-$savFallback = $launcher -match "sav-diagnostic-report\.html', 'REPORTS_INDEX\.html', 'reports-index\.html', 'one-click-diagnostic-report\.html', 'offline-windows-failure-report\.html'"
-$results += Add-UX2BResult -Name 'missing_sav_fallback_to_REPORTS_INDEX' -Passed $savFallback -Details 'SAV order: sav -> REPORTS_INDEX -> reports-index -> one-click -> offline failure.'
+$savFallback = $launcher -match "REPORTS_INDEX\.html', 'reports-index\.html', 'sav-diagnostic-report\.html', 'one-click-diagnostic-report\.html', 'offline-windows-failure-report\.html'"
+$results += Add-UX2BResult -Name 'missing_sav_fallback_to_REPORTS_INDEX' -Passed $savFallback -Details 'SAV action order: REPORTS_INDEX -> reports-index -> sav -> one-click -> offline failure.'
 
 $timelineFallback = $launcher -match "timeline-raw\.html', 'REPORTS_INDEX\.html', 'reports-index\.html', 'timeline-raw\.json'"
 $results += Add-UX2BResult -Name 'timeline_report_fallback' -Passed $timelineFallback -Details 'Timeline order keeps HTML then index fallback.'

@@ -198,6 +198,7 @@ function New-DanewMetricCardHtml {
         [string]$Tone = 'neutral'
     )
 
+    # OFFLINE-SAFE
     return @"
 <div class="metric-card" data-tone="$(ConvertTo-DanewReportHtmlText (ConvertTo-DanewReportToken $Tone))">
 <div class="metric-label">$(ConvertTo-DanewReportHtmlText $Label)</div>
@@ -253,6 +254,7 @@ function New-DanewReportSectionHtml {
     $hidden = if ($Collapsed) { ' hidden' } else { '' }
     $captionHtml = if ([string]::IsNullOrWhiteSpace($safeCaption)) { '' } else { '<p class="section-caption">' + $safeCaption + '</p>' }
 
+    # OFFLINE-SAFE
     return @"
 <section class="report-card" data-section-card data-search="$safeSearch">
 <div class="section-head">
@@ -295,6 +297,7 @@ function New-DanewReportTableHtml {
     $rowsHtml = $rowItems -join "`n"
     $emptyStateHidden = if ($rowItems.Count -eq 0) { '' } else { ' hidden' }
 
+    # OFFLINE-SAFE
     return @"
 <div class="table-wrap">
 <table data-enhanced-table="true">
@@ -320,6 +323,7 @@ function New-DanewInteractiveReportHtml {
         [Parameter(Mandatory = $true)]
         [string[]]$Sections,
         [string]$SearchPlaceholder = 'Rechercher dans ce rapport',
+        [string]$CurrentReportName = '',
         [string]$FooterNote = 'Rapport hors ligne genere sans dependance externe.',
         [string]$AdditionalToolbarHtml = '',
         [string]$AdditionalContentHtml = '',
@@ -337,8 +341,37 @@ function New-DanewInteractiveReportHtml {
         $statusHtml = New-DanewReportBadgeHtml -Text $Status -Tone $Status
     }
 
+    $currentReport = ([string]$CurrentReportName).ToLowerInvariant()
+    $navLinks = @(
+        @{ href = 'REPORTS_INDEX.html'; label = '← Index'; name = 'index' }
+        @{ href = 'sav-diagnostic-report.html'; label = 'Diagnostic SAV'; name = 'sav-diagnostic' }
+        @{ href = 'timeline-raw.html'; label = 'Chronologie'; name = 'timeline-raw' }
+        @{ href = 'evtx-events.html'; label = 'Evenements EVTX'; name = 'evtx-events' }
+        @{ href = 'evtx-by-file.html'; label = 'EVTX par fichier'; name = 'evtx-by-file' }
+    )
+
+    $navLinksHtml = @()
+    foreach ($link in $navLinks) {
+        $safeHref = ConvertTo-DanewReportHtmlText ([string]$link.href)
+        $safeLabel = ConvertTo-DanewReportHtmlText ([string]$link.label)
+        $activeClass = if ([string]$link.name -eq $currentReport) { ' active' } else { '' }
+        $safeName = ConvertTo-DanewReportHtmlText ([string]$link.name)
+        $navLinksHtml += '<a class="nav-link' + $activeClass + '" href="' + $safeHref + '" data-nav-report="' + $safeName + '">' + $safeLabel + '</a>'
+    }
+
+    $navSep = '<span class="nav-sep" aria-hidden="true"></span>'
+    $navbarHtml = @"
+<!-- OFFLINE-SAFE -->
+<nav class="report-navbar-sticky" aria-label="Navigation des rapports">
+<div class="nav-right" data-report-navbar-links>
+$($navLinksHtml -join $navSep)
+</div>
+</nav>
+"@
+
     $sectionHtml = $Sections -join "`n"
 
+    # OFFLINE-SAFE
     return @"
 <!DOCTYPE html>
 <html lang="fr">
@@ -365,7 +398,7 @@ function New-DanewInteractiveReportHtml {
 html { scroll-behavior: smooth; }
 body {
     margin: 0;
-    font-family: Bahnschrift, "Segoe UI Variable Text", "Segoe UI", sans-serif;
+    font-family: "Segoe UI", Arial, Helvetica, sans-serif;
     color: var(--text);
     background:
         radial-gradient(circle at top left, rgba(15,118,110,0.18), transparent 32%),
@@ -384,6 +417,9 @@ body {
     background: rgba(255,255,255,0.82);
     backdrop-filter: blur(16px);
     box-shadow: var(--shadow);
+}
+@supports not (backdrop-filter: blur(1px)) {
+    .hero { background: rgba(255,255,255,0.97); }
 }
 .hero-top {
     display: flex;
@@ -412,8 +448,27 @@ h1 {
 .toolbar {
     margin-top: 18px;
     display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.toolbar-row {
+    display: flex;
     flex-wrap: wrap;
-    gap: 10px;
+    align-items: center;
+    gap: 8px;
+}
+.toolbar-row.secondary {
+    padding-top: 6px;
+    border-top: 1px solid var(--line);
+}
+.toolbar-row.secondary button {
+    font-size: 12px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    opacity: 0.85;
+}
+.toolbar-row.secondary button:hover {
+    opacity: 1;
 }
 .toolbar input {
     flex: 1 1 320px;
@@ -447,6 +502,16 @@ h1 {
 .toolbar button:active,
 .ghost-button:active {
     transform: translateY(1px);
+}
+.report-toolbar {
+    position: sticky;
+    top: 56px;
+    z-index: 90;
+    background: rgba(255,255,255,0.84);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    backdrop-filter: blur(8px);
+    padding: 8px;
 }
 .toolbar input:focus-visible,
 .toolbar button:focus-visible,
@@ -701,10 +766,177 @@ noscript .noscript-card {
         grid-column: 1 / -1;
     }
 }
+/* OFFLINE-SAFE — NAVBAR */
+.report-navbar-sticky {
+    position: sticky;
+    top: 0;
+    z-index: 999;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 4px;
+    padding: 8px 16px;
+    background: #1e293b;
+    border-bottom: 2px solid #0f766e;
+    font-size: 13px;
+    font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+}
+@supports not (backdrop-filter: blur(1px)) {
+    .report-navbar-sticky { background: #1e293b; }
+}
+.nav-right {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+}
+.nav-link {
+    padding: 5px 11px;
+    border-radius: 6px;
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 500;
+    color: #cbd5e1;
+    background: transparent;
+    border: 1px solid transparent;
+    transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+    white-space: nowrap;
+}
+.nav-link:hover {
+    color: #ffffff;
+    background: rgba(15,118,110,0.28);
+    border-color: rgba(15,118,110,0.5);
+}
+.nav-link.active {
+    background: #0f766e;
+    color: #ffffff;
+    font-weight: 700;
+    border-color: #0f766e;
+}
+.nav-sep {
+    display: inline-block;
+    width: 1px;
+    height: 14px;
+    background: #475569;
+    vertical-align: middle;
+    margin: 0 2px;
+    flex-shrink: 0;
+}
+/* DARK MODE */
+body.theme-dark {
+    --bg-top: #0b1220;
+    --bg-bottom: #101827;
+    --panel: rgba(15,23,42,0.9);
+    --panel-strong: #1e293b;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --line: rgba(148,163,184,0.22);
+    --shadow: 0 18px 40px rgba(2,6,23,0.45);
+    --accent: #14b8a6;
+    --accent-strong: #0d9488;
+}
+body.theme-dark .report-navbar-sticky {
+    background: #0f172a;
+    border-bottom-color: #14b8a6;
+}
+body.theme-dark .nav-link {
+    color: #94a3b8;
+}
+body.theme-dark .nav-link:hover {
+    color: #e2e8f0;
+    background: rgba(20,184,166,0.18);
+    border-color: rgba(20,184,166,0.4);
+}
+body.theme-dark .nav-link.active {
+    background: #14b8a6;
+    color: #0f172a;
+    border-color: #14b8a6;
+}
+body.theme-dark .nav-sep {
+    background: #334155;
+}
+body.theme-dark .toolbar button,
+body.theme-dark .toolbar input,
+body.theme-dark .toolbar-count,
+body.theme-dark .ghost-button {
+    background: #1e293b;
+    color: #e2e8f0;
+    border-color: #334155;
+}
+body.theme-dark .toolbar button:hover,
+body.theme-dark .ghost-button:hover {
+    background: #263348;
+    border-color: #14b8a6;
+    color: #ffffff;
+}
+body.theme-dark .toolbar button.primary-button {
+    background: #0f766e;
+    border-color: #0f766e;
+    color: #ffffff;
+}
+body.theme-dark .toolbar button.primary-button:hover {
+    background: #14b8a6;
+    border-color: #14b8a6;
+}
+body.theme-dark .toolbar-row.secondary button {
+    background: #172032;
+    color: #94a3b8;
+    border-color: #2d3f55;
+}
+body.theme-dark .toolbar-row.secondary button:hover {
+    color: #e2e8f0;
+    background: #1e293b;
+    border-color: #14b8a6;
+}
+body.theme-dark .table-wrap,
+body.theme-dark .meta-item,
+body.theme-dark .report-card,
+body.theme-dark .metric-card,
+body.theme-dark .hero {
+    background: rgba(15,23,42,0.92);
+    color: var(--text);
+}
+/* LIGHT MODE — toolbar secondary lisibilite */
+.toolbar-row.secondary button {
+    background: rgba(255,255,255,0.7);
+    color: #334155;
+    border-color: #cbd5e1;
+}
+.toolbar-row.secondary button:hover {
+    background: rgba(15,118,110,0.08);
+    border-color: rgba(15,118,110,0.4);
+    color: #0f766e;
+}
+/* BACK TO TOP */
+#back-to-top {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    width: 44px;
+    height: 44px;
+    border-radius: 999px;
+    border: 2px solid rgba(255,255,255,0.2);
+    background: #0f766e;
+    color: #ffffff;
+    font-size: 18px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 8px 24px rgba(23,32,51,0.25);
+    transition: background 120ms ease, transform 120ms ease;
+}
+#back-to-top:hover {
+    background: #14b8a6;
+    transform: translateY(-2px);
+}
+body.theme-dark #back-to-top {
+    background: #14b8a6;
+    color: #0f172a;
+}
 </style>
 $AdditionalStyleHtml
 </head>
 <body>
+$navbarHtml
 <div class="report-shell" data-report-shell="danew">
 <noscript>
 <div class="noscript-card"><strong>Fonctions interactives desactivees.</strong> Ce rapport reste entierement lisible sans JavaScript.</div>
@@ -719,13 +951,19 @@ $AdditionalStyleHtml
 <div>$statusHtml</div>
 </div>
 <div class="toolbar report-toolbar">
+<div class="toolbar-row primary">
 <input type="search" placeholder="$safeSearchPlaceholder" data-report-search>
 <button type="button" data-action="clear-search">Effacer filtre</button>
 <div class="toolbar-count" data-report-count aria-live="polite"></div>
-$AdditionalToolbarHtml
 <button type="button" class="primary-button" data-action="expand-all">Developper tout</button>
 <button type="button" data-action="collapse-all">Reduire tout</button>
+<button type="button" data-action="toggle-theme">Theme</button>
+<button type="button" data-action="top">Haut</button>
 <button type="button" data-action="print">Imprimer</button>
+</div>
+<div class="toolbar-row secondary" id="toolbar-secondary" data-toolbar-secondary>
+$AdditionalToolbarHtml
+</div>
 </div>
 $HeroMetricsHtml
 $MetaHtml
@@ -736,6 +974,7 @@ $sectionHtml
 $AdditionalContentHtml
 <div class="footer-note">$safeFooterNote</div>
 </div>
+<button type="button" id="back-to-top" title="Retour en haut" aria-label="Retour en haut">↑</button>
 <script>
 (function () {
     function normalize(value) {
@@ -1067,8 +1306,76 @@ $AdditionalContentHtml
         return tagName === 'input' || tagName === 'textarea' || target.isContentEditable;
     }
 
+    function detectAndActivateNavbarLink() {
+        var reportMap = {
+            'sav-diagnostic-report.html': 'sav-diagnostic',
+            'timeline-raw.html': 'timeline-raw',
+            'evtx-events.html': 'evtx-events',
+            'evtx-by-file.html': 'evtx-by-file',
+            'REPORTS_INDEX.html': 'index',
+            'reports-index.html': 'index'
+        };
+        var currentHref = (window.location.pathname || '').split('/').pop() || 'REPORTS_INDEX.html';
+        var currentReport = reportMap[currentHref] || null;
+        if (!currentReport) {
+            return;
+        }
+        var links = Array.prototype.slice.call(document.querySelectorAll('[data-nav-report]'));
+        links.forEach(function (link) {
+            link.classList.remove('active');
+            if ((link.getAttribute('data-nav-report') || '') === currentReport) {
+                link.classList.add('active');
+            }
+        });
+    }
+
+    function applyTheme(theme) {
+        var next = (theme || '').toLowerCase() === 'dark' ? 'dark' : 'light';
+        document.body.classList.toggle('theme-dark', next === 'dark');
+        try {
+            localStorage.setItem('danew-report-theme', next);
+        }
+        catch (e) {
+        }
+    }
+
+    function toggleTheme() {
+        var isDark = document.body.classList.contains('theme-dark');
+        applyTheme(isDark ? 'light' : 'dark');
+    }
+
+    function initUxActions() {
+        var topAction = document.querySelector('[data-action="top"]');
+        var floatingTop = document.getElementById('back-to-top');
+        var themeAction = document.querySelector('[data-action="toggle-theme"]');
+
+        if (topAction) {
+            topAction.addEventListener('click', function () {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            });
+        }
+        if (floatingTop) {
+            floatingTop.addEventListener('click', function () {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            });
+        }
+        if (themeAction) {
+            themeAction.addEventListener('click', toggleTheme);
+        }
+
+        try {
+            applyTheme(localStorage.getItem('danew-report-theme') || 'light');
+        }
+        catch (e) {
+            applyTheme('light');
+        }
+    }
+
     document.addEventListener('keydown', function (event) {
         if (!search) {
+            if ((event.key || '').toLowerCase() === 't' && !event.ctrlKey && !event.altKey && !event.metaKey && !isTypingTarget(event.target)) {
+                toggleTheme();
+            }
             return;
         }
         if (event.key === '/' && !event.ctrlKey && !event.altKey && !event.metaKey && !isTypingTarget(event.target)) {
@@ -1082,6 +1389,9 @@ $AdditionalContentHtml
             applySearch();
             search.blur();
         }
+        if ((event.key || '').toLowerCase() === 't' && !event.ctrlKey && !event.altKey && !event.metaKey && !isTypingTarget(event.target)) {
+            toggleTheme();
+        }
     });
 
     if (search) {
@@ -1089,6 +1399,8 @@ $AdditionalContentHtml
         applySearch();
     }
 
+    detectAndActivateNavbarLink();
+    initUxActions();
     initSortableTables();
     initInteractiveColumns();
 }());
@@ -1104,6 +1416,8 @@ function Get-DanewInteractiveReportCatalog {
         'sav-diagnostic-report.html' = [pscustomobject]@{ title = 'Diagnostic SAV / crash'; subtitle = 'Synthese des causes racines, chronologie et prochaines actions en lecture seule.'; rank = 10 }
         'one-click-diagnostic-report.html' = [pscustomobject]@{ title = 'Diagnostic en un clic'; subtitle = 'Resume d execution des controles lances depuis le launcher et de leurs resultats.'; rank = 20 }
         'timeline-raw.html' = [pscustomobject]@{ title = 'Chronologie hors ligne'; subtitle = 'Chronologie brute des evenements avec recherche par fournisseur, niveau et message.'; rank = 30 }
+        'evtx-events.html' = [pscustomobject]@{ title = 'Evenements EVTX'; subtitle = 'Liste brute des evenements extraits des journaux hors ligne.'; rank = 40 }
+        'evtx-by-file.html' = [pscustomobject]@{ title = 'EVTX par fichier'; subtitle = 'Repartition des evenements groupes par fichier journal source.'; rank = 50 }
     }
 }
 
@@ -1150,6 +1464,7 @@ function Update-DanewInteractiveReportsIndex {
     foreach ($item in $items) {
         $searchText = ConvertTo-DanewReportHtmlText ($item.title + ' ' + $item.subtitle + ' ' + $item.name + ' ' + $item.json_name)
         $jsonLink = if ([string]::IsNullOrWhiteSpace($item.json_name)) { '<span class="inline-code">n/d</span>' } else { '<a href="' + (ConvertTo-DanewReportHtmlText $item.json_name) + '">' + (ConvertTo-DanewReportHtmlText $item.json_name) + '</a>' }
+        # OFFLINE-SAFE
         $rows += @"
 <tr data-search-row="$searchText">
 <td><strong><a href="$(ConvertTo-DanewReportHtmlText $item.html_name)">$(ConvertTo-DanewReportHtmlText $item.title)</a></strong><div class="section-caption">$(ConvertTo-DanewReportHtmlText $item.subtitle)</div></td>
@@ -1174,12 +1489,41 @@ function Update-DanewInteractiveReportsIndex {
         (New-DanewReportSectionHtml -Title 'Rapports disponibles' -Caption 'Ouvrir directement le rapport HTML ou consulter l artefact JSON associe lorsqu il est disponible.' -SearchText 'reports index html json available reports' -BodyHtml (New-DanewReportTableHtml -Headers @('Rapport', 'HTML', 'JSON', 'Derniere mise a jour') -Rows $rows -EmptyMessage 'Aucun rapport ne correspond au filtre courant.'))
     )
 
-    $html = New-DanewInteractiveReportHtml -Title 'Index des rapports Danew' -Subtitle 'Point d entree hors ligne pour les artefacts diagnostiques HTML et JSON generes.' -Status 'READY' -Eyebrow 'Centre de rapports' -HeroMetricsHtml ('<div class="hero-metrics">' + $metrics + '</div>') -MetaHtml $meta -Sections $sections -SearchPlaceholder 'Filtrer les rapports par titre, nom de fichier ou artefact JSON associe'
+    $html = New-DanewInteractiveReportHtml -Title 'Index des rapports Danew' -Subtitle 'Point d entree hors ligne pour les artefacts diagnostiques HTML et JSON generes.' -Status 'READY' -Eyebrow 'Centre de rapports' -HeroMetricsHtml ('<div class="hero-metrics">' + $metrics + '</div>') -MetaHtml $meta -Sections $sections -SearchPlaceholder 'Filtrer les rapports par titre, nom de fichier ou artefact JSON associe' -CurrentReportName 'index'
 
     $primaryPath = Join-Path $ReportsPath 'REPORTS_INDEX.html'
     $aliasPath = Join-Path $ReportsPath 'reports-index.html'
     $html | Set-Content -Path $primaryPath -Encoding UTF8
     $html | Set-Content -Path $aliasPath -Encoding UTF8
+
+    $indexTxtLines = @(
+        'Index des rapports Danew',
+        ('Generation: ' + (Get-Date).ToString('s')),
+        ('Dossier des rapports: ' + $ReportsPath),
+        ('Rapports detectes: ' + [string]@($items).Count),
+        '',
+        'Rapports disponibles:'
+    )
+    foreach ($item in @($items)) {
+        $jsonText = if ([string]::IsNullOrWhiteSpace([string]$item.json_name)) { 'n/d' } else { [string]$item.json_name }
+        $indexTxtLines += ('- ' + [string]$item.title + ' | HTML=' + [string]$item.html_name + ' | JSON=' + $jsonText + ' | maj=' + [string]$item.modified)
+    }
+    if (@($items).Count -eq 0) {
+        $indexTxtLines += '- Aucun rapport HTML genere.'
+    }
+    $indexTxtPath = Join-Path $ReportsPath 'REPORTS_INDEX.txt'
+    $aliasTxtPath = Join-Path $ReportsPath 'reports-index.txt'
+    $indexTxtLines | Set-Content -Path $indexTxtPath -Encoding UTF8
+    $indexTxtLines | Set-Content -Path $aliasTxtPath -Encoding UTF8
+
+    $indexCsvPath = Join-Path $ReportsPath 'REPORTS_INDEX.csv'
+    $indexCsvRows = @($items | Select-Object title, html_name, json_name, modified, rank)
+    if (@($indexCsvRows).Count -gt 0) {
+        $indexCsvRows | Export-Csv -Path $indexCsvPath -NoTypeInformation -Encoding UTF8
+    }
+    else {
+        'title,html_name,json_name,modified,rank' | Set-Content -Path $indexCsvPath -Encoding UTF8
+    }
 
     return [pscustomobject]@{
         primary = $primaryPath

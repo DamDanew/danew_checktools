@@ -72,18 +72,26 @@ $mainDiagnosticVisible = Test-UX2PatternSet -Content $content -Patterns @(
 )
 $results += Add-UX2Result -Name 'main_diagnostic_buttons_visible_without_scroll' -Passed $mainDiagnosticVisible -Details 'Fast logs, full logs, and crash cause buttons are primary controls.'
 
-$noMainScrollbar = ($content -match '\$form\.AutoScroll\s*=\s*\$false') -and
+$noMainScrollbar = ($content -match '\$form\.AutoScroll\s*=\s*\$true') -and
     ($content -match 'AutoScrollMinSize\s*=\s*New-Object System\.Drawing\.Size\(900,\s*720\)') -and
+    ($content -match 'MinimumSize\s*=\s*New-Object System\.Drawing\.Size\(800,\s*560\)') -and
     ($content -match 'Show-DanewSecondaryPanelDialog') -and
+    ($content -match 'Get-DanewClampedTop') -and
     ($content -match '\$quickPanel\.AutoScroll\s*=\s*\$false') -and
     ($content -match '\$analysisPanel\.AutoScroll\s*=\s*\$false') -and
     ($content -match '\$systemPanel\.AutoScroll\s*=\s*\$false')
-$results += Add-UX2Result -Name 'no_main_vertical_scrollbar_1366x768' -Passed $noMainScrollbar -Details 'Main form disables scrolling and advanced panels open in secondary dialogs.'
+$results += Add-UX2Result -Name 'no_main_vertical_scrollbar_1366x768' -Passed $noMainScrollbar -Details 'Main form uses controlled scrolling for 800x560 WinPE while panels remain clamped and secondary dialogs stay separate.'
 
 $advancedCollapsed = ($content -match 'Set-DanewAdvancedToolsVisible\s+-Visible\s+\$false') -and
     ($content -match '\$buttonGroup\.Visible\s*=\s*\$Visible') -and
     ($content -match "Name\s*=\s*'AdvancedToolsPanel'")
 $results += Add-UX2Result -Name 'advanced_tools_collapsed_by_default' -Passed $advancedCollapsed -Details 'Advanced tools remain hidden until explicitly opened.'
+
+$technicalDocked = ($content -match 'function Set-DanewTechnicalDetailsDockLayout') -and
+    ($content -match '\$script:DockedTechnicalFormClientWidth\s*=\s*1240') -and
+    ($content -match '\$technicalDetailsGroup\.Anchor\s*=\s*''Top,Bottom,Right''') -and
+    ($content -notmatch "Show-DanewSecondaryPanelDialog -Title 'DETAILS TECHNIQUES'")
+$results += Add-UX2Result -Name 'technical_details_docked_right' -Passed $technicalDocked -Details 'Technical details open in a right docked side panel, not a blocking popup.'
 
 $primaryTopMatch = [regex]::Match($content, '\$primaryGroup\.Top\s*=\s*(\d+)')
 $summaryTopMatch = [regex]::Match($content, '\$statusGroup\.Top\s*=\s*(\d+)')
@@ -194,12 +202,12 @@ $reportsOpenOk = Test-UX2PatternSet -Content $content -Patterns @(
 $results += Add-UX2Result -Name 'existing_reports_still_open_correctly' -Passed $reportsOpenOk -Details 'SAV, timeline, storage, and index fallback paths remain wired.'
 
 $reportAvailabilityFallback = ($content -match 'function Get-DanewAvailableReportPath') -and
-    ($content -match 'Get-DanewFirstExistingReportPath -Names \$Names -MinLastWriteTime \$MinLastWriteTime') -and
+    ($content -match 'Get-DanewFirstExistingReportPath -Names \$Names -MinLastWriteTime \$resolvedMinTime') -and
     ($content -match 'Get-DanewFirstExistingReportPath -Names \$Names')
 $results += Add-UX2Result -Name 'existing_reports_enable_buttons_after_restart' -Passed $reportAvailabilityFallback -Details 'Report buttons use current-session reports first, then fall back to existing reports after GUI restart.'
 
-$savFallbackOrder = ($content -match "sav-diagnostic-report\.html', 'REPORTS_INDEX\.html', 'reports-index\.html")
-$results += Add-UX2Result -Name 'sav_report_falls_back_to_index' -Passed $savFallbackOrder -Details 'SAV button opens reports index before one-click fallback when SAV report is absent.'
+$savFallbackOrder = ($content -match "REPORTS_INDEX\.html', 'reports-index\.html', 'sav-diagnostic-report\.html")
+$results += Add-UX2Result -Name 'sav_report_falls_back_to_index' -Passed $savFallbackOrder -Details 'SAV report action opens the reports index first, then falls back to individual reports.'
 
 $unsupportedPatterns = @('PresentationFramework', 'System.Xaml', 'WebView2', 'Electron', 'WPF')
 $unsupportedFound = @($unsupportedPatterns | Where-Object { $content -match [regex]::Escape($_) })

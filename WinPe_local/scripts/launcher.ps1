@@ -4,7 +4,7 @@ param(
     [string]$ConfigPath,
     [switch]$FallbackToCli,
     [switch]$ForceGuiInitFailure,
-    [ValidateSet('Interactive', 'scan-winpe', 'capability-analysis', 'generate-report', 'open-reports-folder', 'export-diagnostic-package', 'prepare-startnet', 'start-diagnostic', 'analyze-offline-logs', 'analyze-offline-logs-fast', 'analyze-offline-logs-full', 'analyze-crash-causes', 'precheck-winpe', 'export-evtx-targeted', 'export-evtx-zip', 'check-browser', 'create-usb-media', 'real-winpe-validation', 'refresh-status', 'show-status', 'view-last-report', 'exit')]
+    [ValidateSet('Interactive', 'scan-winpe', 'capability-analysis', 'generate-report', 'open-reports-folder', 'export-diagnostic-package', 'prepare-startnet', 'start-diagnostic', 'analyze-offline-logs', 'analyze-offline-logs-fast', 'analyze-offline-logs-full', 'analyze-crash-causes', 'precheck-winpe', 'export-evtx-targeted', 'export-evtx-zip', 'check-browser', 'create-usb-media', 'real-winpe-validation', 'refresh-status', 'show-status', 'view-last-report', 'open-sav-report', 'open-reports-index', 'open-text-reports-list', 'exit')]
     [Alias('Action')]
     [string]$CliFallbackCommand = 'Interactive'
 )
@@ -42,11 +42,14 @@ catch {
 . (Join-Path $scriptDirectory 'launcher\LauncherCore.ps1')
 
 $config = Get-DanewLauncherConfig -RootPath $RootPath -ConfigPath $ConfigPath
-$null = Invoke-DanewLauncherAction -Action 'prepare-startnet' -RootPath $RootPath -Config $config
+if ($CliFallbackCommand -notin @('open-sav-report', 'open-reports-index')) {
+    $null = Invoke-DanewLauncherAction -Action 'prepare-startnet' -RootPath $RootPath -Config $config
+}
 [void](Write-DanewLauncherActionLog -Config $config -Action 'gui-launcher' -Status 'start' -Message 'GUI launcher initialization started')
 
 $cliPath = Join-Path $scriptDirectory 'DanewCheckTool.CLI.ps1'
 
+$form = $null
 $statusFields = @{}
 $progressBox = $null
 $summaryLabel = $null
@@ -64,6 +67,8 @@ $usbChipLabel = $null
 $analysisCompletionLabel = $null
 $openSavReportButton = $null
 $openTimelineFastReportButton = $null
+$openReportsButton = $null
+$openTextReportsButton = $null
 $exportEvtxZipButton = $null
 $toolTip = $null
 $offlineProgressBar = $null
@@ -77,18 +82,25 @@ $fastEventLimitComboBox = $null
 $stepLabels = @{}
 $recentActivityBox = $null
 $simpleActionsGroup = $null
+$quickActionsGroup = $null
 $statusGroup = $null
 $togglePanel = $null
 $advancedToggleButton = $null
 $technicalToggleButton = $null
 $buttonGroup = $null
 $technicalDetailsGroup = $null
+$technicalDetailsSplitContainer = $null
 $script:ActionButtons = New-Object System.Collections.ArrayList
 $script:IsActionRunning = $false
 $script:AdvancedToolsVisible = $false
 $script:TechnicalDetailsVisible = $false
 $script:SavSummaryDetailsVisible = $false
 $script:SavSummaryDetailControls = @()
+$script:BaseFormClientWidth = 900
+$script:BaseFormClientHeight = 720
+$script:DockedTechnicalFormClientWidth = 1240
+$script:TechnicalDockWidth = 330
+$script:TechnicalTopPanelHeight = 196
 
 $script:StatusColorDefault = $null
 $script:StatusColorPass = $null
@@ -116,7 +128,7 @@ function Get-DanewElapsedText {
 }
 
 function Get-DanewOfflineSpinnerSymbol {
-    $symbols = @('|', '/', '-', '\\')
+    $symbols = @('[   ]', '[=  ]', '[== ]', '[===]', '[ ==]', '[  =]')
     if ($script:OfflineProgressUpdates -lt 0) {
         $script:OfflineProgressUpdates = 0
     }
@@ -254,7 +266,9 @@ function Set-DanewActionButtonsEnabled {
         }
     }
 
-    [System.Windows.Forms.Application]::DoEvents()
+    if (-not $script:IsActionRunning) {
+        [System.Windows.Forms.Application]::DoEvents()
+    }
 }
 
 function Set-DanewButtonAvailability {
@@ -425,6 +439,29 @@ function Update-DanewRecentActivity {
         return
     }
 
+    function Set-DanewRecentActivityLines {
+        param([string[]]$Lines)
+
+        $recentActivityBox.Clear()
+        foreach ($line in @($Lines)) {
+            $upper = ([string]$line).ToUpperInvariant()
+            if ($upper -match 'FAIL|ERROR') {
+                $recentActivityBox.SelectionColor = [System.Drawing.Color]::FromArgb(180, 35, 24)
+            }
+            elseif ($upper -match 'WARN') {
+                $recentActivityBox.SelectionColor = [System.Drawing.Color]::FromArgb(180, 83, 9)
+            }
+            elseif ($upper -match 'PASS|OK') {
+                $recentActivityBox.SelectionColor = [System.Drawing.Color]::FromArgb(15, 118, 110)
+            }
+            else {
+                $recentActivityBox.SelectionColor = [System.Drawing.Color]::FromArgb(71, 85, 105)
+            }
+            $recentActivityBox.AppendText(([string]$line) + [Environment]::NewLine)
+        }
+        $recentActivityBox.SelectionColor = $recentActivityBox.ForeColor
+    }
+
     try {
         $entries = @()
         if (Test-Path -Path $config.launcher_log_path) {
@@ -447,10 +484,10 @@ function Update-DanewRecentActivity {
         if (@($lines).Count -eq 0) {
             $lines = @('Aucune activite recente')
         }
-        $recentActivityBox.Text = ($lines -join [Environment]::NewLine)
+        Set-DanewRecentActivityLines -Lines $lines
     }
     catch {
-        $recentActivityBox.Text = 'Activite recente indisponible'
+        Set-DanewRecentActivityLines -Lines @('Activite recente indisponible')
     }
 }
 
@@ -461,6 +498,8 @@ function Get-DanewActionDisplayText {
     )
 
     switch ($Action) {
+        'open-reports-index' { return 'Ouvrir les rapports Danew' }
+        'open-text-reports-list' { return 'Ouvrir la liste des rapports texte' }
         'open-sav-report' { return 'Ouvrir le rapport SAV' }
         'open-timeline-report' { return 'Ouvrir la chronologie complete' }
         'open-timeline-fast-report' { return 'Ouvrir la vue rapide EVTX' }
@@ -541,9 +580,9 @@ function Set-DanewAdvancedToolsVisible {
     }
     if ($advancedToggleButton) {
         if ($Visible) {
-            $advancedToggleText = 'MASQUER LES OUTILS AVANCES'
+            $advancedToggleText = '> Masquer outils'
         } else {
-            $advancedToggleText = 'AFFICHER LES OUTILS AVANCES'
+            $advancedToggleText = '< Outils avances'
         }
         $advancedToggleButton.Text = Convert-DanewUiText -Text $advancedToggleText
     }
@@ -552,11 +591,109 @@ function Set-DanewAdvancedToolsVisible {
         $script:AdvancedToolsVisible = $false
         $buttonGroup.Visible = $false
         if ($advancedToggleButton) {
-            $advancedToggleButton.Text = Convert-DanewUiText -Text 'AFFICHER LES OUTILS AVANCES'
+            $advancedToggleButton.Text = Convert-DanewUiText -Text '< Outils avances'
         }
     }
     if ($form) {
         $form.AutoScrollMinSize = New-Object System.Drawing.Size(900, 720)
+    }
+}
+
+function Set-DanewTechnicalDetailsDockLayout {
+    if (-not $technicalDetailsGroup -or -not $form) {
+        return
+    }
+
+    $dockWidth = [int]$script:TechnicalDockWidth
+    $rightMargin = 14
+    $topMargin = 96
+    $bottomMargin = 14
+    $panelLeft = [Math]::Max(($script:BaseFormClientWidth + 10), ($form.ClientSize.Width - $dockWidth - $rightMargin))
+
+    $technicalDetailsGroup.Left = $panelLeft
+    $technicalDetailsGroup.Top = $topMargin
+    $technicalDetailsGroup.Width = $dockWidth
+    $technicalDetailsGroup.Height = [Math]::Max(560, ($form.ClientSize.Height - $topMargin - $bottomMargin))
+    $technicalDetailsGroup.Anchor = 'Top,Bottom,Right'
+
+    if ($technicalDetailsSplitContainer) {
+        $technicalDetailsSplitContainer.Left = 12
+        $technicalDetailsSplitContainer.Top = 24
+        $technicalDetailsSplitContainer.Width = $dockWidth - 24
+        $technicalDetailsSplitContainer.Height = [Math]::Max(220, ($technicalDetailsGroup.Height - 36))
+        $technicalDetailsSplitContainer.Anchor = 'Top,Bottom,Left,Right'
+
+        $availableHeight = [Math]::Max(220, [int]$technicalDetailsSplitContainer.Height)
+        $maxTopHeight = [Math]::Max($technicalDetailsSplitContainer.Panel1MinSize, ($availableHeight - $technicalDetailsSplitContainer.Panel2MinSize - $technicalDetailsSplitContainer.SplitterWidth))
+        $desiredTopHeight = [Math]::Max($technicalDetailsSplitContainer.Panel1MinSize, [int]$script:TechnicalTopPanelHeight)
+        $technicalDetailsSplitContainer.SplitterDistance = [Math]::Min($desiredTopHeight, $maxTopHeight)
+    }
+
+    if ($statusTable) {
+        $statusTable.Visible = $false
+    }
+
+    if ($progressBox) {
+        $progressBox.Dock = 'Fill'
+    }
+
+    if ($recentActivityBox) {
+        $recentActivityBox.Dock = 'Fill'
+    }
+}
+
+function Set-DanewReportsSectionLayout {
+    if (-not $simpleActionsGroup -or -not $simplePanel -or -not $openReportsButton) {
+        return
+    }
+
+    $innerWidth = [Math]::Max(220, ([int]$simpleActionsGroup.ClientSize.Width - 20))
+    $simplePanel.Left = 10
+    $simplePanel.Top = 16
+    $simplePanel.Width = $innerWidth
+    $simplePanel.Height = 38
+    $simplePanel.Anchor = 'Top,Left,Right'
+
+    # Layout 2 buttons side-by-side: HTML (420px) + Fallback (180px) + 10px gap
+    $htmlButtonWidth = [Math]::Min(420, [Math]::Max(200, ([int]($innerWidth * 0.65))))
+    $fallbackButtonWidth = [Math]::Min(180, [Math]::Max(120, ([int]($innerWidth * 0.25))))
+    $gapWidth = 10
+    $totalButtonsWidth = $htmlButtonWidth + $fallbackButtonWidth + $gapWidth
+
+    if ($totalButtonsWidth -le $innerWidth - 24) {
+        # Both buttons fit side-by-side
+        $startLeft = [Math]::Max(0, [int](($innerWidth - $totalButtonsWidth) / 2))
+
+        $openReportsButton.Width = $htmlButtonWidth
+        $openReportsButton.Left = $startLeft
+        $openReportsButton.Top = 0
+
+        if ($openTextReportsButton) {
+            $openTextReportsButton.Width = $fallbackButtonWidth
+            $openTextReportsButton.Left = $startLeft + $htmlButtonWidth + $gapWidth
+            $openTextReportsButton.Top = 0
+            if ($openTextReportsButton -notin $simplePanel.Controls) {
+                [void]$simplePanel.Controls.Add($openTextReportsButton)
+            }
+        }
+    } else {
+        # Fallback: stack vertically
+        $buttonWidth = [Math]::Min(400, [Math]::Max(220, ($innerWidth - 24)))
+        $startLeft = [Math]::Max(0, [int](($innerWidth - $buttonWidth) / 2))
+
+        $openReportsButton.Width = $buttonWidth
+        $openReportsButton.Left = $startLeft
+        $openReportsButton.Top = 0
+
+        if ($openTextReportsButton) {
+            $openTextReportsButton.Width = $buttonWidth
+            $openTextReportsButton.Left = $startLeft
+            $openTextReportsButton.Top = 50
+            $simplePanel.Height = 110
+            if ($openTextReportsButton -notin $simplePanel.Controls) {
+                [void]$simplePanel.Controls.Add($openTextReportsButton)
+            }
+        }
     }
 }
 
@@ -572,18 +709,26 @@ function Set-DanewTechnicalDetailsVisible {
     }
     if ($technicalToggleButton) {
         if ($Visible) {
-            $technicalToggleText = 'MASQUER LES DETAILS TECHNIQUES'
+            $technicalToggleText = '> Masquer details'
         } else {
-            $technicalToggleText = 'AFFICHER LES DETAILS TECHNIQUES'
+            $technicalToggleText = '< Details techniques'
         }
         $technicalToggleButton.Text = Convert-DanewUiText -Text $technicalToggleText
     }
-    if ($Visible -and $technicalDetailsGroup) {
-        Show-DanewSecondaryPanelDialog -Title 'DETAILS TECHNIQUES' -Panel $technicalDetailsGroup -Width 900 -Height 330
-        $script:TechnicalDetailsVisible = $false
-        $technicalDetailsGroup.Visible = $false
-        if ($technicalToggleButton) {
-            $technicalToggleButton.Text = Convert-DanewUiText -Text 'AFFICHER LES DETAILS TECHNIQUES'
+    if ($form) {
+        if ($Visible) {
+            if ($form.WindowState -eq [System.Windows.Forms.FormWindowState]::Normal -and $form.ClientSize.Width -lt $script:DockedTechnicalFormClientWidth) {
+                $form.ClientSize = New-Object System.Drawing.Size($script:DockedTechnicalFormClientWidth, $script:BaseFormClientHeight)
+            }
+            Set-DanewTechnicalDetailsDockLayout
+            if ($technicalDetailsGroup) {
+                $technicalDetailsGroup.BringToFront()
+            }
+        }
+        else {
+            if ($form.WindowState -eq [System.Windows.Forms.FormWindowState]::Normal -and $form.ClientSize.Width -ge $script:DockedTechnicalFormClientWidth) {
+                $form.ClientSize = New-Object System.Drawing.Size($script:BaseFormClientWidth, $script:BaseFormClientHeight)
+            }
         }
     }
     if ($form) {
@@ -605,21 +750,50 @@ function Set-DanewSavSummaryDetailsVisible {
         }
     }
 
-    if ($statusGroup) {
-        $statusGroup.Height = if ($Visible) { 276 } else { 108 }
+    $clientHeight = if ($form) { [int]$form.ClientSize.Height } else { [int]$script:BaseFormClientHeight }
+    function Get-DanewClampedTop {
+        param(
+            [int]$DesiredTop,
+            [AllowNull()]
+            [System.Windows.Forms.Control]$Control
+        )
+        if (-not $Control) {
+            return $DesiredTop
+        }
+        $maxTop = [Math]::Max(0, ($clientHeight - [int]$Control.Height - 8))
+        return [Math]::Min($DesiredTop, $maxTop)
     }
 
+    if ($statusGroup) {
+        $expandedHeight = [Math]::Min(276, [Math]::Max(108, ($clientHeight - 444)))
+        $statusGroup.Height = if ($Visible) { $expandedHeight } else { 108 }
+    }
+
+    $statusBottom = if ($statusGroup) { [int]$statusGroup.Top + [int]$statusGroup.Height } else { 302 }
+    $simpleDesiredTop = $statusBottom + 8
+    $quickDesiredTop = $simpleDesiredTop + $(if ($simpleActionsGroup) { [int]$simpleActionsGroup.Height } else { 74 }) + 8
+    $toggleDesiredTop = $quickDesiredTop + $(if ($quickActionsGroup) { [int]$quickActionsGroup.Height } else { 104 }) + 8
+    $buttonDesiredTop = $toggleDesiredTop + $(if ($togglePanel) { [int]$togglePanel.Height } else { 40 }) + 8
+
     if ($simpleActionsGroup) {
-        $simpleActionsGroup.Top = if ($Visible) { 586 } else { 418 }
+        $simpleActionsGroup.Top = Get-DanewClampedTop -DesiredTop $simpleDesiredTop -Control $simpleActionsGroup
+    }
+    if ($quickActionsGroup) {
+        $quickActionsGroup.Top = Get-DanewClampedTop -DesiredTop $quickDesiredTop -Control $quickActionsGroup
     }
     if ($togglePanel) {
-        $togglePanel.Top = if ($Visible) { 698 } else { 530 }
+        $togglePanel.Top = Get-DanewClampedTop -DesiredTop $toggleDesiredTop -Control $togglePanel
     }
     if ($buttonGroup) {
-        $buttonGroup.Top = if ($Visible) { 746 } else { 578 }
+        $buttonGroup.Top = Get-DanewClampedTop -DesiredTop $buttonDesiredTop -Control $buttonGroup
     }
     if ($technicalDetailsGroup) {
-        $technicalDetailsGroup.Top = if ($Visible) { 746 } else { 578 }
+        if ($script:TechnicalDetailsVisible) {
+            Set-DanewTechnicalDetailsDockLayout
+        }
+        else {
+            $technicalDetailsGroup.Top = 96
+        }
     }
     if ($form) {
         $form.AutoScrollMinSize = if ($Visible) {
@@ -643,8 +817,12 @@ function Show-DanewSecondaryPanelDialog {
     $dialog = New-Object System.Windows.Forms.Form
     $dialog.Text = Convert-DanewUiText -Text ('Outil de diagnostic SAV Danew - ' + $Title)
     $dialog.StartPosition = 'CenterParent'
-    $dialog.ClientSize = New-Object System.Drawing.Size($Width, $Height)
-    $dialog.MinimumSize = New-Object System.Drawing.Size($Width, $Height)
+    $screenW = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea.Width
+    $screenH = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea.Height
+    $dlgW = [Math]::Min($Width, [int]($screenW * 0.90))
+    $dlgH = [Math]::Min($Height, [int]($screenH * 0.70))
+    $dialog.ClientSize = New-Object System.Drawing.Size($dlgW, $dlgH)
+    $dialog.MinimumSize = New-Object System.Drawing.Size([Math]::Min($Width, 640), [Math]::Min($Height, 300))
     $dialog.BackColor = [System.Drawing.Color]::FromArgb(243, 246, 252)
     $dialog.Font = New-Object System.Drawing.Font('Segoe UI', 9)
     $dialog.TopMost = $true
@@ -664,8 +842,8 @@ function Show-DanewSecondaryPanelDialog {
 
     $Panel.Left = 12
     $Panel.Top = 12
-    $Panel.Width = $Width - 24
-    $Panel.Height = $Height - 24
+    $Panel.Width = $dlgW - 24
+    $Panel.Height = $dlgH - 24
     $Panel.Anchor = 'Top,Bottom,Left,Right'
     $Panel.Visible = $true
 
@@ -973,12 +1151,48 @@ function Start-DanewPortableBrowser {
 
     $workingDir = Split-Path -Parent $BrowserPath
     $args = @(Get-DanewBrowserLaunchArguments -BrowserPath $BrowserPath -TargetPath $TargetPath)
-    $proc = Start-Process -FilePath $BrowserPath -ArgumentList $args -WorkingDirectory $workingDir -PassThru -ErrorAction Stop
-    Start-Sleep -Milliseconds 1200
+    Write-DanewReportOpeningTrace -Status 'browser-start-before' -Path $TargetPath -BrowserPath $BrowserPath -Arguments $args -Message ('working_dir=' + $workingDir)
+    try {
+        $proc = Start-Process -FilePath $BrowserPath -ArgumentList $args -WorkingDirectory $workingDir -PassThru -ErrorAction Stop
+        Write-DanewReportOpeningTrace -Status 'browser-start-after' -Path $TargetPath -BrowserPath $BrowserPath -Arguments $args -Message 'Start-Process returned a process handle.' -Process $proc
+    }
+    catch {
+        Write-DanewReportOpeningTrace -Status 'browser-start-error' -Path $TargetPath -BrowserPath $BrowserPath -Arguments $args -Message $_.Exception.Message
+        throw
+    }
+    if (-not $proc) {
+        Write-DanewReportOpeningTrace -Status 'browser-start-no-handle' -Path $TargetPath -BrowserPath $BrowserPath -Arguments $args -Message 'Start-Process returned no process handle.'
+        throw 'Navigateur lance sans handle de processus.'
+    }
     $exe = [System.IO.Path]::GetFileName($BrowserPath).ToLowerInvariant()
-    if ($proc -and $proc.HasExited -and ($exe -notlike 'firefox*')) {
+    if ($exe -like 'firefox*') {
+        Write-DanewReportOpeningTrace -Status 'browser-start-firefox-delegated' -Path $TargetPath -BrowserPath $BrowserPath -Arguments $args -Message 'Firefox launch delegated; exit check skipped.' -Process $proc
+        return $true
+    }
+
+    $elapsedMs = 0
+    while ($elapsedMs -lt 8000) {
+        Start-Sleep -Milliseconds 500
+        $elapsedMs += 500
+        if ($proc -and -not $proc.HasExited -and $elapsedMs -ge 2000) {
+            Write-DanewReportOpeningTrace -Status 'browser-start-alive' -Path $TargetPath -BrowserPath $BrowserPath -Arguments $args -Message ('alive_after_ms=' + [string]$elapsedMs) -Process $proc
+            return $true
+        }
+        if ($proc -and $proc.HasExited) {
+            break
+        }
+    }
+
+    if ($proc -and $proc.HasExited -and $proc.ExitCode -eq 0) {
+        Write-DanewReportOpeningTrace -Status 'browser-start-exit-zero' -Path $TargetPath -BrowserPath $BrowserPath -Arguments $args -Message ('exited_after_ms=' + [string]$elapsedMs) -Process $proc
+        return $true
+    }
+
+    if ($proc -and $proc.HasExited) {
+        Write-DanewReportOpeningTrace -Status 'browser-start-exit-nonzero' -Path $TargetPath -BrowserPath $BrowserPath -Arguments $args -Message ('exited_after_ms=' + [string]$elapsedMs) -Process $proc
         throw ('Navigateur ferme immediatement avec code ' + [string]$proc.ExitCode)
     }
+    Write-DanewReportOpeningTrace -Status 'browser-start-timeout-alive' -Path $TargetPath -BrowserPath $BrowserPath -Arguments $args -Message ('alive_after_ms=' + [string]$elapsedMs) -Process $proc
     return $true
 }
 
@@ -1008,14 +1222,29 @@ function Test-DanewPortableBrowserOperational {
             }
             else {
                 $args = @(Get-DanewBrowserLaunchArguments -BrowserPath $BrowserPath -TargetPath 'about:blank')
-                $args = @($args | Where-Object { $_ -ne 'about:blank' })
-                $args += '--version'
                 $proc = Start-Process -FilePath $BrowserPath -ArgumentList $args -WorkingDirectory $workingDir -PassThru -WindowStyle Hidden -ErrorAction Stop
                 if ($proc) {
-                    if (-not $proc.WaitForExit(5000)) {
-                        try { $proc.Kill() } catch {}
+                    $elapsedMs = 0
+                    while ($elapsedMs -lt 8000) {
+                        Start-Sleep -Milliseconds 500
+                        $elapsedMs += 500
+                        if ($proc.HasExited) {
+                            $ok = ($proc.ExitCode -eq 0)
+                            break
+                        }
+                        if ($elapsedMs -ge 2000) {
+                            $ok = $true
+                            break
+                        }
                     }
-                    $ok = ($proc.ExitCode -eq 0)
+
+                    if (-not $proc.HasExited) {
+                        try {
+                            $proc.Kill()
+                        }
+                        catch {
+                        }
+                    }
                 }
             }
         }
@@ -1043,6 +1272,81 @@ function Convert-DanewPathToFileUri {
     }
 }
 
+function Write-DanewReportOpeningTrace {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Status,
+        [string]$Title = '',
+        [string]$Path = '',
+        [string]$BrowserPath = '',
+        [string[]]$Arguments = @(),
+        [string]$Message = '',
+        [AllowNull()]
+        [object]$Process = $null
+    )
+
+    try {
+        $traceRoot = [string]$config.reports_path
+        if ([string]::IsNullOrWhiteSpace($traceRoot)) {
+            $traceRoot = Join-Path $RootPath 'reports'
+        }
+        if (-not (Test-Path -Path $traceRoot -ErrorAction SilentlyContinue)) {
+            New-Item -Path $traceRoot -ItemType Directory -Force | Out-Null
+        }
+
+        $tracePath = Join-Path $traceRoot 'report-opening.log'
+        $parts = @(
+            (Get-Date).ToString('s'),
+            ('status=' + $Status),
+            ('title=' + $Title),
+            ('path=' + $Path),
+            ('browser=' + $BrowserPath),
+            ('args=' + ($Arguments -join ' ')),
+            ('message=' + $Message)
+        )
+        if ($Process) {
+            try {
+                $parts += ('pid=' + [string]$Process.Id)
+                $parts += ('has_exited=' + [string]$Process.HasExited)
+                if ($Process.HasExited) {
+                    $parts += ('exit_code=' + [string]$Process.ExitCode)
+                }
+            }
+            catch {
+                $parts += ('process_error=' + $_.Exception.Message)
+            }
+        }
+        Add-Content -Path $tracePath -Value ($parts -join ' | ') -Encoding UTF8
+    }
+    catch {
+    }
+
+    try {
+        $data = [ordered]@{
+            path = $Path
+            browser_path = $BrowserPath
+            arguments = ($Arguments -join ' ')
+        }
+
+        if ($Process) {
+            try {
+                $data.process_id = [int]$Process.Id
+                $data.has_exited = [bool]$Process.HasExited
+                if ($Process.HasExited) {
+                    $data.exit_code = [int]$Process.ExitCode
+                }
+            }
+            catch {
+                $data.process_error = $_.Exception.Message
+            }
+        }
+
+        [void](Write-DanewLauncherActionLog -Config $config -Action 'open-report' -Status $Status -Message $Message -Data ([pscustomobject]$data))
+    }
+    catch {
+    }
+}
+
 function Test-DanewLikelyWinPE {
     try {
         $systemRoot = [string]$env:SystemRoot
@@ -1052,6 +1356,236 @@ function Test-DanewLikelyWinPE {
     }
     catch {
     }
+    return $false
+}
+
+function Show-DanewHtmlFallbackNotice {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Title,
+        [Parameter(Mandatory = $true)]
+        [string]$Reason
+    )
+
+    [System.Windows.Forms.MessageBox]::Show(
+        ('Le rapport HTML ne peut pas etre ouvert dans cet environnement.' + [Environment]::NewLine + [Environment]::NewLine +
+            'Raison : ' + $Reason + [Environment]::NewLine +
+            'Ouverture du fallback texte (TXT/CSV/JSON).'),
+        $Title,
+        [System.Windows.Forms.MessageBoxButtons]::OK,
+        [System.Windows.Forms.MessageBoxIcon]::Information
+    ) | Out-Null
+}
+
+function Show-DanewFallbackReportText {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Title,
+        [Parameter(Mandatory = $true)]
+        [string]$Content
+    )
+
+    [System.Windows.Forms.Application]::EnableVisualStyles()
+
+    $viewer = New-Object System.Windows.Forms.Form
+    $viewer.Text = $Title
+    $viewer.StartPosition = 'CenterParent'
+    $viewer.ClientSize = New-Object System.Drawing.Size(900, 620)
+    $viewer.MinimumSize = New-Object System.Drawing.Size(720, 480)
+    $viewer.TopMost = $true
+    $viewer.BringToFront()
+    $viewer.BackColor = [System.Drawing.Color]::White
+    $viewer.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+
+    $textBox = New-Object System.Windows.Forms.RichTextBox
+    if (-not $textBox) {
+        [System.Windows.Forms.MessageBox]::Show(
+            'RichTextBox creation failed. WinPE fallback unavailable.',
+            'Fallback Error',
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Error
+        )
+        return
+    }
+
+    $textBox.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $textBox.ReadOnly = $true
+    $textBox.ScrollBars = [System.Windows.Forms.RichTextBoxScrollBars]::Both
+    $textBox.WordWrap = $false
+    $textBox.BorderStyle = [System.Windows.Forms.BorderStyle]::None
+    $textBox.BackColor = [System.Drawing.Color]::FromArgb(248, 250, 252)
+    $textBox.ForeColor = [System.Drawing.Color]::FromArgb(15, 23, 42)
+    $textBox.Font = New-Object System.Drawing.Font('Consolas', 10)
+    $textBox.Text = $Content
+
+    $copyButton = New-Object System.Windows.Forms.Button
+    $copyButton.Text = 'Copier tout'
+    $copyButton.Dock = [System.Windows.Forms.DockStyle]::Bottom
+    $copyButton.Height = 32
+    $copyButton.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+    $copyButton.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+    $copyButton.BackColor = [System.Drawing.Color]::FromArgb(15, 118, 110)
+    $copyButton.ForeColor = [System.Drawing.Color]::White
+    $copyButton.Add_Click({ [System.Windows.Forms.Clipboard]::SetText($textBox.Text) })
+    [void]$viewer.Controls.Add($copyButton)
+    [void]$viewer.Controls.Add($textBox)
+
+    $reportDir = ''
+    try {
+        if ($config -and $config.PSObject.Properties['reports_path']) {
+            $reportDir = [string]$config.reports_path
+        }
+    }
+    catch {
+        $reportDir = ''
+    }
+    if ([string]::IsNullOrWhiteSpace($reportDir)) {
+        $reportDir = Join-Path $RootPath 'reports'
+    }
+
+    try {
+        # Force window visibility in WinPE before modal show.
+        $viewer.TopMost = $true
+        $viewer.BringToFront()
+        [System.Windows.Forms.Application]::DoEvents()
+
+        $dialogResult = [System.Windows.Forms.DialogResult]::None
+        if ($form) {
+            $dialogResult = $viewer.ShowDialog($form)
+        }
+        else {
+            $dialogResult = $viewer.ShowDialog()
+        }
+
+        if ($dialogResult -eq [System.Windows.Forms.DialogResult]::None) {
+            $diagnostic = 'RichTextBox.ShowDialog() returned but no user action detected. WinPE rendering issue? Dumping text content to file.'
+            Write-DanewReportOpeningTrace -Status 'fallback-richtextbox-dialogresult-none' -Title $Title -Path '' -Message $diagnostic
+            try {
+                if (-not (Test-Path -Path $reportDir)) {
+                    New-Item -Path $reportDir -ItemType Directory -Force | Out-Null
+                }
+                $reportLog = Join-Path $reportDir 'report-opening.log'
+                Add-Content -Path $reportLog -Value ('[' + (Get-Date -Format 'HH:mm:ss') + '] ' + $diagnostic) -Encoding UTF8
+            }
+            catch {
+            }
+        }
+    }
+    catch {
+        Write-DanewReportOpeningTrace -Status 'fallback-richtextbox-error' -Title $Title -Path '' -Message $_.Exception.Message
+        [System.Windows.Forms.MessageBox]::Show(
+            ('RichTextBox display error: ' + $_.Exception.Message),
+            'Fallback Display Error',
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Error
+        )
+    }
+    finally {
+        $viewer.Dispose()
+    }
+}
+
+function Open-DanewFallbackReport {
+    param(
+        [AllowEmptyString()]
+        [string]$ReportBaseName,
+        [object]$Config = $null
+    )
+
+    $effectiveConfig = $Config
+    if ($null -eq $effectiveConfig) {
+        $effectiveConfig = $config
+    }
+
+    $reportsPath = ''
+    try {
+        $reportsPath = [string]$effectiveConfig.reports_path
+    }
+    catch {
+        $reportsPath = ''
+    }
+    if ([string]::IsNullOrWhiteSpace($reportsPath)) {
+        $reportsPath = Join-Path $RootPath 'reports'
+    }
+
+    $baseName = [string]$ReportBaseName
+    if ([string]::IsNullOrWhiteSpace($baseName)) {
+        $baseName = 'rapport'
+    }
+    Write-DanewReportOpeningTrace -Status 'fallback-enter' -Title ('Rapport - ' + $baseName) -Path $reportsPath -Message 'Open-DanewFallbackReport entered.'
+
+    foreach ($extension in @('.txt', '.csv')) {
+        $candidate = ''
+        try {
+            $candidate = Join-Path $reportsPath ($baseName + $extension)
+            if (Test-Path -Path $candidate -ErrorAction SilentlyContinue) {
+                Write-DanewReportOpeningTrace -Status 'fallback-file-found' -Title ('Rapport - ' + $baseName) -Path $candidate -Message 'TXT/CSV fallback found.'
+                try {
+                    $npp = Join-Path $RootPath 'tools\notepad++\notepad++.exe'
+                    if (Test-Path -Path $npp -ErrorAction SilentlyContinue) {
+                        Write-DanewReportOpeningTrace -Status 'fallback-notepadpp-try' -Title ('Rapport - ' + $baseName) -Path $candidate -BrowserPath $npp -Message 'Trying Notepad++ portable fallback.'
+                        Start-Process -FilePath $npp -ArgumentList @($candidate) -ErrorAction Stop | Out-Null
+                        Write-DanewReportOpeningTrace -Status 'fallback-notepadpp-ok' -Title ('Rapport - ' + $baseName) -Path $candidate -BrowserPath $npp -Message 'Notepad++ portable returned success.'
+                        return $true
+                    }
+                }
+                catch {
+                    Write-DanewReportOpeningTrace -Status 'fallback-notepadpp-error' -Title ('Rapport - ' + $baseName) -Path $candidate -Message $_.Exception.Message
+                }
+
+                $content = Get-Content -Path $candidate -Raw -Encoding UTF8 -ErrorAction Stop
+                Write-DanewReportOpeningTrace -Status 'fallback-richtextbox-file' -Title ('Rapport - ' + $baseName) -Path $candidate -Message 'Showing TXT/CSV fallback in RichTextBox.'
+                Show-DanewFallbackReportText -Title ('Rapport - ' + $baseName) -Content $content
+                return $true
+            }
+        }
+        catch {
+            Write-DanewReportOpeningTrace -Status 'fallback-file-error' -Title ('Rapport - ' + $baseName) -Path $candidate -Message $_.Exception.Message
+        }
+    }
+
+    $snapshotPath = ''
+    try {
+        $snapshotPath = Join-Path $reportsPath 'gui-status-snapshot.json'
+        if (Test-Path -Path $snapshotPath -ErrorAction SilentlyContinue) {
+            $snapshot = Get-Content -Path $snapshotPath -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            $lines = New-Object System.Collections.ArrayList
+            foreach ($property in @($snapshot.PSObject.Properties)) {
+                $value = $property.Value
+                if ($null -eq $value) {
+                    $valueText = ''
+                }
+                elseif ($value -is [System.Array]) {
+                    $valueText = (@($value) -join ', ')
+                }
+                elseif ($value -is [System.Management.Automation.PSCustomObject]) {
+                    $valueText = ($value | ConvertTo-Json -Depth 8 -Compress)
+                }
+                else {
+                    $valueText = [string]$value
+                }
+                [void]$lines.Add(([string]$property.Name + ': ' + $valueText))
+            }
+            Write-DanewReportOpeningTrace -Status 'fallback-richtextbox-snapshot' -Title ('Rapport - ' + $baseName) -Path $snapshotPath -Message 'Showing gui-status-snapshot.json fallback in RichTextBox.'
+            Show-DanewFallbackReportText -Title ('Rapport - ' + $baseName) -Content (@($lines) -join [Environment]::NewLine)
+            return $true
+        }
+    }
+    catch {
+        Write-DanewReportOpeningTrace -Status 'fallback-snapshot-error' -Title ('Rapport - ' + $baseName) -Path $snapshotPath -Message $_.Exception.Message
+    }
+
+    $message = 'Navigateur HTML non disponible et aucun fallback TXT/CSV lisible trouve.' + [Environment]::NewLine +
+        'Rapport demande: ' + $baseName + [Environment]::NewLine +
+        'Dossier rapports: ' + $reportsPath + [Environment]::NewLine +
+        'Consultez les fichiers TXT, CSV ou JSON dans le dossier reports.'
+    Write-DanewReportOpeningTrace -Status 'fallback-none' -Title ('Rapport - ' + $baseName) -Path $reportsPath -Message $message
+    [System.Windows.Forms.MessageBox]::Show(
+        $message,
+        'Rapport indisponible',
+        [System.Windows.Forms.MessageBoxButtons]::OK,
+        [System.Windows.Forms.MessageBoxIcon]::Warning
+    ) | Out-Null
     return $false
 }
 
@@ -1100,6 +1634,147 @@ function Get-DanewReportSearchRoots {
     return @($roots)
 }
 
+function Get-DanewTextReportCandidates {
+    $results = New-Object System.Collections.ArrayList
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    $extensions = @('*.txt', '*.csv', '*.json')
+
+    foreach ($root in @(Get-DanewReportSearchRoots)) {
+        foreach ($pattern in $extensions) {
+            foreach ($file in @(Get-ChildItem -Path $root -Filter $pattern -File -ErrorAction SilentlyContinue)) {
+                if ($seen.Add($file.FullName)) {
+                    [void]$results.Add([pscustomobject]@{
+                        display = ($file.Name + '   [' + $file.LastWriteTime.ToString('yyyy-MM-dd HH:mm') + ']')
+                        path = $file.FullName
+                        name = $file.Name
+                        updated = $file.LastWriteTime
+                    })
+                }
+            }
+        }
+    }
+
+    return @($results | Sort-Object -Property @{ Expression = 'updated'; Descending = $true }, @{ Expression = 'name'; Descending = $false })
+}
+
+function Open-DanewTextReportCandidate {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -Path $Path -PathType Leaf -ErrorAction SilentlyContinue)) {
+        [System.Windows.Forms.MessageBox]::Show('Rapport texte introuvable.', 'Rapports TXT', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning) | Out-Null
+        return $false
+    }
+
+    try {
+        $content = Get-Content -Path $Path -Raw -Encoding UTF8 -ErrorAction Stop
+    }
+    catch {
+        try {
+            $content = Get-Content -Path $Path -Raw -ErrorAction Stop
+        }
+        catch {
+            [System.Windows.Forms.MessageBox]::Show(('Impossible de lire le rapport:' + [Environment]::NewLine + $Path + [Environment]::NewLine + $_.Exception.Message), 'Rapports TXT', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning) | Out-Null
+            return $false
+        }
+    }
+
+    Show-DanewFallbackReportText -Title ('Rapport texte - ' + [System.IO.Path]::GetFileName($Path)) -Content $content
+    return $true
+}
+
+function Show-DanewTextReportsListDialog {
+    $items = @(Get-DanewTextReportCandidates)
+    if (@($items).Count -eq 0) {
+        [System.Windows.Forms.MessageBox]::Show('Aucun rapport TXT, CSV ou JSON disponible dans le dossier reports.', 'Rapports TXT', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
+        return $false
+    }
+
+    $dialog = New-Object System.Windows.Forms.Form
+    $dialog.Text = Convert-DanewUiText -Text 'Outil de diagnostic SAV Danew - Rapports TXT'
+    $dialog.StartPosition = 'CenterParent'
+    $dialog.ClientSize = New-Object System.Drawing.Size(860, 520)
+    $dialog.MinimumSize = New-Object System.Drawing.Size(720, 420)
+    $dialog.BackColor = [System.Drawing.Color]::FromArgb(243, 246, 252)
+    $dialog.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+    $dialog.TopMost = $true
+
+    $titleLabel = New-Object System.Windows.Forms.Label
+    $titleLabel.Left = 14
+    $titleLabel.Top = 12
+    $titleLabel.Width = 820
+    $titleLabel.Height = 22
+    $titleLabel.Font = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
+    $titleLabel.Text = 'Rapports TXT / CSV / JSON disponibles'
+
+    $hintLabel = New-Object System.Windows.Forms.Label
+    $hintLabel.Left = 14
+    $hintLabel.Top = 36
+    $hintLabel.Width = 820
+    $hintLabel.Height = 18
+    $hintLabel.ForeColor = [System.Drawing.Color]::FromArgb(71, 85, 105)
+    $hintLabel.Text = 'Double-cliquez une entree ou utilisez OUVRIR pour afficher le rapport dans la visionneuse texte.'
+
+    $listBox = New-Object System.Windows.Forms.ListBox
+    $listBox.Left = 14
+    $listBox.Top = 62
+    $listBox.Width = 820
+    $listBox.Height = 394
+    $listBox.Anchor = 'Top,Bottom,Left,Right'
+    $listBox.Font = New-Object System.Drawing.Font('Consolas', 9)
+    $listBox.DisplayMember = 'display'
+    foreach ($item in $items) {
+        [void]$listBox.Items.Add($item)
+    }
+    if ($listBox.Items.Count -gt 0) {
+        $listBox.SelectedIndex = 0
+    }
+
+    $openButton = New-Object System.Windows.Forms.Button
+    $openButton.Left = 518
+    $openButton.Top = 468
+    $openButton.Width = 150
+    $openButton.Height = 34
+    $openButton.Anchor = 'Bottom,Right'
+    $openButton.Text = 'OUVRIR'
+    $openButton.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+    $openButton.FlatAppearance.BorderSize = 1
+    $openButton.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(15, 118, 110)
+    $openButton.BackColor = [System.Drawing.Color]::FromArgb(15, 118, 110)
+    $openButton.ForeColor = [System.Drawing.Color]::White
+
+    $closeButton = New-Object System.Windows.Forms.Button
+    $closeButton.Left = 684
+    $closeButton.Top = 468
+    $closeButton.Width = 150
+    $closeButton.Height = 34
+    $closeButton.Anchor = 'Bottom,Right'
+    $closeButton.Text = 'FERMER'
+    $closeButton.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+
+    $openHandler = {
+        if (-not $listBox.SelectedItem) {
+            return
+        }
+        $selected = $listBox.SelectedItem
+        [void](Open-DanewTextReportCandidate -Path ([string]$selected.path))
+    }
+
+    $openButton.Add_Click($openHandler)
+    $listBox.Add_DoubleClick($openHandler)
+    $closeButton.Add_Click({ $dialog.Close() })
+
+    [void]$dialog.Controls.Add($titleLabel)
+    [void]$dialog.Controls.Add($hintLabel)
+    [void]$dialog.Controls.Add($listBox)
+    [void]$dialog.Controls.Add($openButton)
+    [void]$dialog.Controls.Add($closeButton)
+    [void]$dialog.ShowDialog($form)
+    return $true
+}
+
 function Open-DanewReportFile {
     param(
         [Parameter(Mandatory = $true)]
@@ -1109,19 +1784,23 @@ function Open-DanewReportFile {
     )
 
     $script:LastReportOpenError = ''
+    Write-DanewReportOpeningTrace -Status 'open-report-call' -Title $Title -Path $Path -Message 'Open-DanewReportFile entered.'
 
     if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -Path $Path -ErrorAction SilentlyContinue)) {
         $script:LastReportOpenError = 'Rapport introuvable: ' + [string]$Path
+        Write-DanewReportOpeningTrace -Status 'open-report-missing' -Title $Title -Path $Path -Message $script:LastReportOpenError
         [System.Windows.Forms.MessageBox]::Show('Le rapport n est pas encore disponible. Lancez d abord l analyse.', $Title, [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
         return $false
     }
 
     $extension = [System.IO.Path]::GetExtension($Path)
     $isHtmlReport = ($extension -and $extension.ToLowerInvariant() -in @('.html', '.htm'))
+    $reportBaseName = [System.IO.Path]::GetFileNameWithoutExtension($Path)
     $browser = ''
     if ($isHtmlReport) {
         $browser = Get-DanewPortableBrowserPath
     }
+    Write-DanewReportOpeningTrace -Status 'open-report-resolved' -Title $Title -Path $Path -BrowserPath $browser -Message ('is_html=' + [string]$isHtmlReport)
 
     function Try-DanewOpenTarget {
         param(
@@ -1132,37 +1811,49 @@ function Open-DanewReportFile {
 
         if (-not [string]::IsNullOrWhiteSpace($BrowserPath)) {
             try {
+                Write-DanewReportOpeningTrace -Status 'open-report-portable-browser-try' -Title $Title -Path $TargetPath -BrowserPath $BrowserPath -Message 'Trying portable browser.'
                 [void](Start-DanewPortableBrowser -BrowserPath $BrowserPath -TargetPath $TargetPath)
+                Write-DanewReportOpeningTrace -Status 'open-report-portable-browser-ok' -Title $Title -Path $TargetPath -BrowserPath $BrowserPath -Message 'Portable browser returned success.'
                 return $true
             }
             catch {
                 $script:LastReportOpenError = 'Echec ouverture via navigateur portable: ' + $_.Exception.Message
+                Write-DanewReportOpeningTrace -Status 'open-report-portable-browser-error' -Title $Title -Path $TargetPath -BrowserPath $BrowserPath -Message $script:LastReportOpenError
             }
         }
 
         try {
+            Write-DanewReportOpeningTrace -Status 'open-report-direct-start-try' -Title $Title -Path $TargetPath -Message 'Trying Start-Process direct.'
             Start-Process -FilePath $TargetPath | Out-Null
+            Write-DanewReportOpeningTrace -Status 'open-report-direct-start-ok' -Title $Title -Path $TargetPath -Message 'Start-Process direct returned success.'
             return $true
         }
         catch {
             $script:LastReportOpenError = 'Echec Start-Process direct: ' + $_.Exception.Message
+            Write-DanewReportOpeningTrace -Status 'open-report-direct-start-error' -Title $Title -Path $TargetPath -Message $script:LastReportOpenError
         }
 
         try {
+            Write-DanewReportOpeningTrace -Status 'open-report-invoke-item-try' -Title $Title -Path $TargetPath -Message 'Trying Invoke-Item.'
             Invoke-Item -Path $TargetPath -ErrorAction Stop
+            Write-DanewReportOpeningTrace -Status 'open-report-invoke-item-ok' -Title $Title -Path $TargetPath -Message 'Invoke-Item returned success.'
             return $true
         }
         catch {
             $script:LastReportOpenError = 'Echec Invoke-Item: ' + $_.Exception.Message
+            Write-DanewReportOpeningTrace -Status 'open-report-invoke-item-error' -Title $Title -Path $TargetPath -Message $script:LastReportOpenError
         }
 
         try {
             $startArgs = '/c start "" "' + $TargetPath + '"'
+            Write-DanewReportOpeningTrace -Status 'open-report-cmd-start-try' -Title $Title -Path $TargetPath -Arguments @($startArgs) -Message 'Trying cmd /c start.'
             Start-Process -FilePath 'cmd.exe' -ArgumentList $startArgs | Out-Null
+            Write-DanewReportOpeningTrace -Status 'open-report-cmd-start-ok' -Title $Title -Path $TargetPath -Arguments @($startArgs) -Message 'cmd /c start returned success.'
             return $true
         }
         catch {
             $script:LastReportOpenError = 'Echec cmd/start: ' + $_.Exception.Message
+            Write-DanewReportOpeningTrace -Status 'open-report-cmd-start-error' -Title $Title -Path $TargetPath -Arguments @($startArgs) -Message $script:LastReportOpenError
         }
 
         return $false
@@ -1173,74 +1864,61 @@ function Open-DanewReportFile {
         $browserErrors = @()
         foreach ($candidateBrowser in @(Get-DanewPortableBrowserCandidates)) {
             try {
+                Write-DanewReportOpeningTrace -Status 'open-report-candidate-try' -Title $Title -Path $targetUri -BrowserPath $candidateBrowser -Message ('source_path=' + $Path)
                 [void](Start-DanewPortableBrowser -BrowserPath $candidateBrowser -TargetPath $targetUri)
-                try {
-                    $tracePath = Join-Path ([string]$config.reports_path) 'report-opening.log'
-                    $line = (Get-Date).ToString('s') + ' | title=' + $Title + ' | path=' + $Path + ' | browser=' + $candidateBrowser + ' | status=started'
-                    Add-Content -Path $tracePath -Value $line -Encoding UTF8
-                }
-                catch {
-                }
+                Write-DanewReportOpeningTrace -Status 'open-report-candidate-ok' -Title $Title -Path $targetUri -BrowserPath $candidateBrowser -Message ('source_path=' + $Path)
                 return $true
             }
             catch {
                 $browserErrors += ([string]$candidateBrowser + ' => ' + $_.Exception.Message)
+                Write-DanewReportOpeningTrace -Status 'open-report-candidate-error' -Title $Title -Path $targetUri -BrowserPath $candidateBrowser -Message $_.Exception.Message
             }
         }
         $script:LastReportOpenError = 'Echec navigateurs portables: ' + ($browserErrors -join ' ; ')
+        Write-DanewReportOpeningTrace -Status 'open-report-all-browsers-failed' -Title $Title -Path $Path -BrowserPath $browser -Message $script:LastReportOpenError
     }
 
     if ($isHtmlReport -and [string]::IsNullOrWhiteSpace($browser)) {
         $script:LastReportOpenError = 'Navigateur HTML non disponible. Aucun navigateur portable detecte dans tools\\browser.'
         if (Test-DanewLikelyWinPE) {
-            $message = 'Impossible d ouvrir ce rapport HTML dans WinPE sans navigateur portable.' + [Environment]::NewLine +
-                'Chemin: ' + $Path + [Environment]::NewLine +
-                'Attendu: tools\\browser\\chromium.exe, chrome.exe, msedge.exe, FirefoxPortable.exe ou firefox.exe.' + [Environment]::NewLine +
-                'Action: recopier le navigateur portable sur la partition DATA, puis relancer.'
-            [System.Windows.Forms.MessageBox]::Show(
-                $message,
-                $Title,
-                [System.Windows.Forms.MessageBoxButtons]::OK,
-                [System.Windows.Forms.MessageBoxIcon]::Warning
-            ) | Out-Null
-            return $false
+            Write-DanewReportOpeningTrace -Status 'open-report-fallback-no-browser' -Title $Title -Path $Path -Message $script:LastReportOpenError
+            Show-DanewHtmlFallbackNotice -Title $Title -Reason $script:LastReportOpenError
+            return (Open-DanewFallbackReport -ReportBaseName $reportBaseName -Config $config)
         }
     }
 
     if ($isHtmlReport -and -not [string]::IsNullOrWhiteSpace($browser) -and -not [string]::IsNullOrWhiteSpace($script:LastReportOpenError)) {
-        $message = 'Le navigateur portable a ete detecte mais son lancement a echoue.' + [Environment]::NewLine +
-            'Navigateur: ' + $browser + [Environment]::NewLine +
-            'Rapport: ' + $Path + [Environment]::NewLine +
-            'Raison: ' + $script:LastReportOpenError + [Environment]::NewLine +
-            'Action: verifier les dependances WinPE du navigateur ou remplacer par une version portable compatible.'
-        [System.Windows.Forms.MessageBox]::Show(
-            $message,
-            $Title,
-            [System.Windows.Forms.MessageBoxButtons]::OK,
-            [System.Windows.Forms.MessageBoxIcon]::Warning
-        ) | Out-Null
-        return $false
+        if (Test-DanewLikelyWinPE) {
+            Write-DanewReportOpeningTrace -Status 'open-report-fallback-browser-failed' -Title $Title -Path $Path -BrowserPath $browser -Message $script:LastReportOpenError
+            Show-DanewHtmlFallbackNotice -Title $Title -Reason $script:LastReportOpenError
+            return (Open-DanewFallbackReport -ReportBaseName $reportBaseName -Config $config)
+        }
     }
 
     try {
+        Write-DanewReportOpeningTrace -Status 'open-report-file-start-try' -Title $Title -Path $Path -Message 'Trying Start-Process on report file.'
         Start-Process -FilePath $Path | Out-Null
+        Write-DanewReportOpeningTrace -Status 'open-report-file-start-ok' -Title $Title -Path $Path -Message 'Start-Process on report file returned success.'
         return $true
     }
     catch {
         $script:LastReportOpenError = 'Echec ouverture fichier: ' + $_.Exception.Message
+        Write-DanewReportOpeningTrace -Status 'open-report-file-start-error' -Title $Title -Path $Path -Message $script:LastReportOpenError
     }
 
     if (Try-DanewOpenTarget -TargetPath $Path -BrowserPath '') {
         return $true
     }
 
-    try {
-        $tracePath = Join-Path ([string]$config.reports_path) 'report-opening.log'
-        $line = (Get-Date).ToString('s') + ' | title=' + $Title + ' | path=' + $Path + ' | browser=' + $browser + ' | error=' + $script:LastReportOpenError
-        Add-Content -Path $tracePath -Value $line -Encoding UTF8
+    if ($isHtmlReport) {
+        Write-DanewReportOpeningTrace -Status 'open-report-fallback-final' -Title $Title -Path $Path -Message $script:LastReportOpenError
+        if (Test-DanewLikelyWinPE) {
+            Show-DanewHtmlFallbackNotice -Title $Title -Reason $script:LastReportOpenError
+        }
+        return (Open-DanewFallbackReport -ReportBaseName $reportBaseName -Config $config)
     }
-    catch {
-    }
+
+    Write-DanewReportOpeningTrace -Status 'open-report-failed' -Title $Title -Path $Path -BrowserPath $browser -Message $script:LastReportOpenError
 
     $message = 'Impossible d ouvrir ce rapport automatiquement.' + [Environment]::NewLine +
         'Chemin: ' + $Path + [Environment]::NewLine +
@@ -1258,7 +1936,7 @@ function Open-DanewReportFile {
 function Open-DanewSpecificReport {
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet('sav', 'timeline', 'timeline-fast-by-file', 'storage')]
+        [ValidateSet('reports-index', 'sav', 'timeline', 'timeline-fast-by-file', 'storage')]
         [string]$Kind
     )
 
@@ -1266,12 +1944,16 @@ function Open-DanewSpecificReport {
     $cutoff = $script:ReportAvailabilityCutoff
     $title = 'Rapport SAV Danew'
     switch ($Kind) {
+        'reports-index' {
+            $path = Get-DanewAvailableReportPath -Names @('REPORTS_INDEX.html', 'reports-index.html') -MinLastWriteTime $cutoff
+            $title = 'RAPPORTS DANEW'
+        }
         'sav' {
-            $path = Get-DanewAvailableReportPath -Names @('sav-diagnostic-report.html', 'REPORTS_INDEX.html', 'reports-index.html', 'one-click-diagnostic-report.html', 'offline-windows-failure-report.html') -MinLastWriteTime $cutoff
+            $path = Get-DanewAvailableReportPath -Names @('REPORTS_INDEX.html', 'reports-index.html', 'sav-diagnostic-report.html', 'one-click-diagnostic-report.html', 'offline-windows-failure-report.html') -MinLastWriteTime $cutoff
             $title = 'OUVRIR LE RAPPORT SAV'
         }
         'timeline' {
-            $path = Get-DanewAvailableReportPath -Names @('timeline-raw.html', 'evtx-events.html', 'REPORTS_INDEX.html', 'timeline-raw.json') -MinLastWriteTime $cutoff
+            $path = Get-DanewAvailableReportPath -Names @('timeline-raw.html', 'REPORTS_INDEX.html', 'reports-index.html', 'timeline-raw.json') -MinLastWriteTime $cutoff
             $path = Ensure-DanewFullTimelineReport -Path $path
             $title = 'Lire les logs Windows (classes)'
         }
@@ -1280,11 +1962,12 @@ function Open-DanewSpecificReport {
             $title = 'Lire les logs Windows (rapide par fichier EVTX)'
         }
         'storage' {
-            $path = Get-DanewAvailableReportPath -Names @('storage-diagnostics.html', 'REPORTS_INDEX.html', 'storage-diagnostics.json', 'storage-analysis.json', 'reports-index.html', 'storage-analysis.html', 'storage-visibility-diagnosis.json') -MinLastWriteTime $cutoff
+            $path = Get-DanewAvailableReportPath -Names @('storage-analysis.html', 'storage-diagnostics.html', 'REPORTS_INDEX.html', 'reports-index.html', 'storage-analysis.json', 'storage-visibility-diagnosis.json', 'storage-diagnostics.json') -MinLastWriteTime $cutoff
             $title = 'Ouvrir le rapport de stockage'
         }
     }
 
+    Write-DanewReportOpeningTrace -Status 'specific-report-resolved' -Title $title -Path $path -Message ('kind=' + $Kind)
     return (Open-DanewReportFile -Path $path -Title $title)
 }
 
@@ -1370,13 +2053,16 @@ function Update-DanewReportAvailability {
     $recommendedPath = Get-DanewAvailableReportPath -Names $recommendedNames -MinLastWriteTime $cutoff
     $evtxExportPath = Get-DanewAvailableReportPath -Names $evtxExportNames -MinLastWriteTime $cutoff
     $anyReportPath = Get-DanewAvailableReportPath -Names $anyReportNames -MinLastWriteTime $cutoff
+    $reportsIndexPath = Get-DanewAvailableReportPath -Names @('REPORTS_INDEX.html', 'reports-index.html') -MinLastWriteTime $cutoff
 
-    $hasTimeline = (-not [string]::IsNullOrWhiteSpace($timelinePath)) -and $browserOperational
-    $hasTimelineFast = (-not [string]::IsNullOrWhiteSpace($timelineFastPath)) -and $browserOperational
-    $hasSav = (-not [string]::IsNullOrWhiteSpace($savPath)) -and $browserOperational
+    $hasTimeline = -not [string]::IsNullOrWhiteSpace($timelinePath)
+    $hasTimelineFast = -not [string]::IsNullOrWhiteSpace($timelineFastPath)
+    $hasSav = -not [string]::IsNullOrWhiteSpace($savPath)
     $hasRecommended = -not [string]::IsNullOrWhiteSpace($recommendedPath)
     $hasEvtx = -not [string]::IsNullOrWhiteSpace($evtxExportPath)
     $hasAnyReport = -not [string]::IsNullOrWhiteSpace($anyReportPath)
+    $hasReportsIndex = -not [string]::IsNullOrWhiteSpace($reportsIndexPath)
+    $hasTextReports = @((Get-DanewTextReportCandidates)).Count -gt 0
 
     $availabilityChecks = @(
         $hasTimeline,
@@ -1389,14 +2075,12 @@ function Update-DanewReportAvailability {
     )
     $availableCount = @($availabilityChecks | Where-Object { $_ }).Count
     $pendingCount = @($availabilityChecks | Where-Object { -not $_ }).Count
-    if ($simpleActionsGroup) {
-        $suffix = if ($browserOperational) {
-            ' - ' + [string]$availableCount + ' disponibles, ' + [string]$pendingCount + ' a generer'
+    if ($quickActionsGroup) {
+        $suffix = ' - ' + [string]$availableCount + ' disponibles, ' + [string]$pendingCount + ' a generer'
+        if (-not $browserOperational) {
+            $suffix += ' - navigateur HTML indisponible'
         }
-        else {
-            ' - navigateur HTML indisponible'
-        }
-        $simpleActionsGroup.Text = Convert-DanewUiText -Text ('Rapports et actions rapides' + $suffix)
+        $quickActionsGroup.Text = Convert-DanewUiText -Text ('Actions rapides' + $suffix)
     }
 
     if ($openTimelineReportButton) {
@@ -1427,6 +2111,14 @@ function Update-DanewReportAvailability {
         $openSavReportButton.Text = Convert-DanewUiText -Text $savLabel
         $savUnavailableHint = if (-not $browserOperational) { 'Rapport present mais navigateur non operationnel dans cet environnement. Verifiez Chromium portable.' } else { 'Rapport SAV indisponible pour cette session. Lancez ANALYSER CAUSES DE CRASH ou une analyse des journaux.' }
         Set-DanewButtonAvailability -Button $openSavReportButton -Available $hasSav -ToolTip $toolTip -AvailableHint 'Ouvre le rapport SAV principal.' -UnavailableHint $savUnavailableHint
+    }
+
+    if ($openReportsButton) {
+        Set-DanewButtonAvailability -Button $openReportsButton -Available $hasReportsIndex -ToolTip $toolTip -AvailableHint 'Ouvre le hub REPORTS_INDEX avec navigation croisee entre tous les rapports.' -UnavailableHint 'Hub de rapports indisponible pour cette session. Lancez une analyse pour generer REPORTS_INDEX.html.'
+    }
+
+    if ($openTextReportsButton) {
+        Set-DanewButtonAvailability -Button $openTextReportsButton -Available $hasTextReports -ToolTip $toolTip -AvailableHint 'Affiche la liste des rapports TXT, CSV et JSON disponibles.' -UnavailableHint 'Aucun rapport texte disponible pour cette session. Lancez une analyse ou un export.'
     }
 
     if ($recommendedActionsButton) {
@@ -1733,7 +2425,17 @@ function New-DanewActionButton {
     }
     else {
         $actionName = [string]$Action
-        $button.Add_Click(({ Invoke-GuiAction -Action $actionName }).GetNewClosure())
+        $button.Add_Click(({
+            if ($actionName -in @('open-reports-index', 'open-sav-report', 'open-timeline-report', 'open-timeline-fast-report', 'open-storage-report')) {
+                try {
+                    [void](Write-DanewLauncherActionLog -Config $config -Action $actionName -Status 'click' -Message 'Report button clicked before Invoke-GuiAction.')
+                    Write-DanewReportOpeningTrace -Status 'click' -Title $actionName -Message 'Report button clicked before Invoke-GuiAction.'
+                }
+                catch {
+                }
+            }
+            Invoke-GuiAction -Action $actionName
+        }).GetNewClosure())
     }
 
     [void]$script:ActionButtons.Add($button)
@@ -1889,6 +2591,9 @@ function Invoke-GuiAction {
     )
 
     if ($script:IsActionRunning) {
+        if ($Action -in @('open-reports-index', 'open-text-reports-list', 'open-sav-report', 'open-timeline-report', 'open-timeline-fast-report', 'open-storage-report')) {
+            Write-DanewReportOpeningTrace -Status 'gui-action-ignored-running' -Title $Action -Message 'Action ignored because another action is running.'
+        }
         return
     }
 
@@ -1905,8 +2610,31 @@ function Invoke-GuiAction {
         $offlineOperationLabel.Text = 'Operation en cours : ' + $actionDisplay
     }
     Add-DiagnosticProgressLine -Line ('[UI] Demarrage action : ' + $actionDisplay)
+    if ($Action -in @('open-reports-index', 'open-text-reports-list', 'open-sav-report', 'open-timeline-report', 'open-timeline-fast-report', 'open-storage-report')) {
+        Write-DanewReportOpeningTrace -Status 'gui-action-start' -Title $Action -Message ('Invoke-GuiAction started: ' + $actionDisplay)
+    }
 
     try {
+        if ($Action -eq 'open-reports-index') {
+            $opened = Open-DanewSpecificReport -Kind 'reports-index'
+            if ($opened) {
+                Set-DanewSummaryVisual -Status 'PASS' -Text 'Hub des rapports ouvert'
+            }
+            else {
+                Set-DanewSummaryVisual -Status 'WARNING' -Text 'Ouverture hub des rapports echec'
+            }
+            return
+        }
+        if ($Action -eq 'open-text-reports-list') {
+            $opened = Show-DanewTextReportsListDialog
+            if ($opened) {
+                Set-DanewSummaryVisual -Status 'PASS' -Text 'Liste des rapports texte ouverte'
+            }
+            else {
+                Set-DanewSummaryVisual -Status 'WARNING' -Text 'Aucun rapport texte disponible'
+            }
+            return
+        }
         if ($Action -eq 'open-sav-report') {
             $opened = Open-DanewSpecificReport -Kind 'sav'
             if ($opened) {
@@ -2498,6 +3226,17 @@ catch {
     throw
 }
 
+if ($CliFallbackCommand -in @('open-sav-report', 'open-reports-index')) {
+    $cliKind = if ($CliFallbackCommand -eq 'open-reports-index') { 'reports-index' } else { 'sav' }
+    Write-DanewReportOpeningTrace -Status ('cli-direct-' + $CliFallbackCommand) -Title $CliFallbackCommand -Message ('launcher.ps1 direct ' + $CliFallbackCommand + ' command entered.')
+    $openedFromCli = Open-DanewSpecificReport -Kind $cliKind
+    Write-DanewReportOpeningTrace -Status ('cli-direct-' + $CliFallbackCommand + '-result') -Title $CliFallbackCommand -Message ('opened=' + [string]$openedFromCli)
+    if ($openedFromCli) {
+        exit 0
+    }
+    exit 1
+}
+
 $form = New-Object System.Windows.Forms.Form
 $runtimeTitle = 'WinPE'
 if ($config.PSObject.Properties['runtime_mode']) {
@@ -2510,11 +3249,12 @@ $form.Text = 'Outil de diagnostic SAV Danew'
 $form.StartPosition = 'CenterScreen'
 $form.ClientSize = New-Object System.Drawing.Size(900, 720)
 $form.TopMost = $true
-$form.AutoScroll = $false
+$form.AutoScroll = $true
 $form.AutoScrollMinSize = New-Object System.Drawing.Size(900, 720)
-$form.MinimumSize = New-Object System.Drawing.Size(900, 700)
+$form.MinimumSize = New-Object System.Drawing.Size(800, 560)
 $form.BackColor = [System.Drawing.Color]::FromArgb(243, 246, 252)
 $form.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+$form.AutoScaleMode = [System.Windows.Forms.AutoScaleMode]::Dpi
 
 $iconPath = Join-Path $RootPath 'Assets_danew\danew_brand_line_blue.ico'
 if (Test-Path -Path $iconPath) {
@@ -2531,6 +3271,13 @@ if ($workingArea.Height -lt 900 -or $workingArea.Width -lt 940) {
     $targetHeight = [Math]::Max(640, [Math]::Min(720, $workingArea.Height - 24))
     $form.ClientSize = New-Object System.Drawing.Size($targetWidth, $targetHeight)
 }
+
+$form.Add_Resize({
+    Set-DanewReportsSectionLayout
+    if ($script:TechnicalDetailsVisible) {
+        Set-DanewTechnicalDetailsDockLayout
+    }
+})
 
 $headerPanel = New-Object System.Windows.Forms.Panel
 $headerPanel.Left = 14
@@ -3189,42 +3936,171 @@ $summaryLabel = $savSummaryLabel
 $overallBadgeLabel = $savOverallBadgeLabel
 
 $simpleActionsGroup = New-Object System.Windows.Forms.GroupBox
-$simpleActionsGroup.Text = 'Rapports et actions rapides'
+$simpleActionsGroup.Text = 'Rapports'
 $simpleActionsGroup.Left = 14
 $simpleActionsGroup.Top = 586
 $simpleActionsGroup.Width = 872
-$simpleActionsGroup.Height = 104
+$simpleActionsGroup.Height = 64
 $simpleActionsGroup.Anchor = 'Top,Left,Right'
 $simpleActionsGroup.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
 $simpleActionsGroup.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
 
-$simplePanel = New-Object System.Windows.Forms.FlowLayoutPanel
+$simplePanel = New-Object System.Windows.Forms.Panel
 $simplePanel.Left = 10
-$simplePanel.Top = 20
+$simplePanel.Top = 16
 $simplePanel.Width = 844
-$simplePanel.Height = 80
-$simplePanel.FlowDirection = 'LeftToRight'
-$simplePanel.WrapContents = $true
-$simplePanel.Padding = New-Object System.Windows.Forms.Padding(0, 2, 0, 0)
+$simplePanel.Height = 38
+$simplePanel.Anchor = 'Top,Left,Right'
+$simplePanel.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
+
+$openReportsButton = New-Object System.Windows.Forms.Button
+$openReportsButton.Name = 'openReportsButton'
+$openReportsButton.Text = Convert-DanewUiText -Text "OUVRIR RAPPORTS`n(HTML)"
+$openReportsButton.AutoSize = $false
+$openReportsButton.Width = 420
+$openReportsButton.Height = 40
+$openReportsButton.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
+$openReportsButton.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$openReportsButton.FlatAppearance.BorderSize = 2
+$openReportsButton.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(15, 118, 110)
+$openReportsButton.BackColor = [System.Drawing.Color]::FromArgb(15, 118, 110)
+$openReportsButton.ForeColor = [System.Drawing.Color]::White
+$openReportsButton.Margin = New-Object System.Windows.Forms.Padding(5, 3, 5, 3)
+$openReportsButton.Cursor = [System.Windows.Forms.Cursors]::Hand
+$openReportsButton.Tag = [pscustomobject]@{
+    base_text = 'OUVRIR RAPPORTS'
+    enabled_back_color = [System.Drawing.Color]::FromArgb(15, 118, 110)
+    enabled_fore_color = [System.Drawing.Color]::White
+    enabled_border_color = [System.Drawing.Color]::FromArgb(15, 118, 110)
+    hover_back_color = [System.Drawing.Color]::FromArgb(13, 148, 136)
+    disabled_back_color = [System.Drawing.Color]::FromArgb(241, 245, 249)
+    disabled_fore_color = [System.Drawing.Color]::FromArgb(100, 116, 139)
+    disabled_border_color = [System.Drawing.Color]::FromArgb(203, 213, 225)
+    hint = 'Ouvre REPORTS_INDEX.html comme point d entree unique pour tous les rapports HTML.'
+}
+$openReportsButton.Add_MouseEnter({
+    $sender = [System.Windows.Forms.Button]$this
+    if ($sender.Enabled) {
+        $sender.BackColor = [System.Drawing.Color]::FromArgb(13, 148, 136)
+    }
+})
+$openReportsButton.Add_MouseLeave({
+    $sender = [System.Windows.Forms.Button]$this
+    if ($sender.Enabled) {
+        $sender.BackColor = [System.Drawing.Color]::FromArgb(15, 118, 110)
+    }
+})
+$openReportsButton.Add_Click({
+    $originalText = $openReportsButton.Text
+    $spinnerFrames = @('[===  ]', '[=== ]', '[ ===]', '[  ==]', '[   =]', '[    ]')
+    $spinnerIndex = 0
+
+    # Show spinner
+    $spinnerTimer = New-Object System.Windows.Forms.Timer
+    $spinnerTimer.Interval = 150
+    $spinnerTimer.Add_Tick({
+        $openReportsButton.Text = "$($spinnerFrames[$spinnerIndex % $spinnerFrames.Count]) Chargement..."
+        $spinnerIndex++
+    })
+    $spinnerTimer.Start()
+
+    # Execute action in background
+    [System.Windows.Forms.Application]::DoEvents()
+    try {
+        Invoke-GuiAction -Action 'open-reports-index'
+    } finally {
+        $spinnerTimer.Stop()
+        $spinnerTimer.Dispose()
+        $openReportsButton.Text = $originalText
+    }
+})
+[void]$toolTip.SetToolTip($openReportsButton, 'Ouvre le hub REPORTS_INDEX.html avec navigation croisee offline-safe.')
+[void]$script:ActionButtons.Add($openReportsButton)
+
+$openTextReportsButton = New-Object System.Windows.Forms.Button
+$openTextReportsButton.Name = 'openTextReportsButton'
+$openTextReportsButton.Text = Convert-DanewUiText -Text "RAPPORT TXT`n(Fallback)"
+$openTextReportsButton.AutoSize = $false
+$openTextReportsButton.Width = 260
+$openTextReportsButton.Height = 40
+$openTextReportsButton.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
+$openTextReportsButton.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$openTextReportsButton.FlatAppearance.BorderSize = 2
+$openTextReportsButton.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(71, 85, 105)
+$openTextReportsButton.BackColor = [System.Drawing.Color]::White
+$openTextReportsButton.ForeColor = [System.Drawing.Color]::FromArgb(31, 41, 55)
+$openTextReportsButton.Margin = New-Object System.Windows.Forms.Padding(5, 3, 5, 3)
+$openTextReportsButton.Cursor = [System.Windows.Forms.Cursors]::Hand
+$openTextReportsButton.Tag = [pscustomobject]@{
+    base_text = 'RAPPORT TXT (LISTE)'
+    enabled_back_color = [System.Drawing.Color]::White
+    enabled_fore_color = [System.Drawing.Color]::FromArgb(31, 41, 55)
+    enabled_border_color = [System.Drawing.Color]::FromArgb(71, 85, 105)
+    hover_back_color = [System.Drawing.Color]::FromArgb(241, 245, 249)
+    disabled_back_color = [System.Drawing.Color]::FromArgb(241, 245, 249)
+    disabled_fore_color = [System.Drawing.Color]::FromArgb(100, 116, 139)
+    disabled_border_color = [System.Drawing.Color]::FromArgb(203, 213, 225)
+    hint = 'Affiche la liste des rapports texte lisibles: TXT, CSV et JSON.'
+}
+$openTextReportsButton.Add_MouseEnter({
+    $sender = [System.Windows.Forms.Button]$this
+    if ($sender.Enabled) {
+        $sender.BackColor = [System.Drawing.Color]::FromArgb(241, 245, 249)
+    }
+})
+$openTextReportsButton.Add_MouseLeave({
+    $sender = [System.Windows.Forms.Button]$this
+    if ($sender.Enabled) {
+        $sender.BackColor = [System.Drawing.Color]::White
+    }
+})
+$openTextReportsButton.Add_Click({
+    Invoke-GuiAction -Action 'open-text-reports-list'
+})
+[void]$toolTip.SetToolTip($openTextReportsButton, 'Affiche la liste des rapports TXT, CSV et JSON disponibles dans reports.')
+[void]$script:ActionButtons.Add($openTextReportsButton)
 
 $openTimelineReportButton = New-DanewActionButton -Text '1. COMPLET TOUS LES LOGS' -Action 'open-timeline-report' -ToolTip $toolTip -Hint 'Ouvre la vue complete des journaux Windows recuperes. Permet de filtrer, trier et rechercher tous les evenements EVTX.' -Tone 'primary'
 $openTimelineFastReportButton = New-DanewActionButton -Text '2. RAPIDE CRIT/ERR/AVERT.' -Action 'open-timeline-fast-report' -ToolTip $toolTip -Hint 'Ouvre la vue rapide des journaux Windows limitee aux evenements critiques, erreurs et avertissements, regroupes par fichier EVTX.' -Tone 'primary'
 $openSavReportButton = New-DanewActionButton -Text '3. OUVRIR LE RAPPORT SAV' -Action 'open-sav-report' -ToolTip $toolTip -Hint 'Ouvre le rapport SAV principal. A utiliser apres analyse des journaux ou analyse des causes de crash. Si absent, ouvre l index des rapports.' -Tone 'primary'
-[void]$simplePanel.Controls.Add($openTimelineReportButton)
-[void]$simplePanel.Controls.Add($openTimelineFastReportButton)
-[void]$simplePanel.Controls.Add($openSavReportButton)
-$simplePanel.SetFlowBreak($openSavReportButton, $true)
+$openTimelineReportButton.Visible = $false
+$openTimelineFastReportButton.Visible = $false
+$openSavReportButton.Visible = $false
+[void]$simplePanel.Controls.Add($openReportsButton)
+[void](Set-DanewReportsSectionLayout)
+
+$quickActionsGroup = New-Object System.Windows.Forms.GroupBox
+$quickActionsGroup.Text = 'Actions rapides'
+$quickActionsGroup.Left = 14
+$quickActionsGroup.Top = 670
+$quickActionsGroup.Width = 872
+$quickActionsGroup.Height = 104
+$quickActionsGroup.Anchor = 'Top,Left,Right'
+$quickActionsGroup.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
+$quickActionsGroup.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
+
+$quickActionsPanel = New-Object System.Windows.Forms.FlowLayoutPanel
+$quickActionsPanel.Left = 10
+$quickActionsPanel.Top = 20
+$quickActionsPanel.Width = 844
+$quickActionsPanel.Height = 80
+$quickActionsPanel.FlowDirection = 'LeftToRight'
+$quickActionsPanel.WrapContents = $true
+$quickActionsPanel.Padding = New-Object System.Windows.Forms.Padding(0, 2, 0, 0)
+
 $recommendedActionsButton = New-DanewActionButton -Text '4. ACTIONS RECOMMANDEES' -Action 'recommended-actions' -ToolTip $toolTip -Hint 'Affiche les actions SAV conseillees selon le diagnostic. Les actions sont informatives et non destructives.' -Tone 'neutral'
-[void]$simplePanel.Controls.Add($recommendedActionsButton)
+[void]$quickActionsPanel.Controls.Add($recommendedActionsButton)
+$openTextReportsQuickButton = New-DanewActionButton -Text 'TXT/CSV LISTE' -Action 'open-text-reports-list' -ToolTip $toolTip -Hint 'Affiche la liste des rapports TXT, CSV et JSON disponibles.' -Tone 'neutral'
+[void]$quickActionsPanel.Controls.Add($openTextReportsQuickButton)
 $exportEvtxTargetedButton = New-DanewActionButton -Text '5. EXPORT EVTX CIBLE' -Action 'export-evtx-targeted' -ToolTip $toolTip -Hint 'Genere les exports EVTX physiques dans reports: evenements filtres, evenements critiques, fenetre crash et resume SAV TXT. Ne depend pas du navigateur HTML.' -Tone 'neutral'
-[void]$simplePanel.Controls.Add($exportEvtxTargetedButton)
+[void]$quickActionsPanel.Controls.Add($exportEvtxTargetedButton)
 $exportEvtxZipButton = New-DanewActionButton -Text '6. EXPORT ZIP EVTX' -Action 'export-evtx-zip' -ToolTip $toolTip -Hint 'Cree un ZIP des fichiers EVTX lisibles avec nom machine + horodate, et ajoute les artefacts EVTX utiles.' -Tone 'neutral'
-[void]$simplePanel.Controls.Add($exportEvtxZipButton)
+[void]$quickActionsPanel.Controls.Add($exportEvtxZipButton)
 $exportSavPackageButton = New-DanewActionButton -Text '7. EXPORTER LE DOSSIER SAV' -Action 'export-diagnostic-package' -ToolTip $toolTip -Hint 'Cree un package SAV avec les rapports, journaux et exports disponibles. Utile pour archivage, envoi SAV ou analyse hors ligne.' -Tone 'neutral'
-[void]$simplePanel.Controls.Add($exportSavPackageButton)
+[void]$quickActionsPanel.Controls.Add($exportSavPackageButton)
 
 $advancedToggleButton = New-Object System.Windows.Forms.Button
-$advancedToggleButton.Text = 'AFFICHER LES OUTILS AVANCES'
+$advancedToggleButton.Text = '< Outils avances'
 $advancedToggleButton.Width = 236
 $advancedToggleButton.Height = 40
 $advancedToggleButton.Margin = New-Object System.Windows.Forms.Padding(5, 4, 5, 4)
@@ -3243,7 +4119,7 @@ $advancedToggleButton.Add_Click({
 
 $technicalToggleButton = New-Object System.Windows.Forms.Button
 $technicalToggleButton.Name = 'ShowTechnicalDetailsButton'
-$technicalToggleButton.Text = 'AFFICHER LES DETAILS TECHNIQUES'
+$technicalToggleButton.Text = '< Details techniques'
 $technicalToggleButton.Width = 236
 $technicalToggleButton.Height = 40
 $technicalToggleButton.Margin = New-Object System.Windows.Forms.Padding(5, 4, 5, 4)
@@ -3260,26 +4136,42 @@ $technicalToggleButton.Add_Click({
 [void]$toolTip.SetToolTip($technicalToggleButton, 'Affiche les informations techniques du launcher, chemins, runtime, logs et etat interne. Utile pour debug ou support niveau 2.')
 [void]$script:ActionButtons.Add($technicalToggleButton)
 
-$recentActivityBox = New-Object System.Windows.Forms.TextBox
+$recentActivityBox = New-Object System.Windows.Forms.RichTextBox
 $recentActivityBox.Left = 14
 $recentActivityBox.Top = 78
 $recentActivityBox.Width = 844
 $recentActivityBox.Height = 54
-$recentActivityBox.Multiline = $true
-$recentActivityBox.ScrollBars = 'Vertical'
+$recentActivityBox.ScrollBars = [System.Windows.Forms.RichTextBoxScrollBars]::Vertical
 $recentActivityBox.ReadOnly = $true
 $recentActivityBox.BorderStyle = 'FixedSingle'
 $recentActivityBox.BackColor = [System.Drawing.Color]::FromArgb(248, 250, 252)
 $recentActivityBox.ForeColor = [System.Drawing.Color]::FromArgb(51, 65, 85)
 $recentActivityBox.Font = New-Object System.Drawing.Font('Consolas', 8.5)
-$recentActivityBox.Text = 'Activite recente : inactif'
+
+# Pre-fill with initial status
+$initStatus = @"
+[INIT] Gui-launcher démarré
+[INIT] Theme: light
+[INIT] Rapports: HTML + TXT/CSV + JSON
+[INIT] Navigateur portable: détection en cours...
+[READY] Interface prête pour l'analyse
+"@
+$recentActivityBox.Text = $initStatus.Trim()
+
+# Set initial status colors
+$recentActivityBox.SelectionStart = 0
+$recentActivityBox.SelectionLength = $recentActivityBox.Text.Length
+$recentActivityBox.SelectionColor = [System.Drawing.Color]::FromArgb(15, 118, 110)  # READY = teal
+$recentActivityBox.SelectionStart = $recentActivityBox.Text.Length
+$recentActivityBox.SelectionLength = 0
 
 [void]$simpleActionsGroup.Controls.Add($simplePanel)
+[void]$quickActionsGroup.Controls.Add($quickActionsPanel)
 
 $togglePanel = New-Object System.Windows.Forms.FlowLayoutPanel
 $togglePanel.Name = 'CollapsedControlsPanel'
 $togglePanel.Left = 14
-$togglePanel.Top = 698
+$togglePanel.Top = 782
 $togglePanel.Width = 872
 $togglePanel.Height = 44
 $togglePanel.Anchor = 'Top,Left,Right'
@@ -3293,7 +4185,7 @@ $buttonGroup = New-Object System.Windows.Forms.GroupBox
 $buttonGroup.Text = 'OUTILS AVANCES (NIVEAU 2)'
 $buttonGroup.Name = 'AdvancedToolsPanel'
 $buttonGroup.Left = 14
-$buttonGroup.Top = 746
+$buttonGroup.Top = 830
 $buttonGroup.Width = 872
 $buttonGroup.Height = 186
 $buttonGroup.Anchor = 'Top,Left,Right'
@@ -3372,40 +4264,53 @@ $systemPanel.Padding = New-Object System.Windows.Forms.Padding(8, 10, 8, 8)
 [void]$buttonGroup.Controls.Add($toolsLayout)
 
 $technicalDetailsGroup = New-Object System.Windows.Forms.GroupBox
-$technicalDetailsGroup.Text = 'DETAILS TECHNIQUES'
+$technicalDetailsGroup.Text = 'ACTIVITE TECHNIQUE'
 $technicalDetailsGroup.Name = 'TechnicalDetailsPanel'
-$technicalDetailsGroup.Left = 14
-$technicalDetailsGroup.Top = 746
-$technicalDetailsGroup.Width = 872
-$technicalDetailsGroup.Height = 190
-$technicalDetailsGroup.Anchor = 'Top,Left,Right'
+$technicalDetailsGroup.Left = 910
+$technicalDetailsGroup.Top = 96
+$technicalDetailsGroup.Width = $script:TechnicalDockWidth
+$technicalDetailsGroup.Height = 610
+$technicalDetailsGroup.Anchor = 'Top,Bottom,Right'
 $technicalDetailsGroup.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
 $technicalDetailsGroup.Font = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)
 
-$statusTable.Dock = 'None'
-$statusTable.Left = 10
-$statusTable.Top = 22
-$statusTable.Width = 520
-$statusTable.Height = 150
+$technicalDetailsSplitContainer = New-Object System.Windows.Forms.SplitContainer
+$technicalDetailsSplitContainer.Left = 12
+$technicalDetailsSplitContainer.Top = 24
+$technicalDetailsSplitContainer.Width = $script:TechnicalDockWidth - 24
+$technicalDetailsSplitContainer.Height = 574
+$technicalDetailsSplitContainer.Anchor = 'Top,Bottom,Left,Right'
+$technicalDetailsSplitContainer.Orientation = [System.Windows.Forms.Orientation]::Horizontal
+$technicalDetailsSplitContainer.BorderStyle = [System.Windows.Forms.BorderStyle]::None
+$technicalDetailsSplitContainer.BackColor = [System.Drawing.Color]::FromArgb(226, 232, 240)
+$technicalDetailsSplitContainer.SplitterWidth = 8
+$technicalDetailsSplitContainer.Panel1MinSize = 120
+$technicalDetailsSplitContainer.Panel2MinSize = 140
+$technicalDetailsSplitContainer.FixedPanel = [System.Windows.Forms.FixedPanel]::None
+$technicalDetailsSplitContainer.IsSplitterFixed = $false
+$technicalDetailsSplitContainer.SplitterDistance = $script:TechnicalTopPanelHeight
+$technicalDetailsSplitContainer.Panel1.Padding = New-Object System.Windows.Forms.Padding(0, 0, 0, 6)
+$technicalDetailsSplitContainer.Panel2.Padding = New-Object System.Windows.Forms.Padding(0, 6, 0, 0)
+$technicalDetailsSplitContainer.Add_SplitterMoved({
+    $script:TechnicalTopPanelHeight = [int]$technicalDetailsSplitContainer.SplitterDistance
+})
 
-$progressBox.Left = 544
-$progressBox.Top = 22
-$progressBox.Width = 314
-$progressBox.Height = 86
+$statusTable.Visible = $false
 
-$recentActivityBox.Left = 544
-$recentActivityBox.Top = 116
-$recentActivityBox.Width = 314
-$recentActivityBox.Height = 56
+$progressBox.Dock = 'Fill'
+
+$recentActivityBox.Dock = 'Fill'
 
 [void]$technicalDetailsGroup.Controls.Add($statusTable)
-[void]$technicalDetailsGroup.Controls.Add($progressBox)
-[void]$technicalDetailsGroup.Controls.Add($recentActivityBox)
+[void]$technicalDetailsSplitContainer.Panel1.Controls.Add($progressBox)
+[void]$technicalDetailsSplitContainer.Panel2.Controls.Add($recentActivityBox)
+[void]$technicalDetailsGroup.Controls.Add($technicalDetailsSplitContainer)
 
 [void]$form.Controls.Add($headerPanel)
 [void]$form.Controls.Add($statusGroup)
 [void]$form.Controls.Add($primaryGroup)
 [void]$form.Controls.Add($simpleActionsGroup)
+[void]$form.Controls.Add($quickActionsGroup)
 [void]$form.Controls.Add($togglePanel)
 [void]$form.Controls.Add($buttonGroup)
 [void]$form.Controls.Add($technicalDetailsGroup)
@@ -3414,7 +4319,7 @@ $recentActivityBox.Height = 56
 Repair-DanewControlTreeText -Control $form
 
 Set-DanewAdvancedToolsVisible -Visible $false
-Set-DanewTechnicalDetailsVisible -Visible $false
+Set-DanewTechnicalDetailsVisible -Visible $true
 [void](Update-DanewStatusPanel)
 [void](Update-DanewSavSummaryCard)
 Set-DanewSavSummaryDetailsVisible -Visible $false

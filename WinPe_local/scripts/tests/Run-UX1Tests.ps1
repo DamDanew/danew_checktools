@@ -78,8 +78,12 @@ $results += Add-UX1Result -Name 'report_buttons_without_ok_ko_suffix' -Passed $c
 $advancedCollapsed = ($content -match 'Set-DanewAdvancedToolsVisible\s+-Visible\s+\$false') -and ($content -match '\$buttonGroup\.Visible\s*=\s*\$Visible') -and ($content -match "Name\s*=\s*'AdvancedToolsPanel'")
 $results += Add-UX1Result -Name 'advanced_tools_collapsed_by_default' -Passed $advancedCollapsed -Details 'Advanced tools panel is driven by hidden default toggle.'
 
-$technicalCollapsed = ($content -match 'Set-DanewTechnicalDetailsVisible\s+-Visible\s+\$false') -and ($content -match '\$technicalDetailsGroup\.Visible\s*=\s*\$Visible') -and ($content -match "Name\s*=\s*'TechnicalDetailsPanel'")
-$results += Add-UX1Result -Name 'technical_details_hidden_by_default' -Passed $technicalCollapsed -Details 'Technical details panel is driven by hidden default toggle.'
+$technicalCollapsed = ($content -match 'Set-DanewTechnicalDetailsVisible\s+-Visible\s+\$false') -and
+    ($content -match '\$technicalDetailsGroup\.Visible\s*=\s*\$Visible') -and
+    ($content -match "Name\s*=\s*'TechnicalDetailsPanel'") -and
+    ($content -match 'Set-DanewTechnicalDetailsDockLayout') -and
+    ($content -notmatch "Show-DanewSecondaryPanelDialog -Title 'DETAILS TECHNIQUES'")
+$results += Add-UX1Result -Name 'technical_details_hidden_by_default' -Passed $technicalCollapsed -Details 'Technical details are hidden by default and open as a right docked panel instead of a popup.'
 
 $forbiddenMainWords = @(
     'Diagnostic Console',
@@ -103,8 +107,12 @@ $reportHandlers = @(
 )
 $results += Add-UX1Result -Name 'main_report_buttons_functional' -Passed (Test-UX1PatternSet -Content $content -Patterns $reportHandlers) -Details 'SAV, timeline, and storage open handlers are present.'
 
-$layoutFits = ($content -match 'ClientSize\s*=\s*New-Object System\.Drawing\.Size\(900,\s*720\)') -and ($content -match 'MinimumSize\s*=\s*New-Object System\.Drawing\.Size\(900,\s*700\)') -and ($content -match '\$togglePanel\.Top\s*=\s*if \(\$Visible\) \{ 698 \} else \{ 530 \}')
-$results += Add-UX1Result -Name 'layout_fits_1366x768' -Passed $layoutFits -Details 'Collapsed layout uses 900x720 client area.'
+$layoutFits = ($content -match 'ClientSize\s*=\s*New-Object System\.Drawing\.Size\(900,\s*720\)') -and
+    ($content -match 'MinimumSize\s*=\s*New-Object System\.Drawing\.Size\(800,\s*560\)') -and
+    ($content -match '\$form\.AutoScroll\s*=\s*\$true') -and
+    ($content -match 'Get-DanewClampedTop') -and
+    ($content -match '\$form\.ClientSize\.Height')
+$results += Add-UX1Result -Name 'layout_fits_1366x768' -Passed $layoutFits -Details 'Layout keeps 900x720 design surface while allowing 800x560 low-resolution WinPE with scroll and clamped panels.'
 
 $requiredHandlers = @(
     'function Invoke-StartDiagnostic',

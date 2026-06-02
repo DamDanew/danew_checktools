@@ -636,10 +636,70 @@ function Write-DanewSavDiagnosticReportHtml {
         (New-DanewReportSectionHtml -Title 'Prochaines actions recommandees' -Caption 'Actions en lecture seule uniquement. Les reparations restent hors de cette phase.' -SearchText ('recommendations next steps ' + (@($CrashAnalysis.recommendations) -join ' ')) -BodyHtml $recommendationBody)
     )
 
-    $html = New-DanewInteractiveReportHtml -Title 'Rapport de diagnostic SAV Danew' -Subtitle 'Rapport hors ligne oriente crash avec recherche sur les causes, motifs de chronologie et prochaines actions ciblees.' -Status ([string]$CrashAnalysis.severity_analysis.overall) -Eyebrow 'Analyse SAV / crash' -HeroMetricsHtml ('<div class="hero-metrics">' + $metrics + '</div>') -MetaHtml $meta -Sections $sections -SearchPlaceholder 'Filtrer les causes, motifs de chronologie, fournisseurs ou recommandations'
+    $html = New-DanewInteractiveReportHtml -Title 'Rapport de diagnostic SAV Danew' -Subtitle 'Rapport hors ligne oriente crash avec recherche sur les causes, motifs de chronologie et prochaines actions ciblees.' -Status ([string]$CrashAnalysis.severity_analysis.overall) -Eyebrow 'Analyse SAV / crash' -HeroMetricsHtml ('<div class="hero-metrics">' + $metrics + '</div>') -MetaHtml $meta -Sections $sections -SearchPlaceholder 'Filtrer les causes, motifs de chronologie, fournisseurs ou recommandations' -CurrentReportName 'sav-diagnostic'
 
     $html | Set-Content -Path $Path -Encoding UTF8
     Update-DanewInteractiveReportsIndex -ReportsPath (Split-Path -Parent $Path) | Out-Null
+}
+
+function Write-DanewSavDiagnosticFallbackReports {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ReportsPath,
+        [Parameter(Mandatory = $true)]
+        [object]$CrashAnalysis
+    )
+
+    if (-not (Test-Path -Path $ReportsPath)) {
+        New-Item -Path $ReportsPath -ItemType Directory -Force | Out-Null
+    }
+
+    $primaryCause = Get-DanewCrashSafeProperty -Object $CrashAnalysis.root_cause_analysis -Name 'primary_cause' -DefaultValue $null
+    $primaryCauseText = if ($primaryCause) { [string](Get-DanewCrashSafeProperty -Object $primaryCause -Name 'cause' -DefaultValue 'Unknown') } else { 'Unknown' }
+    $primaryConfidence = if ($primaryCause) { [string](Get-DanewCrashSafeProperty -Object $primaryCause -Name 'confidence' -DefaultValue '') } else { '' }
+    $primaryScore = if ($primaryCause) { [string](Get-DanewCrashSafeProperty -Object $primaryCause -Name 'score' -DefaultValue '') } else { '' }
+
+    $txtLines = @(
+        'Rapport de diagnostic SAV Danew',
+        ('Generation: ' + (Get-Date).ToString('s')),
+        ('Horodatage analyse: ' + [string]$CrashAnalysis.timestamp),
+        ('Racine analysee: ' + [string]$CrashAnalysis.root_path),
+        ('Severite: ' + [string]$CrashAnalysis.severity),
+        ('Confiance detection: ' + [string]$CrashAnalysis.detection_confidence),
+        ('Cause principale: ' + $primaryCauseText),
+        ('Confiance cause principale: ' + $primaryConfidence),
+        ('Score cause principale: ' + $primaryScore),
+        ('Impact: ' + [string]$CrashAnalysis.impact),
+        '',
+        'Recommandations:'
+    )
+    foreach ($recommendation in @($CrashAnalysis.recommendations)) {
+        $txtLines += ('- ' + [string]$recommendation)
+    }
+
+    $txtLines | Set-Content -Path (Join-Path $ReportsPath 'sav-diagnostic-report.txt') -Encoding UTF8
+
+    $causeRows = @()
+    foreach ($cause in @($CrashAnalysis.root_cause_analysis.all_causes)) {
+        if ($null -eq $cause) {
+            continue
+        }
+        $causeRows += [pscustomobject]@{
+            cause = [string](Get-DanewCrashSafeProperty -Object $cause -Name 'cause' -DefaultValue '')
+            confidence = [string](Get-DanewCrashSafeProperty -Object $cause -Name 'confidence' -DefaultValue '')
+            score = [int](Get-DanewCrashSafeProperty -Object $cause -Name 'score' -DefaultValue 0)
+            evidence_count = [int](Get-DanewCrashSafeProperty -Object $cause -Name 'evidence_count' -DefaultValue 0)
+            reason = [string](Get-DanewCrashSafeProperty -Object $cause -Name 'reason' -DefaultValue '')
+        }
+    }
+
+    $csvPath = Join-Path $ReportsPath 'sav-diagnostic-report.csv'
+    if (@($causeRows).Count -gt 0) {
+        $causeRows | Export-Csv -Path $csvPath -NoTypeInformation -Encoding UTF8
+    }
+    else {
+        'cause,confidence,score,evidence_count,reason' | Set-Content -Path $csvPath -Encoding UTF8
+    }
 }
 
 function Invoke-DanewCrashCauseAnalysis {
@@ -798,6 +858,7 @@ function Invoke-DanewCrashCauseAnalysis {
     $severity | ConvertTo-Json -Depth 18 | Set-Content -Path $severityPath -Encoding UTF8
     $crash | ConvertTo-Json -Depth 25 | Set-Content -Path $savJsonPath -Encoding UTF8
     Write-DanewSavDiagnosticReportHtml -Path $savHtmlPath -CrashAnalysis $crash
+    Write-DanewSavDiagnosticFallbackReports -ReportsPath ([string]$Config.reports_path) -CrashAnalysis $crash
 
     return $crash
 }

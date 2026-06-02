@@ -2455,6 +2455,136 @@ function Write-DanewEvtxTargetedExports {
     }
 }
 
+function Write-DanewEvtxHtmlFallbackReports {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ReportsPath,
+        [object[]]$Events,
+        [object]$Summary
+    )
+
+    if (-not (Test-Path -Path $ReportsPath)) {
+        New-Item -Path $ReportsPath -ItemType Directory -Force | Out-Null
+    }
+
+    $eventsArray = @($Events)
+    $fallbackRows = @($eventsArray | ForEach-Object {
+            [pscustomobject]@{
+                timestamp = [string](Get-DanewSafeProperty -Object $_ -Name 'timestamp' -DefaultValue '')
+                level_fr = [string](Get-DanewSafeProperty -Object $_ -Name 'level_fr' -DefaultValue (Get-DanewSafeProperty -Object $_ -Name 'level' -DefaultValue ''))
+                importance_sav = [string](Get-DanewSafeProperty -Object $_ -Name 'importance_sav' -DefaultValue '')
+                family = [string](Get-DanewSafeProperty -Object $_ -Name 'family' -DefaultValue '')
+                provider = [string](Get-DanewSafeProperty -Object $_ -Name 'provider' -DefaultValue '')
+                event_id = [string](Get-DanewSafeProperty -Object $_ -Name 'event_id' -DefaultValue '')
+                channel = [string](Get-DanewSafeProperty -Object $_ -Name 'channel' -DefaultValue '')
+                source_file = [string](Get-DanewSafeProperty -Object $_ -Name 'source_file' -DefaultValue '')
+                message = [string](Get-DanewSafeProperty -Object $_ -Name 'message' -DefaultValue '')
+            }
+        })
+    $totalEvents = @($fallbackRows).Count
+    $criticalCount = @($fallbackRows | Where-Object { [string]$_.level_fr -eq 'Critique' }).Count
+    $errorCount = @($fallbackRows | Where-Object { [string]$_.level_fr -eq 'Erreur' }).Count
+    $warningCount = @($fallbackRows | Where-Object { [string]$_.level_fr -eq 'Avertissement' }).Count
+    $startTime = [string](Get-DanewSafeProperty -Object $Summary -Name 'start_time' -DefaultValue '')
+    $endTime = [string](Get-DanewSafeProperty -Object $Summary -Name 'end_time' -DefaultValue '')
+    $parseIssueCount = [int](Get-DanewSafeProperty -Object $Summary -Name 'parse_issue_count' -DefaultValue 0)
+    $missingRequiredLogs = [int](Get-DanewSafeProperty -Object $Summary -Name 'missing_required_logs' -DefaultValue 0)
+
+    $summaryLines = @(
+        'Chronologie EVTX Danew',
+        ('Generation: ' + (Get-Date).ToString('s')),
+        ('Total evenements: ' + [string]$totalEvents),
+        ('Critiques: ' + [string]$criticalCount),
+        ('Erreurs: ' + [string]$errorCount),
+        ('Avertissements: ' + [string]$warningCount),
+        ('Periode: ' + $(if (-not [string]::IsNullOrWhiteSpace($startTime) -or -not [string]::IsNullOrWhiteSpace($endTime)) { $startTime + ' -> ' + $endTime } else { 'Indisponible' })),
+        ('Problemes parsing: ' + [string]$parseIssueCount),
+        ('Journaux requis manquants: ' + [string]$missingRequiredLogs)
+    )
+
+    $timelineTxtPath = Join-Path $ReportsPath 'timeline-raw.txt'
+    $evtxTxtPath = Join-Path $ReportsPath 'evtx-events.txt'
+    $summaryLines | Set-Content -Path $timelineTxtPath -Encoding UTF8
+    $summaryLines | Set-Content -Path $evtxTxtPath -Encoding UTF8
+
+    $projection = @('timestamp', 'level_fr', 'importance_sav', 'family', 'provider', 'event_id', 'channel', 'source_file', 'message')
+    $csvRows = @($fallbackRows | Select-Object $projection)
+    foreach ($csvPath in @((Join-Path $ReportsPath 'timeline-raw.csv'), (Join-Path $ReportsPath 'evtx-events.csv'))) {
+        if (@($csvRows).Count -gt 0) {
+            $csvRows | Export-Csv -Path $csvPath -NoTypeInformation -Encoding UTF8
+        }
+        else {
+            'timestamp,level_fr,importance_sav,family,provider,event_id,channel,source_file,message' | Set-Content -Path $csvPath -Encoding UTF8
+        }
+    }
+}
+
+function Write-DanewEvtxByFileFallbackReports {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ReportsPath,
+        [object[]]$Events,
+        [object]$Summary
+    )
+
+    if (-not (Test-Path -Path $ReportsPath)) {
+        New-Item -Path $ReportsPath -ItemType Directory -Force | Out-Null
+    }
+
+    $eventsArray = @($Events)
+    $fallbackRows = @($eventsArray | ForEach-Object {
+            [pscustomobject]@{
+                source_file = [string](Get-DanewSafeProperty -Object $_ -Name 'source_file' -DefaultValue 'Inconnu')
+                family = [string](Get-DanewSafeProperty -Object $_ -Name 'family' -DefaultValue 'Autres')
+                level_fr = [string](Get-DanewSafeProperty -Object $_ -Name 'level_fr' -DefaultValue (Get-DanewSafeProperty -Object $_ -Name 'level' -DefaultValue ''))
+            }
+        })
+    $fileGroups = @($fallbackRows | Group-Object source_file | Sort-Object -Property Count, Name -Descending)
+    $totalEvents = @($fallbackRows).Count
+    $statusText = if ([int](Get-DanewSafeProperty -Object $Summary -Name 'parse_issue_count' -DefaultValue 0) -gt 0 -or [int](Get-DanewSafeProperty -Object $Summary -Name 'missing_required_logs' -DefaultValue 0) -gt 0) { 'WARNING' } else { 'PASS' }
+
+    $txtLines = @(
+        'EVTX rapide par fichier',
+        ('Generation: ' + (Get-Date).ToString('s')),
+        ('Statut: ' + $statusText),
+        ('Total evenements: ' + [string]$totalEvents),
+        ('Fichiers EVTX: ' + [string]@($fileGroups).Count),
+        '',
+        'Volume par fichier:'
+    )
+    foreach ($fileGroup in @($fileGroups)) {
+        $errorCount = @($fileGroup.Group | Where-Object { [string]$_.level_fr -in @('Critique', 'Erreur', 'Avertissement') }).Count
+        $txtLines += ('- ' + [string]$fileGroup.Name + ': total=' + [string]$fileGroup.Count + ', critique/erreur/avert=' + [string]$errorCount)
+    }
+    if (@($fileGroups).Count -eq 0) {
+        $txtLines += '- Aucun evenement EVTX.'
+    }
+
+    $txtLines | Set-Content -Path (Join-Path $ReportsPath 'evtx-by-file.txt') -Encoding UTF8
+
+    $csvRows = @()
+    foreach ($fileGroup in @($fileGroups)) {
+        $familyGroups = @($fileGroup.Group | Group-Object family | Sort-Object -Property Count, Name -Descending)
+        foreach ($familyGroup in @($familyGroups)) {
+            $errorCount = @($familyGroup.Group | Where-Object { [string]$_.level_fr -in @('Critique', 'Erreur', 'Avertissement') }).Count
+            $csvRows += [pscustomobject]@{
+                source_file = [string]$fileGroup.Name
+                family = [string]$familyGroup.Name
+                total_events = [int]$familyGroup.Count
+                critical_error_warning_events = [int]$errorCount
+            }
+        }
+    }
+
+    $csvPath = Join-Path $ReportsPath 'evtx-by-file.csv'
+    if (@($csvRows).Count -gt 0) {
+        $csvRows | Export-Csv -Path $csvPath -NoTypeInformation -Encoding UTF8
+    }
+    else {
+        'source_file,family,total_events,critical_error_warning_events' | Set-Content -Path $csvPath -Encoding UTF8
+    }
+}
+
 function Invoke-DanewEvtxTargetedExportsAction {
     param(
         [Parameter(Mandatory = $true)]
@@ -3641,13 +3771,14 @@ Action recommandee : sauvegarder les donnees, verifier le stockage, puis poursui
         (New-DanewReportSectionHtml -Title 'Boucles et repetitions detectees' -Caption 'Detection de redemarrages, crashs, erreurs disque, services et updates en boucle.' -SearchText 'boucles repetitions kernel power bugcheck disk ntfs update services' -BodyHtml ('<div class="evtx-loops-table">' + $loopTable + '</div>') -Collapsed $true)
     )
 
-    $html = New-DanewInteractiveReportHtml -Title 'Chronologie hors ligne Danew' -Subtitle 'Rapport EVTX interactif pour diagnostic SAV: tri, filtres, scoring, correlation et detail explicatif.' -Status $(if ([int]$Summary.parse_issue_count -gt 0 -or [int]$Summary.missing_required_logs -gt 0) { 'WARNING' } else { 'PASS' }) -Eyebrow 'Diagnostic evenements Windows' -HeroMetricsHtml ('<div class="hero-metrics">' + $metrics + '</div>') -MetaHtml $meta -Sections $sections -SearchPlaceholder 'Rechercher un evenement, un provider, un id, un message ou une famille' -AdditionalToolbarHtml $additionalToolbarHtml -AdditionalContentHtml $additionalContentHtml -AdditionalStyleHtml $additionalStyleHtml -AdditionalScriptHtml $additionalScriptHtml
+    $html = New-DanewInteractiveReportHtml -Title 'Chronologie hors ligne Danew' -Subtitle 'Rapport EVTX interactif pour diagnostic SAV: tri, filtres, scoring, correlation et detail explicatif.' -Status $(if ([int]$Summary.parse_issue_count -gt 0 -or [int]$Summary.missing_required_logs -gt 0) { 'WARNING' } else { 'PASS' }) -Eyebrow 'Diagnostic evenements Windows' -HeroMetricsHtml ('<div class="hero-metrics">' + $metrics + '</div>') -MetaHtml $meta -Sections $sections -SearchPlaceholder 'Rechercher un evenement, un provider, un id, un message ou une famille' -AdditionalToolbarHtml $additionalToolbarHtml -AdditionalContentHtml $additionalContentHtml -AdditionalStyleHtml $additionalStyleHtml -AdditionalScriptHtml $additionalScriptHtml -CurrentReportName 'timeline-raw'
 
     $html | Set-Content -Path $Path -Encoding UTF8
 
     $evtxEventsHtmlPath = Join-Path (Split-Path -Parent $Path) 'evtx-events.html'
     $html | Set-Content -Path $evtxEventsHtmlPath -Encoding UTF8
 
+    Write-DanewEvtxHtmlFallbackReports -ReportsPath (Split-Path -Parent $Path) -Events $eventsArray -Summary $Summary
     Update-DanewInteractiveReportsIndex -ReportsPath (Split-Path -Parent $Path) | Out-Null
 }
 
@@ -3662,6 +3793,25 @@ function Write-DanewFastTimelineHtml {
         )
         # Mode rapide : deleguer a la fonction complete (les evenements sont deja pre-filtres par l appelant)
         Write-DanewTimelineHtml -Path $Path -Events $Events -Summary $Summary
+
+        try {
+            if ((Test-Path -Path $Path -ErrorAction SilentlyContinue) -and -not [string]::IsNullOrWhiteSpace($ByFileHtmlPath)) {
+                $byFileName = Split-Path -Leaf $ByFileHtmlPath
+                $html = Get-Content -Path $Path -Raw -Encoding UTF8 -ErrorAction Stop
+                if ($html -notmatch 'Mode rapide optimise') {
+                    $marker = '<p class="note">Mode rapide optimise - vue par fichier disponible: <a href="' + [System.Security.SecurityElement]::Escape([string]$byFileName) + '">' + [System.Security.SecurityElement]::Escape([string]$byFileName) + '</a></p>'
+                    if ($html -match '</body>') {
+                        $html = $html -replace '</body>', ($marker + [Environment]::NewLine + '</body>')
+                    }
+                    else {
+                        $html += [Environment]::NewLine + $marker
+                    }
+                    $html | Set-Content -Path $Path -Encoding UTF8
+                }
+            }
+        }
+        catch {
+        }
 }
 
 function Write-DanewEvtxByFileHtml {
@@ -3896,6 +4046,14 @@ body { font-family: Segoe UI, Arial, sans-serif; background: #f8fafc; color: #1f
 .toolbar button.active { background: #1d4ed8; color: #ffffff; border-color: #1d4ed8; }
 .toolbar-count { display: inline-flex; align-items: center; min-height: 38px; padding: 0 10px; border: 1px dashed #cbd5e1; border-radius: 10px; color: #475569; font-size: 13px; }
 .card { background: #ffffff; border: 1px solid #dbe3ea; border-radius: 14px; padding: 12px; margin-bottom: 12px; overflow-x: auto; }
+.report-navbar { position: sticky; top: 0; z-index: 100; background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%); border-bottom: 2px solid #0f766e; padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; gap: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+.nav-home { color: white; text-decoration: none; font-weight: 700; padding: 8px 12px; border-radius: 8px; background: rgba(15, 118, 110, 0.3); border: 1px solid rgba(15, 118, 110, 0.5); transition: all 200ms ease; }
+.nav-home:hover { background: rgba(15, 118, 110, 0.6); border-color: #0f766e; }
+.report-title { color: #e2e8f0; font-size: 14px; font-weight: 600; }
+.nav-link { color: #cbd5e1; text-decoration: none; padding: 8px 12px; border-radius: 6px; transition: all 150ms ease; font-size: 13px; }
+.nav-link:hover { color: white; background: rgba(255, 255, 255, 0.1); }
+.nav-link.active { color: white; background: #0f766e; font-weight: 600; }
+.nav-right { display: flex; gap: 8px; }
 table { width: 100%; min-width: 960px; table-layout: fixed; border-collapse: collapse; }
 th, td { border: 1px solid #dbe3ea; padding: 7px; vertical-align: top; text-align: left; overflow-wrap: anywhere; word-break: break-word; }
 th { background: #eef3f7; position: relative; user-select: none; }
@@ -3915,6 +4073,18 @@ body.column-resizing { cursor: col-resize; user-select: none; }
 </style>
 </head>
 <body data-mode="errors">
+<!-- OFFLINE-SAFE -->
+<nav class="report-navbar" aria-label="Navigation des rapports">
+<a class="nav-home" href="REPORTS_INDEX.html">Index rapports</a>
+<div class="report-title">EVTX rapide par fichier</div>
+<div class="nav-right">
+<a class="nav-link" href="REPORTS_INDEX.html">Index</a>
+<a class="nav-link" href="sav-diagnostic-report.html">SAV</a>
+<a class="nav-link" href="timeline-raw.html">Timeline</a>
+<a class="nav-link" href="evtx-events.html">EVTX</a>
+<a class="nav-link active" href="evtx-by-file.html">Par fichier</a>
+</div>
+</nav>
 <section class="hero">
 <h1>EVTX rapide par fichier</h1>
 <p>Statut global: <b>$statusText</b> | Total evenements: <b>$totalEvents</b> | Critique/Erreur/Avertissement: <b>$([string]@($fastLevelRows).Count)</b></p>
@@ -4129,6 +4299,7 @@ $(($byFileSections -join "`n"))
 "@
 
     $html | Set-Content -Path $Path -Encoding UTF8
+    Write-DanewEvtxByFileFallbackReports -ReportsPath (Split-Path -Parent $Path) -Events $eventsArray -Summary $Summary
     Update-DanewInteractiveReportsIndex -ReportsPath (Split-Path -Parent $Path) | Out-Null
 }
 

@@ -218,7 +218,129 @@ FAIT:
   - suppression du pont vers `X:\scripts\Main.cmd`
   - remplacement par un bridge dynamique vers `%DANEW_ROOT%scripts\launcher.ps1`
   - fallback CLI vers `%DANEW_ROOT%scripts\DanewCheckTool.CLI.ps1`
+
+### 2026-06-02 11:27 +02:00 VS Code Copilot (Agent B) aide configuration Claude VS Code
+
+FAIT:
+- Assistance utilisateur pour configurer Claude dans VS Code (options extension/web/API selon usage).
+- Procedure de logout fournie pour Claude web et nettoyage session locale VS Code (token/session).
+- Aucun changement code produit et aucun script projet modifie.
+
+PENDING:
+- Validation utilisateur apres tentative de connexion/deconnexion selon son environnement.
+
+  ### 2026-06-02 VS Code Copilot (Agent B) installation PowerShell 7.6.2 + terminal VS Code
+
+  FAIT:
+  - Installation cible de PowerShell `7.6.2.0` via `winget install --id Microsoft.PowerShell --version 7.6.2.0 --exact --force`.
+  - Verification runtime:
+    - `C:\Users\damie\AppData\Local\Microsoft\WindowsApps\pwsh.exe` retourne `7.6.2`.
+    - `C:\Program Files\PowerShell\7\pwsh.exe` reste en `7.6.0` (coexistence d'anciennes entrees winget).
+  - Configuration VS Code (scope workspace) pour utiliser 7.6.2 par defaut:
+    - creation de `.vscode/settings.json`
+    - profil `PowerShell 7.6.2` pointe vers `C:/Users/damie/AppData/Local/Microsoft/WindowsApps/pwsh.exe`
+    - `terminal.integrated.defaultProfile.windows = "PowerShell 7.6.2"`
+  - Configuration VS Code (scope utilisateur global) appliquee dans `Code - Insiders/User/settings.json` avec le meme profil par defaut.
+
+  PENDING:
+  - Nettoyage optionnel des anciennes entrees `Microsoft.PowerShell` dans `winget list` (certaines desinstallations retournent `0x800401f5 Application introuvable`).
   - detection runtime `pwsh.exe` prioritaire puis `powershell.exe`
+
+  ### 2026-06-02 VS Code Copilot (Agent B) clean PowerShell + script reutilisable
+
+  FAIT:
+  - Nettoyage execute pour privilegier `7.6.2.0`:
+    - `7.6.0.0` desinstallee avec succes.
+    - `7.6.4.0` et `7.5.4.0` detectees par `winget list` mais desinstallation impossible (`0x800401f5 Application introuvable`, entrees fantomes).
+  - Verification runtime/commande:
+    - `pwsh` retourne `7.6.2`.
+    - `where pwsh` retourne `C:\Users\damie\AppData\Local\Microsoft\WindowsApps\pwsh.exe`.
+  - Script futur cree et valide: `Install-Clean-PowerShell.ps1`
+    - installe une version cible (`-TargetVersion`),
+    - tente de supprimer les autres versions stables (et preview en option),
+    - configure VS Code User + Workspace pour utiliser `pwsh.exe` WindowsApps par defaut,
+    - fait une verification finale de version.
+
+  TESTS:
+  - `pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\Install-Clean-PowerShell.ps1 -TargetVersion 7.6.2.0 -ConfigureVsCodeUser -ConfigureVsCodeWorkspace -WorkspacePath H:\Danew_CheckTool` => PASS script (avec warnings attendus sur entrees fantomes winget).
+
+  PENDING:
+  - Purge complete des entrees fantomes `Microsoft.PowerShell` depend d'un nettoyage cote registre/ARP en dehors du flux winget standard.
+
+  ### 2026-06-02 VS Code Copilot (Agent B) script v2 silencieux + journal horodate
+
+  FAIT:
+  - Evolution de `Install-Clean-PowerShell.ps1` avec options:
+    - `-Quiet` pour execution silencieuse (sans flux console verbeux),
+    - `-LogPath` pour journal explicite,
+    - log par defaut automatique dans `logs/powershell-install-clean-YYYYMMDD-HHMMSS.log`.
+  - Ajout d'un moteur de log interne:
+    - `Write-Log` (INFO/WARN/ERROR),
+    - `Invoke-LoggedCommand` pour capturer sortie + code retour de `winget`.
+  - Robustesse ajoutee:
+    - creation auto du dossier parent du log meme si `-LogPath` est fourni,
+    - filtrage des lignes vides pour eviter erreurs de log.
+
+  TESTS:
+  - `pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\Install-Clean-PowerShell.ps1 -TargetVersion 7.6.2.0 -ConfigureVsCodeUser -ConfigureVsCodeWorkspace -WorkspacePath H:\Danew_CheckTool -Quiet -LogPath H:\Danew_CheckTool\logs\quick-test-<timestamp>.log` => PASS (exit code 0).
+  - Journal verifie: entree/sortie winget capturees, warning attendu sur entrees fantomes `0x800401f5`.
+
+  PENDING:
+  - Encodage texte winget dans le log reste tributaire du flux local Windows (mojibake cosmetique possible).
+
+  ### 2026-06-02 VS Code Copilot (Agent B) option suppression profil VS Code generic
+
+  FAIT:
+  - Ajout de l'option `-RemoveGenericPowerShellProfile` dans `Install-Clean-PowerShell.ps1`.
+  - Comportement:
+    - quand activee, suppression du profil terminal VS Code nomme exactement `PowerShell` en plus du nettoyage des profils versionnes,
+    - conservation du profil cible `PowerShell <version>`.
+  - Correction de fiabilite:
+    - passage explicite du bool vers `Update-VsCodeSettings` pour garantir l'application de l'option.
+
+  TESTS:
+  - `pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\Install-Clean-PowerShell.ps1 -TargetVersion 7.6.2.0 -ConfigureVsCodeUser -RemoveGenericPowerShellProfile -Quiet -LogPath H:\Danew_CheckTool\logs\remove-generic-test2-<timestamp>.log` => PASS (exit code 0).
+  - Verification `Code/User/settings.json`:
+    - profil `PowerShell` supprime,
+    - profil `PowerShell 7.6.2.0` conserve et par defaut.
+
+  ### 2026-06-02 VS Code Copilot (Agent B) ajout mode DryRun
+
+  FAIT:
+  - Ajout de l'option `-DryRun` dans `Install-Clean-PowerShell.ps1`.
+  - Comportement DryRun:
+    - n'execute pas les commandes non read-only (`winget install` / `winget uninstall`),
+    - necrit pas les settings VS Code,
+    - conserve les verifications read-only (`winget list`, version runtime),
+    - trace explicitement chaque action simulee dans le log (`DRYRUN: skip ...`).
+
+  TESTS:
+  - `pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\Install-Clean-PowerShell.ps1 -TargetVersion 7.6.2.0 -ConfigureVsCodeUser -ConfigureVsCodeWorkspace -RemoveGenericPowerShellProfile -DryRun -Quiet -LogPath H:\Danew_CheckTool\logs\dryrun-test-<timestamp>.log` => PASS (exit code 0).
+  - Validation log: toutes les actions destructives marquees `DRYRUN: skip ...`.
+
+### 2026-06-02 11:31 +02:00 VS Code Copilot (Agent B) relogin autre compte extension VS Code
+
+FAIT:
+- Procedure fournie pour deconnecter le compte actuel dans l extension.
+- Procedure fournie pour reconnecter un autre compte (palette de commandes + navigateur).
+- Etapes de reset si VS Code conserve l ancien compte (clear credentials/token + reload window).
+
+PENDING:
+- Confirmation utilisateur du nom exact de l extension si un comportement specifique doit etre detaille.
+
+  ### 2026-06-02 VS Code Copilot (Agent B) resume final execute/simule dans le log
+
+  FAIT:
+  - Ajout d'un recapitulatif final dans `Install-Clean-PowerShell.ps1`:
+    - `commands_executed`
+    - `commands_simulated`
+    - `settings_written`
+    - `settings_simulated`
+  - Les compteurs sont incrementes pendant l'execution et traces en fin de log sous forme `Summary: ...`.
+
+  TESTS:
+  - `pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\Install-Clean-PowerShell.ps1 -TargetVersion 7.6.2.0 -ConfigureVsCodeUser -ConfigureVsCodeWorkspace -RemoveGenericPowerShellProfile -DryRun -Quiet -LogPath H:\Danew_CheckTool\logs\dryrun-summary-test-<timestamp>.log` => PASS (exit code 0).
+  - Exemple observe en fin de log: `Summary: commands_executed=2 commands_simulated=3 settings_written=0 settings_simulated=3`.
 - Reproduction USB complete relancee et terminee avec succes:
   - commande: `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\launcher.ps1 -Action create-usb-media -FallbackToCli -ForceGuiInitFailure`
   - disque cible: `4` (`Realtek RTL9210 NVME`)
@@ -306,6 +428,15 @@ FAIT:
 
 PENDING:
 - Mesure comparative terrain en WinPE: chrono du premier run (sans artefacts) vs run suivant (avec artefacts) pour quantifier le gain.
+
+### 2026-06-02 11:32 +02:00 VS Code Copilot (Agent B) extension Claude relogin autre compte
+
+FAIT:
+- Procedure ciblee fournie pour forcer la deconnexion du compte actuel dans l extension Claude puis reconnecter un autre compte.
+- Inclut fallback si la session precedente est conservee (clear state + reload window + re-auth navigateur).
+
+PENDING:
+- Confirmation utilisateur apres execution des etapes sur sa machine.
 
 ### 2026-06-01 21:40 +02:00 VS Code Copilot (Agent B) optimisation JSON profondeur + validation Playwright
 
@@ -3733,3 +3864,255 @@ RESULTAT:
 
 PENDING:
 - Prochain boot WinPE: lancer une analyse pour regenarer uniquement des artefacts frais de session.
+
+### 2026-06-01 18:12 +02:00 VS Code Copilot (Agent B) verification finale cle a jour
+
+FAIT:
+- Verification hash local vs cle sur les fichiers critiques runtime:
+  - `scripts/launcher.ps1` => D/E MATCH=True
+  - `scripts/launcher/LauncherCore.ps1` => D/E MATCH=True
+  - `scripts/offline/OfflineLogsEngine.ps1` => D/E MATCH=True
+  - `scripts/report/HtmlReportShell.ps1` => D/E MATCH=True
+  - `scripts/tests/Run-BrowserIntegrationTests.ps1` => D/E MATCH=True
+  - `scripts/usb/Install-DanewChromiumTools.ps1` => D/E MATCH=True
+- Ecart detecte uniquement sur `scripts/tests/Run-UX1Tests.ps1`, puis synchronisation forcee vers D/E.
+- Reverification post-sync `Run-UX1Tests.ps1` => D/E MATCH=True.
+
+RESULTAT:
+- Cle D/E alignee sur les fichiers controles.
+
+### 2026-06-02 04:45 +02:00 CODEX (Agent A) panneau details techniques dock droite
+
+FAIT:
+- `WinPe_local/scripts/launcher.ps1` modifie localement:
+  - le panneau `DETAILS TECHNIQUES` ne s ouvre plus en popup.
+  - ouverture maintenant dockee a droite dans la fenetre principale.
+  - la fenetre passe en largeur etendue `1240x720` quand les details sont visibles, puis revient en mode compact `900x720` a la fermeture.
+  - recalcul automatique du dock sur redimensionnement.
+- `Run-UX1Tests.ps1` ajuste pour verifier panneau cache par defaut + dock droit sans popup.
+- `Run-UX2Tests.ps1` ajuste pour verifier dock droit et fallback rapports durci via `$resolvedMinTime`.
+
+VALIDATION LOCALE:
+- Parser `launcher.ps1`: PASS.
+- `Run-UX1Tests.ps1`: 12/12 PASS.
+- `Run-UX2Tests.ps1`: 19/19 PASS.
+- `Run-UXEncodingTests.ps1`: 7/7 PASS.
+
+PENDING:
+- Synchronisation cle non faite: volumes `DANEW_BOOT` / `DANEW_DATA` absents, pas de `D:`/`E:` Danew visibles.
+- Quand la cle remonte, synchroniser au minimum:
+  - `WinPe_local/scripts/launcher.ps1`
+  - `WinPe_local/scripts/tests/Run-UX1Tests.ps1`
+  - `WinPe_local/scripts/tests/Run-UX2Tests.ps1`
+
+FILES LIBERES:
+- `WinPe_local/scripts/launcher.ps1`
+- `WinPe_local/scripts/tests/Run-UX1Tests.ps1`
+- `WinPe_local/scripts/tests/Run-UX2Tests.ps1`
+
+### 2026-06-02 05:05 +02:00 CODEX (Agent A) browser fallback HTML WinPE
+
+PRIS:
+- Durcir test navigateur portable WinPE.
+- Ajouter fallback TXT/CSV/status snapshot pour rapports sans navigateur.
+- Auditer templates HTML offline.
+
+VERROUILLES:
+- `WinPe_local/scripts/launcher.ps1`
+- `WinPe_local/scripts/report/ReportEngine.ps1`
+- `WinPe_local/scripts/report/HtmlReportShell.ps1`
+
+PENDING:
+- Lecture code puis patch cible.
+
+FAIT:
+- `launcher.ps1`:
+  - `Test-DanewPortableBrowserOperational` ne fait plus de test `--version`.
+  - test navigateur remplace par lancement reel `about:blank` en fenetre cachee, polling 500 ms jusqu a 8000 ms, OK si vivant apres 2 s ou sortie code 0, kill apres test.
+  - `Start-DanewPortableBrowser` remplace le sleep fixe par polling 500 ms jusqu a 8000 ms; Firefox ignore le check de sortie car delegation possible.
+  - ajout `Open-DanewFallbackReport` + viewer `RichTextBox` WinForms pour TXT/CSV ou `gui-status-snapshot.json` quand HTML impossible en WinPE.
+  - raccordement fallback sur absence navigateur portable WinPE, echec navigateur portable WinPE, et echec ouverture HTML automatique.
+- `ReportEngine.ps1` + `HtmlReportShell.ps1`:
+  - audit references externes effectue.
+  - commentaires `# OFFLINE-SAFE` ajoutes aux blocs HTML audites.
+
+VALIDATION LOCALE:
+- Parser `launcher.ps1`, `ReportEngine.ps1`, `HtmlReportShell.ps1`: PASS.
+- Audit offline: `OFFLINE-SAFE: no external URLs found`.
+- `Run-BrowserIntegrationTests.ps1`: 10/10 PASS.
+- `Run-UX1Tests.ps1`: 12/12 PASS.
+- `Run-UX2Tests.ps1`: 19/19 PASS.
+- `Run-UXEncodingTests.ps1`: 7/7 PASS.
+- CLI `check-browser`: PASS, Chromium portable detecte.
+
+SYNC CLE:
+- Copies vers `D:\scripts` et `E:\scripts`:
+  - `launcher.ps1`
+  - `report\ReportEngine.ps1`
+  - `report\HtmlReportShell.ps1`
+- Hash local/D/E: MATCH=True.
+
+VALIDATION CLE:
+- Parser `E:\scripts\launcher.ps1`, `E:\scripts\report\ReportEngine.ps1`, `E:\scripts\report\HtmlReportShell.ps1`: PASS.
+- Audit offline USB: `OFFLINE-SAFE: no external URLs found on USB`.
+- `E:\scripts\tests\Run-BrowserIntegrationTests.ps1`: 10/10 PASS.
+- `E:\scripts\tests\Run-UX1Tests.ps1`: 12/12 PASS.
+- `E:\scripts\tests\Run-UX2Tests.ps1`: 19/19 PASS.
+- `E:\scripts\tests\Run-UXEncodingTests.ps1`: 7/7 PASS.
+
+FILES LIBERES:
+- `WinPe_local/scripts/launcher.ps1`
+- `WinPe_local/scripts/report/ReportEngine.ps1`
+- `WinPe_local/scripts/report/HtmlReportShell.ps1`
+
+### 2026-06-02 05:20 +02:00 CODEX (Agent A) fichier liaison Claude Code
+
+FAIT:
+- Ajout `CLAUDE_CODE_COMMUNICATION.md` a la racine du projet.
+- Contient:
+  - regles courtes de coordination.
+  - templates `PRIS` / `FAIT`.
+  - etat courant apres travaux navigateur/fallback HTML.
+  - prompt optimise pret a coller a Claude Code.
+
+PENDING:
+- A chaque fin de tache CODEX, fournir aussi un prompt court pour Claude:
+  - ce qui a ete fait.
+  - ce qui reste a faire.
+  - fichiers a ne pas toucher / contraintes.
+
+FILES LIBERES:
+- `CLAUDE_CODE_COMMUNICATION.md`
+
+### 2026-06-02 05:55 +02:00 CODEX (Agent A) fallbacks TXT CSV rapports HTML + Notepad++
+
+FAIT:
+- Verifie `ReportEngine.ps1`: deja TXT + CSV recommandations pour son rapport generique.
+- Ajout fallbacks sur les generateurs reels:
+  - `CrashAnalysisEngine.ps1`: `sav-diagnostic-report.txt` + `sav-diagnostic-report.csv`.
+  - `OfflineLogsEngine.ps1`: `timeline-raw.txt/csv`, `evtx-events.txt/csv`, `evtx-by-file.txt/csv`.
+  - `HtmlReportShell.ps1`: `REPORTS_INDEX.txt/csv` + `reports-index.txt`.
+- `launcher.ps1`:
+  - `Open-DanewFallbackReport` tente Notepad++ portable avant RichTextBox si `tools\notepad++\notepad++.exe` existe.
+  - action rapport principale ouvre `REPORTS_INDEX.html`, puis `reports-index.html`, puis rapports individuels.
+- Tests UX mis a jour pour ordre index-first.
+- `CLAUDE_CODE_COMMUNICATION.md` mis a jour avec prompt Claude final.
+- Synchronisation cle D/E effectuee, hash local/D/E OK.
+
+VALIDATION CLE:
+- BrowserIntegration: 10/10 PASS.
+- UX2: 19/19 PASS.
+- UX2B: 9/9 PASS.
+- Encoding: 7/7 PASS.
+- Phase6A: 12/12 PASS.
+- Phase6B1: 7/7 PASS.
+- PostUX2B USB: 9/9 PASS.
+
+PENDING:
+- Test terrain WinPE:
+  - bouton rapports ouvre index.
+  - navigateur absent/KO declenche Notepad++ si present, sinon RichTextBox.
+  - verifier TXT/CSV dans `E:\reports`.
+
+FILES LIBERES:
+- `WinPe_local/scripts/launcher.ps1`
+- `WinPe_local/scripts/report/HtmlReportShell.ps1`
+- `WinPe_local/scripts/offline/OfflineLogsEngine.ps1`
+- `WinPe_local/scripts/offline/CrashAnalysisEngine.ps1`
+- `WinPe_local/scripts/tests/Run-UX2Tests.ps1`
+- `WinPe_local/scripts/tests/Run-UX2BTests.ps1`
+- `WinPe_local/scripts/tests/Run-PostUX2BUsbValidation.ps1`
+- `CLAUDE_CODE_COMMUNICATION.md`
+
+### 2026-06-02 06:15 +02:00 CODEX (Agent A) hardening enrichment-plan HTML
+
+FAIT:
+- `ReportEngine.ps1`:
+  - remplacement du heredoc brut `enrichment-plan.html` par `New-DanewInteractiveReportHtml`.
+  - valeurs actions/delta echappees via `ConvertTo-DanewReportHtmlText`.
+  - CSV recommandations exporte avec delimiter `;`.
+- `HtmlReportShell.ps1`:
+  - catalogue complete: `evtx-events.html`, `evtx-by-file.html`.
+  - fallback CSS `@supports not (backdrop-filter: blur(1px))` pour hero lisible sans GPU/backdrop.
+- Audit: OFFLINE-SAFE, aucun URL externe introduit.
+- Sync D/E faite, hash local/D/E OK.
+
+VALIDATION:
+- Parser local + E: PASS.
+- Smoke XSS enrichment: PASS.
+- ReportFrench local: 19/19 PASS.
+- UXEncoding local: 7/7 PASS.
+- UX2B local: 9/9 PASS.
+- Phase6B1 local: 7/7 PASS.
+- ReportFrench E: 19/19 PASS.
+- UXEncoding E: 7/7 PASS.
+
+PENDING:
+- Test terrain optionnel `enrichment-plan.html` dans Chromium portable WinPE.
+
+FILES LIBERES:
+- `WinPe_local/scripts/report/ReportEngine.ps1`
+- `WinPe_local/scripts/report/HtmlReportShell.ps1`
+- `CLAUDE_CODE_COMMUNICATION.md`
+
+### 2026-06-02 06:40 +02:00 CODEX (Agent A) launcher UX basse resolution 800x600
+
+FAIT:
+- `launcher.ps1`:
+  - minimum form `800x560`, `AutoScroll=$true`, `AutoScrollMinSize=900x720`, `AutoScaleMode=Dpi`.
+  - positions SAV calculees/clampes via `$form.ClientSize.Height`.
+  - bouton `Copier tout` dans fallback RichTextBox.
+  - `recentActivityBox` converti en `RichTextBox` avec couleurs PASS/OK, WARN, FAIL/ERROR.
+  - toggles courts avec indicateur directionnel.
+  - dialogues secondaires tailles relatives a l ecran.
+  - `DoEvents` protege dans `Set-DanewActionButtonsEnabled`.
+  - spinner offline monospace.
+- Tests UX mis a jour pour basse resolution.
+- Sync D/E effectuee, hash OK.
+
+VALIDATION:
+- Parser local: PASS.
+- `pwsh` parser check local: PASS.
+- UX1 local: 12/12 PASS.
+- UX2 local: 19/19 PASS.
+- UXEncoding local: 7/7 PASS.
+- Parser E: PASS.
+- UX1 E: 12/12 PASS.
+- UX2 E: 19/19 PASS.
+- UXEncoding E: 7/7 PASS.
+
+PENDING:
+- Test terrain WinPE en 800x600/faible DPI.
+
+FILES LIBERES:
+- `WinPe_local/scripts/launcher.ps1`
+- `WinPe_local/scripts/tests/Run-UX1Tests.ps1`
+- `WinPe_local/scripts/tests/Run-UX2Tests.ps1`
+- `WinPe_local/scripts/tests/Run-UXEncodingTests.ps1`
+- `CLAUDE_CODE_COMMUNICATION.md`
+
+### 2026-06-02 04:58 +02:00 CODEX (Agent A) sync cle panneau details dock droite
+
+FAIT:
+- Cle detectee:
+  - `D:` = `DANEW_BOOT`
+  - `E:` = `DANEW_DATA`
+- Synchronisation effectuee vers `D:\scripts` et `E:\scripts`:
+  - `launcher.ps1`
+  - `tests\Run-UX1Tests.ps1`
+  - `tests\Run-UX2Tests.ps1`
+- Hash local/D/E verifies: MATCH=True pour les 6 copies.
+
+VALIDATION CLE:
+- Parser `E:\scripts\launcher.ps1`: PASS.
+- `E:\scripts\tests\Run-UX1Tests.ps1`: 12/12 PASS.
+- `E:\scripts\tests\Run-UX2Tests.ps1`: 19/19 PASS.
+- `E:\scripts\tests\Run-UXEncodingTests.ps1`: 7/7 PASS.
+
+PENDING:
+- Test terrain WinPE: ouvrir l interface, cliquer `AFFICHER LES DETAILS TECHNIQUES`, verifier panneau lateral droit et absence de popup.
+
+FILES LIBERES:
+- `WinPe_local/scripts/launcher.ps1`
+- `WinPe_local/scripts/tests/Run-UX1Tests.ps1`
+- `WinPe_local/scripts/tests/Run-UX2Tests.ps1`

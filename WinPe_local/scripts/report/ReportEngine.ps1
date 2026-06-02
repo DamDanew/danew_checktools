@@ -39,7 +39,7 @@ function Export-DanewReports {
 
     $lines | Set-Content -Path $txtPath -Encoding UTF8
 
-    $ReportObject.recommendations | Export-Csv -Path $csvPath -NoTypeInformation -Encoding UTF8
+    $ReportObject.recommendations | Export-Csv -Path $csvPath -NoTypeInformation -Encoding UTF8 -Delimiter ';'
 
     $recommendationItems = @($ReportObject.recommendations | ForEach-Object {
         '<li>[' + (ConvertTo-DanewReportHtmlText $_.priority) + '] ' + (ConvertTo-DanewReportHtmlText $_.feature) + ': ' + (ConvertTo-DanewReportHtmlText $_.recommendation) + '</li>'
@@ -57,7 +57,7 @@ function Export-DanewReports {
     $sections = @(
         (New-DanewReportSectionHtml -Title 'Recommandations' -Caption 'Ameliorations prioritaires extraites de l analyse en cours.' -SearchText ('recommendations ' + (@($ReportObject.recommendations | ForEach-Object { $_.priority, $_.feature, $_.recommendation }) -join ' ')) -BodyHtml ('<ul class="report-list">' + ($recommendationItems -join '') + '</ul>'))
     )
-    $html = New-DanewInteractiveReportHtml -Title 'Rapport WinPE Danew' -Subtitle 'Export interactif du resume d analyse et des recommandations prioritaires.' -Status 'READY' -Eyebrow 'Rapport general' -HeroMetricsHtml ('<div class="hero-metrics">' + $metrics + '</div>') -MetaHtml $meta -Sections $sections -SearchPlaceholder 'Filtrer les recommandations par priorite, fonctionnalite ou texte'
+    $html = New-DanewInteractiveReportHtml -Title 'Rapport WinPE Danew' -Subtitle 'Export interactif du resume d analyse et des recommandations prioritaires.' -Status 'READY' -Eyebrow 'Rapport general' -HeroMetricsHtml ('<div class="hero-metrics">' + $metrics + '</div>') -MetaHtml $meta -Sections $sections -SearchPlaceholder 'Filtrer les recommandations par priorite, fonctionnalite ou texte' -CurrentReportName ''
 
     $html | Set-Content -Path $htmlPath -Encoding UTF8
     Update-DanewInteractiveReportsIndex -ReportsPath $OutputDirectory | Out-Null
@@ -99,26 +99,35 @@ function Export-DanewPhase3Artifacts {
     $RegistryAnalysis | ConvertTo-Json -Depth 20 | Set-Content -Path $registryJson -Encoding UTF8
     $DriverVendorAnalysis | ConvertTo-Json -Depth 20 | Set-Content -Path $driverVendorJson -Encoding UTF8
 
-    $html = @"
-<html>
-<head><title>Plan d enrichissement Danew</title></head>
-<body>
-<h1>Plan d enrichissement Danew</h1>
-<p><b>ID du plan :</b> $($EnrichmentPlan.plan_id)</p>
-<p><b>Profil :</b> $($EnrichmentPlan.profile)</p>
-<p><b>Taille estimee :</b> $($EnrichmentPlan.estimated_size_mb) MB</p>
-<p><b>RAM estimee :</b> $($EnrichmentPlan.estimated_ram_mb) MB</p>
-<h2>Delta de score</h2>
-<p>Global : $($ScoreDelta.before.global) -> $($ScoreDelta.after.global) (delta $($ScoreDelta.delta.global))</p>
-<h2>Actions pilotes</h2>
-<ul>$((($EnrichmentPlan.driver_actions | ForEach-Object { "<li>$($_.action) [$($_.priority)]</li>" }) -join "`n"))</ul>
-<h2>Actions outils</h2>
-<ul>$((($EnrichmentPlan.tool_actions | ForEach-Object { "<li>$($_.action) [$($_.priority)]</li>" }) -join "`n"))</ul>
-<h2>Actions packages</h2>
-<ul>$((($EnrichmentPlan.package_actions | ForEach-Object { "<li>$($_.action) [$($_.priority)]</li>" }) -join "`n"))</ul>
-</body>
-</html>
-"@
+    $driverActionItems = @($EnrichmentPlan.driver_actions | ForEach-Object {
+        '<li>' + (ConvertTo-DanewReportHtmlText $_.action) + ' [' + (ConvertTo-DanewReportHtmlText $_.priority) + ']</li>'
+    })
+    $toolActionItems = @($EnrichmentPlan.tool_actions | ForEach-Object {
+        '<li>' + (ConvertTo-DanewReportHtmlText $_.action) + ' [' + (ConvertTo-DanewReportHtmlText $_.priority) + ']</li>'
+    })
+    $packageActionItems = @($EnrichmentPlan.package_actions | ForEach-Object {
+        '<li>' + (ConvertTo-DanewReportHtmlText $_.action) + ' [' + (ConvertTo-DanewReportHtmlText $_.priority) + ']</li>'
+    })
+
+    $metrics = @(
+        (New-DanewMetricCardHtml -Label 'ID du plan' -Value $EnrichmentPlan.plan_id -Tone 'info')
+        (New-DanewMetricCardHtml -Label 'Profil' -Value $EnrichmentPlan.profile -Tone 'ready')
+        (New-DanewMetricCardHtml -Label 'Taille estimee' -Value ((ConvertTo-DanewReportHtmlText $EnrichmentPlan.estimated_size_mb) + ' MB') -Tone 'neutral')
+        (New-DanewMetricCardHtml -Label 'RAM estimee' -Value ((ConvertTo-DanewReportHtmlText $EnrichmentPlan.estimated_ram_mb) + ' MB') -Tone 'neutral')
+    ) -join ''
+    $meta = New-DanewReportMetaListHtml -Items @(
+        [pscustomobject]@{ label = 'ID du plan'; value = $EnrichmentPlan.plan_id }
+        [pscustomobject]@{ label = 'Profil'; value = $EnrichmentPlan.profile }
+    )
+    $deltaBody = '<p>Global : ' + (ConvertTo-DanewReportHtmlText $ScoreDelta.before.global) + ' -> ' + (ConvertTo-DanewReportHtmlText $ScoreDelta.after.global) + ' (delta ' + (ConvertTo-DanewReportHtmlText $ScoreDelta.delta.global) + ')</p>'
+    $sections = @(
+        (New-DanewReportSectionHtml -Title 'Delta de score' -BodyHtml $deltaBody -SearchText 'delta score global')
+        (New-DanewReportSectionHtml -Title 'Actions pilotes' -BodyHtml ('<ul class="report-list">' + ($driverActionItems -join '') + '</ul>') -SearchText ('drivers pilotes ' + (@($EnrichmentPlan.driver_actions | ForEach-Object { $_.action, $_.priority }) -join ' ')))
+        (New-DanewReportSectionHtml -Title 'Actions outils' -BodyHtml ('<ul class="report-list">' + ($toolActionItems -join '') + '</ul>') -SearchText ('tools outils ' + (@($EnrichmentPlan.tool_actions | ForEach-Object { $_.action, $_.priority }) -join ' ')))
+        (New-DanewReportSectionHtml -Title 'Actions packages' -BodyHtml ('<ul class="report-list">' + ($packageActionItems -join '') + '</ul>') -SearchText ('packages ' + (@($EnrichmentPlan.package_actions | ForEach-Object { $_.action, $_.priority }) -join ' ')))
+    )
+
+    $html = New-DanewInteractiveReportHtml -Title 'Plan d enrichissement Danew' -Subtitle 'Synthese hors ligne des actions d enrichissement WinPE proposees.' -Status 'READY' -Eyebrow 'Enrichissement WinPE' -HeroMetricsHtml ('<div class="hero-metrics">' + $metrics + '</div>') -MetaHtml $meta -Sections $sections -SearchPlaceholder 'Filtrer les actions par pilote, outil, package ou priorite' -CurrentReportName ''
     $html | Set-Content -Path $enrichmentHtml -Encoding UTF8
 
     return [pscustomobject]@{
