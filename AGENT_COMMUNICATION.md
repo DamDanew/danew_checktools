@@ -3945,6 +3945,32 @@ FILES LIBERES:
 - `WinPe_local/scripts/tests/Run-UX1Tests.ps1`
 - `WinPe_local/scripts/tests/Run-UX2Tests.ps1`
 
+### 2026-06-03 VS Code Copilot (Agent B) push + tri final non suivis
+
+FAIT:
+- Push effectue de `main` vers `origin/main`:
+  - `251c22a..3dec4de` publie.
+- Tri final execute sur les fichiers non suivis restants (12).
+
+TRI NON SUIVIS:
+- A commit (scripts utiles):
+  - `HtmlReportShell.ps1`
+  - `Install-Clean-PowerShell.ps1`
+  - `OfflineLogsEngine.ps1`
+  - `Run-Phase6ATests.ps1`
+  - `launcher.ps1`
+  - `package.json`
+  - `package-lock.json`
+  - `pw-ui-check.mjs`
+- A ignorer/supprimer selon usage local:
+  - `WinFormsTest/Form1.Designer.cs`
+  - `WinFormsTest/Form1.cs`
+  - `WinFormsTest/Program.cs`
+  - `WinFormsTest/WinFormsTest.csproj`
+
+ETAT:
+- Branche synchronisee (`main...origin/main`).
+
 ### 2026-06-03 VS Code Copilot (Agent B) tri git 1-2-3 execute (safe)
 
 FAIT:
