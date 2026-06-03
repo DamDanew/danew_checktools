@@ -3945,6 +3945,17 @@ FILES LIBERES:
 - `WinPe_local/scripts/tests/Run-UX1Tests.ps1`
 - `WinPe_local/scripts/tests/Run-UX2Tests.ps1`
 
+### 2026-06-03 VS Code Copilot (Agent B) finalisation proprete git + push
+
+FAIT:
+- Integration de la modification restante `WinPe_local/scripts/offline/CrashAnalysisEngine.ps1`.
+- `.gitignore` complete pour ignorer `WinFormsTest/` (projet local hors pipeline WinPE).
+- Commit final et push vers `origin/main` pour revenir a un etat synchronise.
+
+ETAT:
+- Plus de modification suivie en attente.
+- Workspace nettoye des bruits principaux (hors fichiers explicitement ignores).
+
 ### 2026-06-03 VS Code Copilot (Agent B) push + tri final non suivis
 
 FAIT:

@@ -407,6 +407,71 @@ function Get-DanewCrashTimelineIntelligence {
         })
     }
 
+    # Supplementary patterns for full SAV coverage
+    $serviceEvents2  = @($ClassifiedRecords | Where-Object { $_.categories -contains 'Service startup failures' })
+    $wheaEvents2     = @($ClassifiedRecords | Where-Object { $_.categories -contains 'WHEA hardware errors' })
+    $rstVmdRecords   = @($ClassifiedRecords | Where-Object {
+        (Get-DanewCrashSafeProperty -Object $_ -Name 'provider' -DefaultValue '') -match 'iaStor|RST|VMD|storport' -or
+        (Get-DanewCrashSafeProperty -Object $_ -Name 'message'  -DefaultValue '') -match 'iaStor|RST|VMD|RaidPort'
+    })
+    $bootDevCrashes  = @($bugcheckEvents | Where-Object {
+        (Get-DanewCrashSafeProperty -Object $_ -Name 'message' -DefaultValue '') -match 'INACCESSIBLE_BOOT_DEVICE|0x7B'
+    })
+
+    if (@($ntfsEvents).Count -gt 0 -and @($winlogonEvents).Count -gt 0) {
+        [void]$intelligence.Add([pscustomobject]@{
+            pattern    = 'NTFS corruption before login failure'
+            confidence = 'Medium'
+            evidence   = @(@($ntfsEvents | Select-Object -First 3) + @($winlogonEvents | Select-Object -First 2))
+            summary    = 'NTFS or storage corruption events precede Winlogon or login failure events.'
+        })
+    }
+
+    if (@($kernelPowerEvents).Count -gt 0 -and @($ntfsEvents).Count -gt 0) {
+        [void]$intelligence.Add([pscustomobject]@{
+            pattern    = 'Kernel-Power reboot triggering NTFS repair'
+            confidence = 'Medium'
+            evidence   = @(@($kernelPowerEvents | Select-Object -First 3) + @($ntfsEvents | Select-Object -First 2))
+            summary    = 'Unexpected Kernel-Power shutdowns are followed by NTFS filesystem repair or corruption events.'
+        })
+    }
+
+    if (@($driverEvents).Count -gt 0 -and @($serviceEvents2).Count -ge 2) {
+        [void]$intelligence.Add([pscustomobject]@{
+            pattern    = 'Driver failure causing repeated service crashes'
+            confidence = 'Medium'
+            evidence   = @(@($driverEvents | Select-Object -First 3) + @($serviceEvents2 | Select-Object -First 3))
+            summary    = 'Driver or framework failures appear to trigger repeated service startup failures.'
+        })
+    }
+
+    if (@($serviceEvents2).Count -ge 2 -and (@($kernelPowerEvents).Count -gt 0 -or @($winlogonEvents).Count -gt 0)) {
+        [void]$intelligence.Add([pscustomobject]@{
+            pattern    = 'Repeated service failures causing boot or login instability'
+            confidence = 'Medium'
+            evidence   = @(@($serviceEvents2 | Select-Object -First 4) + @($kernelPowerEvents | Select-Object -First 2))
+            summary    = 'Multiple service startup failures correlate with boot instability or Winlogon/login failures.'
+        })
+    }
+
+    if (@($wheaEvents2).Count -gt 0) {
+        [void]$intelligence.Add([pscustomobject]@{
+            pattern    = 'WHEA hardware error indicating platform instability'
+            confidence = if (@($wheaEvents2).Count -ge 3) { 'High' } else { 'Medium' }
+            evidence   = @($wheaEvents2 | Select-Object -First 5)
+            summary    = 'WHEA hardware errors indicate potential CPU, memory, or platform instability.'
+        })
+    }
+
+    if (@($rstVmdRecords).Count -gt 0 -and @($bootDevCrashes).Count -gt 0) {
+        [void]$intelligence.Add([pscustomobject]@{
+            pattern    = 'Intel RST/VMD issue causing INACCESSIBLE_BOOT_DEVICE'
+            confidence = 'High'
+            evidence   = @(@($rstVmdRecords | Select-Object -First 3) + @($bootDevCrashes | Select-Object -First 2))
+            summary    = 'Intel RST/VMD storage controller events are followed by INACCESSIBLE_BOOT_DEVICE crash.'
+        })
+    }
+
     return [pscustomobject]@{
         ordered_events = $ordered
         intelligence   = @($intelligence)
@@ -664,6 +729,115 @@ function Get-DanewCrashSeverityAnalysis {
         overall = $overall
         causes = @($rows)
     }
+}
+
+function Get-DanewSavClientText {
+    param([AllowNull()][object]$PrimaryCause)
+    $cause = [string](Get-DanewCrashSafeProperty -Object $PrimaryCause -Name 'cause' -DefaultValue '')
+    switch ($cause) {
+        'Intel RST/VMD issue'                     { return "Votre PC ne parvient plus a acceder au disque dur apres une mise a jour du BIOS ou des pilotes de stockage." }
+        'corrupted NTFS filesystem'               { return "Des donnees importantes du systeme Windows ont ete endommagees, ce qui empeche le demarrage normal." }
+        'boot partition corruption'               { return "La partition de demarrage Windows est corrompue. Le PC ne peut plus trouver le systeme pour demarrer." }
+        'failing SSD'                             { return "Le disque dur de l ordinateur presente des signes de defaillance. Une sauvegarde des donnees est urgente." }
+        'inaccessible NVMe controller'            { return "Le controleur de stockage interne n est pas reconnu. Le disque semble inaccessible au demarrage." }
+        'failed Windows Update'                   { return "Une mise a jour Windows a provoque un probleme de demarrage. Le systeme doit etre restaure ou la mise a jour annulee." }
+        'failed Windows Update KB sequence'       { return "Une mise a jour Windows recente a provoque un probleme de demarrage." }
+        'DISM/CBS servicing failure before crash' { return "Une operation de maintenance Windows a echoue et semble etre a l origine du probleme." }
+        'CBS package servicing issue before login failure' { return "Un probleme de maintenance systeme empeche la connexion a Windows." }
+        'BitLocker lock state'                    { return "Le disque Windows est verrouille par BitLocker. La cle de recuperation est necessaire pour acceder aux donnees." }
+        'inaccessible SYSTEM hive'                { return "Les parametres systeme de Windows sont inaccessibles ou endommages." }
+        'thermal / power instability'             { return "L ordinateur s est eteint de maniere anormale, probablement a cause d un probleme d alimentation ou de temperature." }
+        'thermal instability'                     { return "L ordinateur surchauffe ou a un probleme d alimentation. Un nettoyage ou controle materiel est recommande." }
+        'memory instability'                      { return "La memoire RAM de l ordinateur presente des anomalies. Un test memoire complet est necessaire." }
+        'security or malware persistence indicators' { return "Des indicateurs suspects ont ete detectes dans les journaux systeme. Une analyse antivirus hors ligne est recommandee." }
+        default                                   { return "Windows a rencontre une erreur critique qui l empeche de demarrer normalement." }
+    }
+}
+
+function Get-DanewSavPatternActions {
+    param([string]$PatternName)
+    $map = @{
+        'Update -> reboot -> crash chain'                        = @(
+            [pscustomobject]@{ label='Lister les KB installees'; cmd='dism /image:C:\ /get-packages | findstr /i KB'; desc='Lister les mises a jour presentes dans l image offline' }
+            [pscustomobject]@{ label='Exporter historique MAJ'; cmd='wmic qfe list brief /format:csv > kb-history.csv'; desc='Exporter la liste des mises a jour Windows installees' }
+        )
+        'KB -> crash within 24h'                                = @(
+            [pscustomobject]@{ label='Lister les KB installees'; cmd='dism /image:C:\ /get-packages | findstr /i KB'; desc='Lister les mises a jour presentes dans l image offline' }
+            [pscustomobject]@{ label='Exporter historique MAJ'; cmd='wmic qfe list brief /format:csv > kb-history.csv'; desc='Exporter la liste des mises a jour Windows installees' }
+        )
+        'failed Windows Update KB sequence'                     = @(
+            [pscustomobject]@{ label='Lister les KB installees'; cmd='dism /image:C:\ /get-packages | findstr /i KB'; desc='Lister les mises a jour presentes dans l image offline' }
+            [pscustomobject]@{ label='DISM CheckHealth'; cmd='dism /image:C:\ /cleanup-image /checkhealth'; desc='Verifier integrite image Windows offline' }
+        )
+        'Escalating storage errors'                             = @(
+            [pscustomobject]@{ label='CHKDSK scan (lecture seule)'; cmd='chkdsk C: /scan'; desc='Verifier NTFS sans modification - lecture seule' }
+            [pscustomobject]@{ label='SFC offline'; cmd='sfc /scannow /offbootdir=C:\ /offwindir=C:\Windows'; desc='Verifier les fichiers systeme Windows offline' }
+            [pscustomobject]@{ label='SMART rapide'; cmd='wmic diskdrive get status,model,size /format:csv'; desc='Etat SMART des disques detectes' }
+        )
+        'Storage corruption with boot crash'                    = @(
+            [pscustomobject]@{ label='CHKDSK scan (lecture seule)'; cmd='chkdsk C: /scan'; desc='Verifier NTFS sans modification' }
+            [pscustomobject]@{ label='DISM CheckHealth'; cmd='dism /image:C:\ /cleanup-image /checkhealth'; desc='Verifier integrite image Windows offline' }
+            [pscustomobject]@{ label='SMART rapide'; cmd='wmic diskdrive get status,model,size /format:csv'; desc='Etat SMART des disques' }
+        )
+        'NTFS corruption before login failure'                  = @(
+            [pscustomobject]@{ label='CHKDSK scan (lecture seule)'; cmd='chkdsk C: /scan'; desc='Verifier NTFS sans modification - lecture seule' }
+            [pscustomobject]@{ label='SFC offline'; cmd='sfc /scannow /offbootdir=C:\ /offwindir=C:\Windows'; desc='Verifier les fichiers systeme Windows offline' }
+        )
+        'DISM/CBS servicing before crash'                       = @(
+            [pscustomobject]@{ label='Copier CBS.log'; cmd='copy "%windir%\Logs\CBS\CBS.log" .\CBS-export.log'; desc='Exporter le journal CBS pour analyse' }
+            [pscustomobject]@{ label='Copier DISM.log'; cmd='copy "%windir%\Logs\DISM\dism.log" .\DISM-export.log'; desc='Exporter le journal DISM pour analyse' }
+            [pscustomobject]@{ label='DISM CheckHealth'; cmd='dism /image:C:\ /cleanup-image /checkhealth'; desc='Verifier integrite image Windows offline' }
+        )
+        'CBS/DISM servicing before login failure'               = @(
+            [pscustomobject]@{ label='Copier CBS.log'; cmd='copy "%windir%\Logs\CBS\CBS.log" .\CBS-export.log'; desc='Exporter le journal CBS pour analyse' }
+            [pscustomobject]@{ label='SFC offline'; cmd='sfc /scannow /offbootdir=C:\ /offwindir=C:\Windows'; desc='Verifier les fichiers systeme Windows offline' }
+            [pscustomobject]@{ label='Verifier Userinit'; cmd='reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v Userinit'; desc='Verifier la valeur Userinit dans le registre Winlogon' }
+        )
+        'CBS/DISM corruption marker with storage errors'        = @(
+            [pscustomobject]@{ label='Copier CBS.log'; cmd='copy "%windir%\Logs\CBS\CBS.log" .\CBS-export.log'; desc='Exporter le journal CBS pour analyse' }
+            [pscustomobject]@{ label='DISM CheckHealth'; cmd='dism /image:C:\ /cleanup-image /checkhealth'; desc='Verifier integrite image Windows offline' }
+            [pscustomobject]@{ label='CHKDSK scan (lecture seule)'; cmd='chkdsk C: /scan'; desc='Verifier NTFS sans modification' }
+        )
+        'Driver failure after reboot'                           = @(
+            [pscustomobject]@{ label='Exporter liste pilotes'; cmd='driverquery /FO csv > drivers-export.csv'; desc='Exporter la liste des pilotes installes' }
+            [pscustomobject]@{ label='Verifier mode stockage BIOS'; cmd='echo Verifier BIOS: Storage > AHCI/RAID/VMD mode'; desc='Aller dans BIOS et verifier le mode de stockage' }
+        )
+        'Driver failure causing repeated service crashes'       = @(
+            [pscustomobject]@{ label='Exporter liste pilotes'; cmd='driverquery /FO csv > drivers-export.csv'; desc='Exporter la liste des pilotes installes' }
+            [pscustomobject]@{ label='Lister services defaillants'; cmd='sc query type= all state= all | findstr /i "failed stopped"'; desc='Lister les services arretes ou en echec' }
+        )
+        'Repeated service failures causing boot or login instability' = @(
+            [pscustomobject]@{ label='Lister services'; cmd='sc query type= all state= all'; desc='Lister tous les services et leur etat' }
+            [pscustomobject]@{ label='SFC offline'; cmd='sfc /scannow /offbootdir=C:\ /offwindir=C:\Windows'; desc='Verifier les fichiers systeme Windows offline' }
+        )
+        'Power instability loop'                                = @(
+            [pscustomobject]@{ label='Rapport energie'; cmd='powercfg /energy'; desc='Analyser la consommation et les problemes energie' }
+            [pscustomobject]@{ label='SMART rapide'; cmd='wmic diskdrive get status,model,size /format:csv'; desc='Etat SMART des disques' }
+        )
+        'Kernel-Power reboot triggering NTFS repair'            = @(
+            [pscustomobject]@{ label='Rapport energie'; cmd='powercfg /energy'; desc='Analyser la consommation et les problemes energie' }
+            [pscustomobject]@{ label='CHKDSK scan (lecture seule)'; cmd='chkdsk C: /scan'; desc='Verifier NTFS sans modification' }
+        )
+        'WHEA hardware error indicating platform instability'   = @(
+            [pscustomobject]@{ label='Info memoire RAM'; cmd='wmic memorychip get capacity,manufacturer,speed /format:csv > memory-info.csv'; desc='Exporter les informations sur les barrettes RAM' }
+            [pscustomobject]@{ label='Planifier test memoire'; cmd='mdsched.exe'; desc='Lancer le diagnosticateur de memoire Windows (redemarrage requis)' }
+            [pscustomobject]@{ label='SMART rapide'; cmd='wmic diskdrive get status,model,size /format:csv'; desc='Etat SMART des disques' }
+        )
+        'Intel RST/VMD issue causing INACCESSIBLE_BOOT_DEVICE'  = @(
+            [pscustomobject]@{ label='Verifier mode stockage BIOS'; cmd='echo Verifier BIOS: Storage Controller > AHCI ou RST/VMD mode'; desc='Aller dans BIOS et verifier le mode de stockage - AHCI vs RAID/VMD' }
+            [pscustomobject]@{ label='Exporter liste pilotes'; cmd='driverquery /FO csv > drivers-export.csv'; desc='Exporter la liste des pilotes installes pour identifier pilote RST' }
+            [pscustomobject]@{ label='SMART rapide'; cmd='wmic diskdrive get status,model,size /format:csv'; desc='Etat SMART des disques detectes' }
+        )
+        'Hardware instability'                                  = @(
+            [pscustomobject]@{ label='Info materiel'; cmd='wmic computersystem get model,manufacturer,totalphysicalmemory /format:csv'; desc='Informations sur le materiel de la machine' }
+            [pscustomobject]@{ label='SMART rapide'; cmd='wmic diskdrive get status,model,size /format:csv'; desc='Etat SMART des disques' }
+        )
+    }
+    $result = $map[$PatternName]
+    if ($null -eq $result) {
+        return @([pscustomobject]@{ label='Exporter infos systeme'; cmd='msinfo32 /report sysinfo-export.txt'; desc='Exporter les informations systeme completes' })
+    }
+    return $result
 }
 
 function Write-DanewSavDiagnosticReportHtml {

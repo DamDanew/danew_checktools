@@ -44,3 +44,6 @@ Thumbs.db
 WinFormsTest/bin/
 WinFormsTest/obj/
 WinFormsTest/*.csproj.user
+
+# Local scratch WinForms project (not part of WinPE pipeline)
+WinFormsTest/
