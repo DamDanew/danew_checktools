@@ -3945,6 +3945,21 @@ FILES LIBERES:
 - `WinPe_local/scripts/tests/Run-UX1Tests.ps1`
 - `WinPe_local/scripts/tests/Run-UX2Tests.ps1`
 
+### 2026-06-03 VS Code Copilot (Agent B) tri git 1-2-3 execute (safe)
+
+FAIT:
+- Etape 1 (commit utile) executee:
+  - commit `20f9da3` = `chore: add WinPE sync/check scripts and Playwright SAV test`
+  - inclus scripts de verification/synchro + tests Playwright SAV.
+- Etape 2 (ignore local) executee:
+  - mise a jour `.gitignore` pour ignorer `.vscode/`, `.claude/`, artefacts WinForms (`bin/`, `obj/`, `*.csproj.user`).
+- Etape 3 (suppression ciblee artefacts) executee:
+  - supprimes: `evtx-by-file.html`, `evtx-events.html`, `timeline-raw.html`, `sav-diagnostic-report.html`, `reports-index.html`, `REPORTS_INDEX.html`, `pw-dark.png`, `pw-light.png`.
+
+SECURITE:
+- Operation realisee sans `git clean -fdx` global et sans reset destructif.
+- Suppression limitee aux fichiers explicitement valides comme artefacts locaux.
+
 ### 2026-06-03 VS Code Copilot (Agent B) correctif snapshot avant fallback packages boot.wim
 
 FAIT:
@@ -3971,6 +3986,17 @@ FAIT:
 ETAT GIT:
 - Branche synchronisee: `main...origin/main` (plus d'avance locale).
 - Des fichiers non suivis non temporaires restent presents (scripts/docs/assets de travail), non supprimes volontairement.
+
+### 2026-06-03 VS Code Copilot (Agent B) verification cle WinPE apres push
+
+FAIT:
+- Verification hash live de scripts critiques entre workspace et cle (`D:\scripts`, `E:\scripts`).
+- Constat initial: seul `report\ReportEngine.ps1` etait divergent sur D/E.
+- Resynchronisation ciblee effectuee de `WinPe_local/scripts/report/ReportEngine.ps1` vers `D:\scripts\report\ReportEngine.ps1` et `E:\scripts\report\ReportEngine.ps1`.
+- Verification immediate post-sync: hash source==D et source==E (`D=True`, `E=True`).
+
+ETAT CLE:
+- Cle WinPE consideree a jour sur le lot critique verifie.
 
 ### 2026-06-03 VS Code Copilot (Agent B) verification warnings creation cle
 

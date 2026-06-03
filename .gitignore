@@ -35,3 +35,12 @@ WinPe_local/scripts/TEST_TOOL/**/*.iso
 *.tmp
 .DS_Store
 Thumbs.db
+
+# Local editor and agent settings
+.vscode/
+.claude/
+
+# Local WinForms build artifacts
+WinFormsTest/bin/
+WinFormsTest/obj/
+WinFormsTest/*.csproj.user
