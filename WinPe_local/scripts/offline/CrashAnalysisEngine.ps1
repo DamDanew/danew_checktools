@@ -652,7 +652,7 @@ function Get-DanewCrashRootCauseAnalysis {
 
         if (@($dismCbsCorruption).Count -gt 0) {
             $hasCrashOrStorage = @($bugchecks).Count -gt 0 -or @($storage).Count -gt 0
-            Add-CauseRow -Cause 'CBS package servicing issue before login failure' -Score (if ($hasCrashOrStorage) { 68 } else { 48 }) -Evidence @($dismCbsCorruption | Select-Object -First 4) -Reason 'CBS or DISM reported corruption or failure during package servicing. May cause login or boot failure.'
+            Add-CauseRow -Cause 'CBS package servicing issue before login failure' -Score $(if ($hasCrashOrStorage) { 68 } else { 48 }) -Evidence @($dismCbsCorruption | Select-Object -First 4) -Reason 'CBS or DISM reported corruption or failure during package servicing. May cause login or boot failure.'
         }
 
         if (@($rstLikeDrivers).Count -gt 0 -and (@($bugchecks).Count -gt 0 -or @($bootDeviceCrash).Count -gt 0)) {
@@ -758,45 +758,45 @@ function Get-DanewSavPatternActions {
     param([string]$PatternName)
     $map = @{
         'Update -> reboot -> crash chain'                        = @(
-            [pscustomobject]@{ label='Lister les KB installees'; cmd='dism /image:C:\ /get-packages | findstr /i KB'; desc='Lister les mises a jour presentes dans l image offline' }
+            [pscustomobject]@{ label='Lister les KB installees'; cmd='dism /image:<LETTRE_WINDOWS>:\ /get-packages | findstr /i KB'; desc='Lister les mises a jour presentes dans l image offline' }
             [pscustomobject]@{ label='Exporter historique MAJ'; cmd='wmic qfe list brief /format:csv > kb-history.csv'; desc='Exporter la liste des mises a jour Windows installees' }
         )
         'KB -> crash within 24h'                                = @(
-            [pscustomobject]@{ label='Lister les KB installees'; cmd='dism /image:C:\ /get-packages | findstr /i KB'; desc='Lister les mises a jour presentes dans l image offline' }
+            [pscustomobject]@{ label='Lister les KB installees'; cmd='dism /image:<LETTRE_WINDOWS>:\ /get-packages | findstr /i KB'; desc='Lister les mises a jour presentes dans l image offline' }
             [pscustomobject]@{ label='Exporter historique MAJ'; cmd='wmic qfe list brief /format:csv > kb-history.csv'; desc='Exporter la liste des mises a jour Windows installees' }
         )
         'failed Windows Update KB sequence'                     = @(
-            [pscustomobject]@{ label='Lister les KB installees'; cmd='dism /image:C:\ /get-packages | findstr /i KB'; desc='Lister les mises a jour presentes dans l image offline' }
-            [pscustomobject]@{ label='DISM CheckHealth'; cmd='dism /image:C:\ /cleanup-image /checkhealth'; desc='Verifier integrite image Windows offline' }
+            [pscustomobject]@{ label='Lister les KB installees'; cmd='dism /image:<LETTRE_WINDOWS>:\ /get-packages | findstr /i KB'; desc='Lister les mises a jour presentes dans l image offline' }
+            [pscustomobject]@{ label='DISM CheckHealth'; cmd='dism /image:<LETTRE_WINDOWS>:\ /cleanup-image /checkhealth'; desc='Verifier integrite image Windows offline' }
         )
         'Escalating storage errors'                             = @(
-            [pscustomobject]@{ label='CHKDSK scan (lecture seule)'; cmd='chkdsk C: /scan'; desc='Verifier NTFS sans modification - lecture seule' }
-            [pscustomobject]@{ label='SFC offline'; cmd='sfc /scannow /offbootdir=C:\ /offwindir=C:\Windows'; desc='Verifier les fichiers systeme Windows offline' }
+            [pscustomobject]@{ label='CHKDSK scan (lecture seule)'; cmd='chkdsk <LETTRE_WINDOWS>: /scan'; desc='Verifier NTFS sans modification - lecture seule' }
+            [pscustomobject]@{ label='SFC offline'; cmd='sfc /scannow /offbootdir=<LETTRE_WINDOWS>:\ /offwindir=<LETTRE_WINDOWS>:\Windows'; desc='Verifier les fichiers systeme Windows offline' }
             [pscustomobject]@{ label='SMART rapide'; cmd='wmic diskdrive get status,model,size /format:csv'; desc='Etat SMART des disques detectes' }
         )
         'Storage corruption with boot crash'                    = @(
-            [pscustomobject]@{ label='CHKDSK scan (lecture seule)'; cmd='chkdsk C: /scan'; desc='Verifier NTFS sans modification' }
-            [pscustomobject]@{ label='DISM CheckHealth'; cmd='dism /image:C:\ /cleanup-image /checkhealth'; desc='Verifier integrite image Windows offline' }
+            [pscustomobject]@{ label='CHKDSK scan (lecture seule)'; cmd='chkdsk <LETTRE_WINDOWS>: /scan'; desc='Verifier NTFS sans modification' }
+            [pscustomobject]@{ label='DISM CheckHealth'; cmd='dism /image:<LETTRE_WINDOWS>:\ /cleanup-image /checkhealth'; desc='Verifier integrite image Windows offline' }
             [pscustomobject]@{ label='SMART rapide'; cmd='wmic diskdrive get status,model,size /format:csv'; desc='Etat SMART des disques' }
         )
         'NTFS corruption before login failure'                  = @(
-            [pscustomobject]@{ label='CHKDSK scan (lecture seule)'; cmd='chkdsk C: /scan'; desc='Verifier NTFS sans modification - lecture seule' }
-            [pscustomobject]@{ label='SFC offline'; cmd='sfc /scannow /offbootdir=C:\ /offwindir=C:\Windows'; desc='Verifier les fichiers systeme Windows offline' }
+            [pscustomobject]@{ label='CHKDSK scan (lecture seule)'; cmd='chkdsk <LETTRE_WINDOWS>: /scan'; desc='Verifier NTFS sans modification - lecture seule' }
+            [pscustomobject]@{ label='SFC offline'; cmd='sfc /scannow /offbootdir=<LETTRE_WINDOWS>:\ /offwindir=<LETTRE_WINDOWS>:\Windows'; desc='Verifier les fichiers systeme Windows offline' }
         )
         'DISM/CBS servicing before crash'                       = @(
-            [pscustomobject]@{ label='Copier CBS.log'; cmd='copy "%windir%\Logs\CBS\CBS.log" .\CBS-export.log'; desc='Exporter le journal CBS pour analyse' }
-            [pscustomobject]@{ label='Copier DISM.log'; cmd='copy "%windir%\Logs\DISM\dism.log" .\DISM-export.log'; desc='Exporter le journal DISM pour analyse' }
-            [pscustomobject]@{ label='DISM CheckHealth'; cmd='dism /image:C:\ /cleanup-image /checkhealth'; desc='Verifier integrite image Windows offline' }
+            [pscustomobject]@{ label='Copier CBS.log'; cmd='copy <LETTRE_WINDOWS>:\Windows\Logs\CBS\CBS.log .\CBS-export.log'; desc='Exporter le journal CBS pour analyse' }
+            [pscustomobject]@{ label='Copier DISM.log'; cmd='copy <LETTRE_WINDOWS>:\Windows\Logs\DISM\dism.log .\DISM-export.log'; desc='Exporter le journal DISM pour analyse' }
+            [pscustomobject]@{ label='DISM CheckHealth'; cmd='dism /image:<LETTRE_WINDOWS>:\ /cleanup-image /checkhealth'; desc='Verifier integrite image Windows offline' }
         )
         'CBS/DISM servicing before login failure'               = @(
-            [pscustomobject]@{ label='Copier CBS.log'; cmd='copy "%windir%\Logs\CBS\CBS.log" .\CBS-export.log'; desc='Exporter le journal CBS pour analyse' }
-            [pscustomobject]@{ label='SFC offline'; cmd='sfc /scannow /offbootdir=C:\ /offwindir=C:\Windows'; desc='Verifier les fichiers systeme Windows offline' }
-            [pscustomobject]@{ label='Verifier Userinit'; cmd='reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v Userinit'; desc='Verifier la valeur Userinit dans le registre Winlogon' }
+            [pscustomobject]@{ label='Copier CBS.log'; cmd='copy <LETTRE_WINDOWS>:\Windows\Logs\CBS\CBS.log .\CBS-export.log'; desc='Exporter le journal CBS pour analyse' }
+            [pscustomobject]@{ label='SFC offline'; cmd='sfc /scannow /offbootdir=<LETTRE_WINDOWS>:\ /offwindir=<LETTRE_WINDOWS>:\Windows'; desc='Verifier les fichiers systeme Windows offline' }
+            [pscustomobject]@{ label='Verifier Userinit'; cmd='reg load HKLM\OFFLINE <LETTRE_WINDOWS>:\Windows\System32\config\SOFTWARE && reg query "HKLM\OFFLINE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v Userinit'; desc='Verifier la valeur Userinit dans le registre Winlogon' }
         )
         'CBS/DISM corruption marker with storage errors'        = @(
-            [pscustomobject]@{ label='Copier CBS.log'; cmd='copy "%windir%\Logs\CBS\CBS.log" .\CBS-export.log'; desc='Exporter le journal CBS pour analyse' }
-            [pscustomobject]@{ label='DISM CheckHealth'; cmd='dism /image:C:\ /cleanup-image /checkhealth'; desc='Verifier integrite image Windows offline' }
-            [pscustomobject]@{ label='CHKDSK scan (lecture seule)'; cmd='chkdsk C: /scan'; desc='Verifier NTFS sans modification' }
+            [pscustomobject]@{ label='Copier CBS.log'; cmd='copy <LETTRE_WINDOWS>:\Windows\Logs\CBS\CBS.log .\CBS-export.log'; desc='Exporter le journal CBS pour analyse' }
+            [pscustomobject]@{ label='DISM CheckHealth'; cmd='dism /image:<LETTRE_WINDOWS>:\ /cleanup-image /checkhealth'; desc='Verifier integrite image Windows offline' }
+            [pscustomobject]@{ label='CHKDSK scan (lecture seule)'; cmd='chkdsk <LETTRE_WINDOWS>: /scan'; desc='Verifier NTFS sans modification' }
         )
         'Driver failure after reboot'                           = @(
             [pscustomobject]@{ label='Exporter liste pilotes'; cmd='driverquery /FO csv > drivers-export.csv'; desc='Exporter la liste des pilotes installes' }
@@ -808,7 +808,7 @@ function Get-DanewSavPatternActions {
         )
         'Repeated service failures causing boot or login instability' = @(
             [pscustomobject]@{ label='Lister services'; cmd='sc query type= all state= all'; desc='Lister tous les services et leur etat' }
-            [pscustomobject]@{ label='SFC offline'; cmd='sfc /scannow /offbootdir=C:\ /offwindir=C:\Windows'; desc='Verifier les fichiers systeme Windows offline' }
+            [pscustomobject]@{ label='SFC offline'; cmd='sfc /scannow /offbootdir=<LETTRE_WINDOWS>:\ /offwindir=<LETTRE_WINDOWS>:\Windows'; desc='Verifier les fichiers systeme Windows offline' }
         )
         'Power instability loop'                                = @(
             [pscustomobject]@{ label='Rapport energie'; cmd='powercfg /energy'; desc='Analyser la consommation et les problemes energie' }
@@ -816,7 +816,7 @@ function Get-DanewSavPatternActions {
         )
         'Kernel-Power reboot triggering NTFS repair'            = @(
             [pscustomobject]@{ label='Rapport energie'; cmd='powercfg /energy'; desc='Analyser la consommation et les problemes energie' }
-            [pscustomobject]@{ label='CHKDSK scan (lecture seule)'; cmd='chkdsk C: /scan'; desc='Verifier NTFS sans modification' }
+            [pscustomobject]@{ label='CHKDSK scan (lecture seule)'; cmd='chkdsk <LETTRE_WINDOWS>: /scan'; desc='Verifier NTFS sans modification' }
         )
         'WHEA hardware error indicating platform instability'   = @(
             [pscustomobject]@{ label='Info memoire RAM'; cmd='wmic memorychip get capacity,manufacturer,speed /format:csv > memory-info.csv'; desc='Exporter les informations sur les barrettes RAM' }
@@ -848,11 +848,12 @@ function Write-DanewSavDiagnosticReportHtml {
         [object]$CrashAnalysis
     )
 
+    # ---- Cause rows ----
     $causeRows = @()
     foreach ($cause in @($CrashAnalysis.root_cause_analysis.all_causes)) {
         $rowSearch = ConvertTo-DanewReportHtmlText ($cause.cause, $cause.confidence, $cause.score, $cause.reason -join ' ')
         $causeRows += @"
-    <tr data-search-row="$rowSearch">
+<tr data-search-row="$rowSearch">
 <td>$([System.Security.SecurityElement]::Escape((Get-DanewLocalizedCauseText $cause.cause)))</td>
 <td>$([System.Security.SecurityElement]::Escape((Get-DanewLocalizedConfidenceText $cause.confidence)))</td>
 <td>$([System.Security.SecurityElement]::Escape([string]$cause.score))</td>
@@ -861,41 +862,24 @@ function Write-DanewSavDiagnosticReportHtml {
 "@
     }
 
+    # ---- Event rows (top 50, enhanced with family) ----
     $eventRows = @()
-    foreach ($classifiedRecord in @($CrashAnalysis.classification.records | Select-Object -First 25)) {
-        $duplicateCount = [int](Get-DanewCrashSafeProperty -Object $classifiedRecord -Name 'duplicate_count' -DefaultValue 1)
-        $messageText = [string]$classifiedRecord.message
-        if ($duplicateCount -gt 1) {
-            $messageText = "$messageText [x$duplicateCount]"
-        }
-
-        $rowSearch = ConvertTo-DanewReportHtmlText ($classifiedRecord.timestamp, $classifiedRecord.event_id, $classifiedRecord.provider, (@($classifiedRecord.categories) -join '; '), $messageText -join ' ')
-        $eventRows += @"
-    <tr data-search-row="$rowSearch">
-<td>$([System.Security.SecurityElement]::Escape([string]$classifiedRecord.timestamp))</td>
-<td>$([System.Security.SecurityElement]::Escape([string]$classifiedRecord.event_id))</td>
-<td>$([System.Security.SecurityElement]::Escape([string]$classifiedRecord.provider))</td>
-<td>$([System.Security.SecurityElement]::Escape([string](@($classifiedRecord.categories) -join '; ')))</td>
-<td>$([System.Security.SecurityElement]::Escape($messageText))</td>
-</tr>
-"@
+    foreach ($classifiedRecord in @($CrashAnalysis.classification.records | Select-Object -First 50)) {
+        $dupCount  = [int](Get-DanewCrashSafeProperty -Object $classifiedRecord -Name 'duplicate_count' -DefaultValue 1)
+        $msgText   = [string](Get-DanewCrashSafeProperty -Object $classifiedRecord -Name 'message' -DefaultValue '')
+        if ($dupCount -gt 1) { $msgText = "$msgText [x$dupCount]" }
+        $ts   = [string](Get-DanewCrashSafeProperty -Object $classifiedRecord -Name 'timestamp'  -DefaultValue '')
+        $eid  = [string](Get-DanewCrashSafeProperty -Object $classifiedRecord -Name 'event_id'   -DefaultValue '')
+        $prov = [string](Get-DanewCrashSafeProperty -Object $classifiedRecord -Name 'provider'   -DefaultValue '')
+        $cats = @(Get-DanewCrashSafeProperty -Object $classifiedRecord -Name 'categories' -DefaultValue @()) -join '; '
+        $crit = [int](Get-DanewCrashSafeProperty -Object $classifiedRecord -Name 'criticality' -DefaultValue 0)
+        $msgShort = if ($msgText.Length -gt 130) { $msgText.Substring(0, 130) + '...' } else { $msgText }
+        $critTone = if ($crit -ge 5) { 'danger' } elseif ($crit -ge 3) { 'warn' } else { 'neutral' }
+        $rowSearch = ConvertTo-DanewReportHtmlText (($ts, $eid, $prov, $cats, $msgShort) -join ' ')
+        $eventRows += "<tr data-search-row=`"$rowSearch`" data-family=`"$([System.Security.SecurityElement]::Escape($cats))`"><td>$([System.Security.SecurityElement]::Escape($ts))</td><td>$([System.Security.SecurityElement]::Escape($eid))</td><td>$([System.Security.SecurityElement]::Escape($prov))</td><td>$([System.Security.SecurityElement]::Escape($cats))</td><td><span class='report-badge report-badge-$critTone'>$([System.Security.SecurityElement]::Escape([string]$crit))</span></td><td>$([System.Security.SecurityElement]::Escape($msgShort))</td></tr>"
     }
 
-    $explanation = ''
-    if ($CrashAnalysis.root_cause_analysis.primary_cause) {
-        $explanation = @"
-<p><b>Cause probable :</b> $([System.Security.SecurityElement]::Escape((Get-DanewLocalizedCauseText $CrashAnalysis.root_cause_analysis.primary_cause.cause)))</p>
-<p><b>Confiance :</b> $([System.Security.SecurityElement]::Escape((Get-DanewLocalizedConfidenceText $CrashAnalysis.root_cause_analysis.primary_cause.confidence)))</p>
-<p><b>Severite :</b> $([System.Security.SecurityElement]::Escape((Get-DanewLocalizedStatusText $CrashAnalysis.severity_analysis.overall)))</p>
-<p><b>Impact :</b> $([System.Security.SecurityElement]::Escape((Get-DanewLocalizedImpactText $CrashAnalysis.impact)))</p>
-"@
-    }
-
-    $recommendations = @()
-    foreach ($line in @($CrashAnalysis.recommendations)) {
-        $recommendations += '<li>' + [System.Security.SecurityElement]::Escape((Get-DanewLocalizedRecommendationText $line)) + '</li>'
-    }
-
+    # ---- Timeline intelligence rows ----
     $timelineRows = @()
     foreach ($item in @($CrashAnalysis.timeline_intelligence.intelligence)) {
         $rowSearch = ConvertTo-DanewReportHtmlText ($item.pattern, $item.confidence, $item.summary -join ' ')
@@ -908,65 +892,305 @@ function Write-DanewSavDiagnosticReportHtml {
 "@
     }
 
-    $metrics = @(
-        (New-DanewMetricCardHtml -Label 'Severite' -Value (Get-DanewLocalizedStatusText $CrashAnalysis.severity_analysis.overall) -Tone $CrashAnalysis.severity_analysis.overall)
-        (New-DanewMetricCardHtml -Label 'Confiance principale' -Value (Get-DanewLocalizedConfidenceText (Get-DanewCrashSafeProperty -Object $CrashAnalysis.root_cause_analysis.primary_cause -Name 'confidence' -DefaultValue 'Unknown')) -Tone (Get-DanewCrashSafeProperty -Object $CrashAnalysis.root_cause_analysis.primary_cause -Name 'confidence' -DefaultValue 'neutral'))
-        (New-DanewMetricCardHtml -Label 'Causes suivies' -Value @($CrashAnalysis.root_cause_analysis.all_causes).Count -Tone 'info')
-        (New-DanewMetricCardHtml -Label 'Recommandations' -Value @($CrashAnalysis.recommendations).Count -Tone 'ready')
-    ) -join ''
+    # ---- Explanation / recommendations ----
+    $explanation = ''
+    if ($CrashAnalysis.root_cause_analysis.primary_cause) {
+        $explanation = @"
+<p><b>Cause probable :</b> $([System.Security.SecurityElement]::Escape((Get-DanewLocalizedCauseText $CrashAnalysis.root_cause_analysis.primary_cause.cause)))</p>
+<p><b>Confiance :</b> $([System.Security.SecurityElement]::Escape((Get-DanewLocalizedConfidenceText $CrashAnalysis.root_cause_analysis.primary_cause.confidence)))</p>
+<p><b>Severite :</b> $([System.Security.SecurityElement]::Escape((Get-DanewLocalizedStatusText $CrashAnalysis.severity_analysis.overall)))</p>
+<p><b>Impact :</b> $([System.Security.SecurityElement]::Escape((Get-DanewLocalizedImpactText $CrashAnalysis.impact)))</p>
+"@
+    }
+    $recommendations = @()
+    foreach ($line in @($CrashAnalysis.recommendations)) {
+        $recommendations += '<li>' + [System.Security.SecurityElement]::Escape((Get-DanewLocalizedRecommendationText $line)) + '</li>'
+    }
 
-    $meta = New-DanewReportMetaListHtml -Items @(
-        [pscustomobject]@{ label = 'Horodatage'; value = $CrashAnalysis.timestamp }
-        [pscustomobject]@{ label = 'Impact'; value = (Get-DanewLocalizedImpactText $CrashAnalysis.impact) }
-        [pscustomobject]@{ label = 'Chemin racine'; value = $CrashAnalysis.root_path }
-        [pscustomobject]@{ label = 'Confiance de detection'; value = (Get-DanewLocalizedConfidenceText $CrashAnalysis.detection_confidence) }
-    )
+    # ---- Client text (simple, non-technical) ----
+    $clientText = Get-DanewSavClientText -PrimaryCause $CrashAnalysis.root_cause_analysis.primary_cause
+    $clientTextHtml = '<div class="client-text-box"><span class="client-text-icon" aria-hidden="true">&#128100;</span><div><strong>Information client :</strong> ' + [System.Security.SecurityElement]::Escape($clientText) + '</div></div>'
 
-    $summaryBody = $explanation + '<div class="split-grid">' + (New-DanewMetricCardHtml -Label 'Cause principale' -Value (Get-DanewLocalizedCauseText (Get-DanewCrashSafeProperty -Object $CrashAnalysis.root_cause_analysis.primary_cause -Name 'cause' -DefaultValue 'Unknown')) -Tone $CrashAnalysis.severity_analysis.overall) + (New-DanewMetricCardHtml -Label 'Impact' -Value (Get-DanewLocalizedImpactText $CrashAnalysis.impact) -Tone 'warn') + '</div>'
-    $recommendationBody = '<ul class="report-list">' + ($recommendations -join '') + '</ul>'
-    # Section DISM/CBS si evenements trouves
+    # ---- Critical timeline (criticality >= 3, max 40 events) ----
+    $critAllRecords = @($CrashAnalysis.classification.records | Where-Object {
+        [int](Get-DanewCrashSafeProperty -Object $_ -Name 'criticality' -DefaultValue 0) -ge 3
+    } | Sort-Object { [string](Get-DanewCrashSafeProperty -Object $_ -Name 'timestamp' -DefaultValue '') })
+    $critTotalCount = @($critAllRecords).Count
+    $critTimelineRows = @()
+    foreach ($rec in @($critAllRecords | Select-Object -First 40)) {
+        $cats  = @(Get-DanewCrashSafeProperty -Object $rec -Name 'categories' -DefaultValue @()) -join '; '
+        $crit  = [int](Get-DanewCrashSafeProperty -Object $rec -Name 'criticality' -DefaultValue 0)
+        $ts    = [string](Get-DanewCrashSafeProperty -Object $rec -Name 'timestamp'  -DefaultValue '')
+        $eid   = [string](Get-DanewCrashSafeProperty -Object $rec -Name 'event_id'   -DefaultValue '')
+        $prov  = [string](Get-DanewCrashSafeProperty -Object $rec -Name 'provider'   -DefaultValue '')
+        $msg   = [string](Get-DanewCrashSafeProperty -Object $rec -Name 'message'    -DefaultValue '')
+        $msgS  = if ($msg.Length -gt 120) { $msg.Substring(0, 120) + '...' } else { $msg }
+        $critTone = if ($crit -ge 5) { 'danger' } elseif ($crit -ge 4) { 'warn' } else { 'neutral' }
+        $rs    = ConvertTo-DanewReportHtmlText (($ts, $eid, $prov, $cats, $msgS) -join ' ')
+        $critTimelineRows += "<tr data-search-row=`"$rs`"><td>$([System.Security.SecurityElement]::Escape($ts))</td><td>$([System.Security.SecurityElement]::Escape($cats))</td><td>$([System.Security.SecurityElement]::Escape($prov))</td><td>$([System.Security.SecurityElement]::Escape($eid))</td><td><span class='report-badge report-badge-$critTone'>$([System.Security.SecurityElement]::Escape([string]$crit))</span></td><td>$([System.Security.SecurityElement]::Escape($msgS))</td></tr>"
+    }
+    $critNotice = if ($critTotalCount -gt 40) { '<p class="section-caption">Affichage limite aux 40 premiers evenements critiques sur ' + $critTotalCount + ' detectes.</p>' } else { '' }
+
+    # ---- Pattern cards with safe actions ----
+    $allPatterns  = @($CrashAnalysis.timeline_intelligence.intelligence)
+    $patternCount = @($allPatterns).Count
+    $patternCardsHtml = '<p class="section-caption">Aucun pattern de panne detecte dans les journaux disponibles.</p>'
+    if ($patternCount -gt 0) {
+        $cards = @()
+        foreach ($pat in $allPatterns) {
+            $patName = [string](Get-DanewCrashSafeProperty -Object $pat -Name 'pattern'    -DefaultValue 'Pattern inconnu')
+            $patConf = [string](Get-DanewCrashSafeProperty -Object $pat -Name 'confidence' -DefaultValue 'Low')
+            $patSumm = [string](Get-DanewCrashSafeProperty -Object $pat -Name 'summary'    -DefaultValue '')
+            $patEv   = @(Get-DanewCrashSafeProperty -Object $pat -Name 'evidence' -DefaultValue @())
+            $confTone = switch ($patConf) { 'High' { 'danger' } 'Medium' { 'warn' } default { 'neutral' } }
+
+            $evItems = @()
+            foreach ($ev in @($patEv | Select-Object -First 3)) {
+                $evTs   = [string](Get-DanewCrashSafeProperty -Object $ev -Name 'timestamp' -DefaultValue '')
+                $evProv = [string](Get-DanewCrashSafeProperty -Object $ev -Name 'provider'  -DefaultValue '')
+                $evMsg  = [string](Get-DanewCrashSafeProperty -Object $ev -Name 'message'   -DefaultValue '')
+                $evMsgS = if ($evMsg.Length -gt 100) { $evMsg.Substring(0, 100) + '...' } else { $evMsg }
+                $evItems += '<div class="pat-ev-item"><span class="pat-ev-ts">' + [System.Security.SecurityElement]::Escape($evTs) + '</span><span class="pat-ev-prov">' + [System.Security.SecurityElement]::Escape($evProv) + '</span><span class="pat-ev-msg">' + [System.Security.SecurityElement]::Escape($evMsgS) + '</span></div>'
+            }
+
+            $patActions = Get-DanewSavPatternActions -PatternName $patName
+            $actHtml = ''
+            foreach ($action in $patActions) {
+                $aLabel = [System.Security.SecurityElement]::Escape([string]$action.label)
+                $aCmd   = [System.Security.SecurityElement]::Escape([string]$action.cmd)
+                $aDesc  = [System.Security.SecurityElement]::Escape([string]$action.desc)
+                $actHtml += '<div class="pat-action-row"><button type="button" class="sav-copy-btn" data-cmd="' + $aCmd + '" data-label="' + $aLabel + '" onclick="danewCopyCmd(this)">&#128203; ' + $aLabel + '</button><code class="sav-cmd-code">' + $aCmd + '</code><span class="sav-cmd-desc">' + $aDesc + '</span></div>'
+            }
+            $actWrap = if ($actHtml) { '<details class="pat-actions-wrap"><summary>Actions SAV disponibles (copie seule — adapter &lt;LETTRE_WINDOWS&gt; avant usage)</summary><div class="pat-actions">' + $actHtml + '</div></details>' } else { '' }
+
+            $cards += '<div class="pattern-card"><div class="pat-header"><span class="pat-name">' + [System.Security.SecurityElement]::Escape($patName) + '</span><span class="report-badge report-badge-' + $confTone + '">' + [System.Security.SecurityElement]::Escape($patConf) + '</span></div><p class="pat-summary">' + [System.Security.SecurityElement]::Escape($patSumm) + '</p><div class="pat-evidence">' + ($evItems -join '') + '</div>' + $actWrap + '</div>'
+        }
+        $patternCardsHtml = $cards -join ''
+    }
+
+    # ---- DISM/CBS section ----
     $dismCbsClassified = @($CrashAnalysis.classification.records | Where-Object {
         (Get-DanewCrashSafeProperty -Object $_ -Name 'provider' -DefaultValue '') -match 'Microsoft-Windows-DISM|Microsoft-Windows-CBS' -or
         (Get-DanewCrashSafeProperty -Object $_ -Name 'channel'  -DefaultValue '') -match 'DISM/TextLog|CBS/TextLog'
     })
     $dismCbsSectionHtml = ''
     if (@($dismCbsClassified).Count -gt 0) {
-        $dismKbs   = @($dismCbsClassified | Where-Object { [string](Get-DanewCrashSafeProperty -Object $_ -Name 'message' -DefaultValue '') -match 'KB\d{6,}' })
+        $dismKbs    = @($dismCbsClassified | Where-Object { [string](Get-DanewCrashSafeProperty -Object $_ -Name 'message' -DefaultValue '') -match 'KB\d{6,}' })
         $dismErrors = @($dismCbsClassified | Where-Object {
-            $levelFr = [string](Get-DanewCrashSafeProperty -Object $_ -Name 'level_fr' -DefaultValue '')
-            $level = [string](Get-DanewCrashSafeProperty -Object $_ -Name 'level' -DefaultValue '')
-            $levelFr -eq 'Erreur' -or $level -eq 'Error'
+            $lf = [string](Get-DanewCrashSafeProperty -Object $_ -Name 'level_fr' -DefaultValue '')
+            $l  = [string](Get-DanewCrashSafeProperty -Object $_ -Name 'level'    -DefaultValue '')
+            $lf -eq 'Erreur' -or $l -eq 'Error'
         })
-        $clientMsg = '<p class="section-caption" style="margin-top:10px;padding:10px;background:rgba(15,118,110,0.07);border-radius:8px;">' +
-            '<b>Information client :</b> Windows semble avoir effectue ou tente une operation de maintenance ou de mise a jour systeme (DISM/CBS) avant l incident.' +
-            '</p>'
+        $dismClientMsg = '<p class="client-text-box"><span aria-hidden="true">&#128100;</span> <strong>Information client :</strong> Windows semble avoir effectue ou tente une operation de maintenance ou de mise a jour systeme (DISM/CBS) avant l incident.</p>'
         $dismRows = @()
         foreach ($ev in @($dismCbsClassified | Select-Object -First 20)) {
-            $timestampText = [string](Get-DanewCrashSafeProperty -Object $ev -Name 'timestamp' -DefaultValue '')
-            $levelText = [string](Get-DanewCrashSafeProperty -Object $ev -Name 'level_fr' -DefaultValue '')
-            if ([string]::IsNullOrWhiteSpace($levelText)) {
-                $levelText = [string](Get-DanewCrashSafeProperty -Object $ev -Name 'level' -DefaultValue '')
-            }
-            $providerText = [string](Get-DanewCrashSafeProperty -Object $ev -Name 'provider' -DefaultValue '')
-            $messageText = [string](Get-DanewCrashSafeProperty -Object $ev -Name 'message' -DefaultValue '')
-            $messageShort = if ($messageText.Length -gt 180) { $messageText.Substring(0, 180) } else { $messageText }
-            $rowSearch = ConvertTo-DanewReportHtmlText (($timestampText, $levelText, $providerText, $messageText) -join ' ')
-            $dismRows += "<tr data-search-row=`"$rowSearch`"><td>$([System.Security.SecurityElement]::Escape($timestampText))</td><td>$([System.Security.SecurityElement]::Escape($levelText))</td><td>$([System.Security.SecurityElement]::Escape($messageShort))</td></tr>"
+            $dts  = [string](Get-DanewCrashSafeProperty -Object $ev -Name 'timestamp' -DefaultValue '')
+            $dlf  = [string](Get-DanewCrashSafeProperty -Object $ev -Name 'level_fr'  -DefaultValue '')
+            if ([string]::IsNullOrWhiteSpace($dlf)) { $dlf = [string](Get-DanewCrashSafeProperty -Object $ev -Name 'level' -DefaultValue '') }
+            $dmsg = [string](Get-DanewCrashSafeProperty -Object $ev -Name 'message' -DefaultValue '')
+            $dmsS = if ($dmsg.Length -gt 180) { $dmsg.Substring(0, 180) } else { $dmsg }
+            $drs  = ConvertTo-DanewReportHtmlText (($dts, $dlf, $dmsg) -join ' ')
+            $dismRows += "<tr data-search-row=`"$drs`"><td>$([System.Security.SecurityElement]::Escape($dts))</td><td>$([System.Security.SecurityElement]::Escape($dlf))</td><td>$([System.Security.SecurityElement]::Escape($dmsS))</td></tr>"
         }
-        $statLine = '<p>Evenements DISM/CBS detectes : <b>' + @($dismCbsClassified).Count + '</b> &nbsp;|&nbsp; Erreurs : <b>' + @($dismErrors).Count + '</b> &nbsp;|&nbsp; KB references : <b>' + @($dismKbs).Count + '</b></p>'
-        $dismCbsSectionHtml = New-DanewReportSectionHtml -Title 'Journaux DISM/CBS (maintenance systeme)' -Caption 'Evenements extraits des journaux texte DISM.log et CBS.log. Peuvent expliquer les echecs de mise a jour ou de reparation.' -SearchText 'dism cbs servicing KB maintenance update log' -BodyHtml ($clientMsg + $statLine + (New-DanewReportTableHtml -Headers @('Horodatage', 'Niveau', 'Message') -Rows $dismRows -EmptyMessage 'Aucun evenement DISM/CBS.')) -Collapsed $true
+        $dStatLine = '<p>Evenements DISM/CBS : <b>' + @($dismCbsClassified).Count + '</b> &nbsp;|&nbsp; Erreurs : <b>' + @($dismErrors).Count + '</b> &nbsp;|&nbsp; KB references : <b>' + @($dismKbs).Count + '</b></p>'
+        $dismCbsSectionHtml = New-DanewReportSectionHtml -Title 'Journaux DISM/CBS (maintenance systeme)' -Caption 'Evenements extraits des journaux texte DISM.log et CBS.log. Peuvent expliquer les echecs de mise a jour ou de reparation.' -SearchText 'dism cbs servicing KB maintenance update log' -BodyHtml ($dismClientMsg + $dStatLine + (New-DanewReportTableHtml -Headers @('Horodatage', 'Niveau', 'Message') -Rows $dismRows -EmptyMessage 'Aucun evenement DISM/CBS.')) -Collapsed $true
     }
 
+    # ---- Safe actions section (consolidated per pattern family) ----
+    $safeActFamilies = [ordered]@{
+        'Stockage / NTFS'       = @(
+            [pscustomobject]@{ label='CHKDSK scan (lecture seule)'; cmd='chkdsk <LETTRE_WINDOWS>: /scan'; desc='Verifier NTFS sans modification — lecture seule' }
+            [pscustomobject]@{ label='SFC offline'; cmd='sfc /scannow /offbootdir=<LETTRE_WINDOWS>:\ /offwindir=<LETTRE_WINDOWS>:\Windows'; desc='Verifier les fichiers systeme Windows offline' }
+            [pscustomobject]@{ label='SMART rapide'; cmd='wmic diskdrive get status,model,size /format:csv'; desc='Etat SMART des disques detectes' }
+        )
+        'Windows Update / KB'   = @(
+            [pscustomobject]@{ label='Lister les KB installees'; cmd='dism /image:<LETTRE_WINDOWS>:\ /get-packages | findstr /i KB'; desc='Lister les mises a jour presentes dans l image offline' }
+            [pscustomobject]@{ label='DISM CheckHealth'; cmd='dism /image:<LETTRE_WINDOWS>:\ /cleanup-image /checkhealth'; desc='Verifier integrite image Windows offline' }
+            [pscustomobject]@{ label='Exporter historique MAJ'; cmd='wmic qfe list brief /format:csv > kb-history.csv'; desc='Exporter la liste des mises a jour Windows' }
+        )
+        'DISM / CBS'            = @(
+            [pscustomobject]@{ label='Copier CBS.log'; cmd='copy <LETTRE_WINDOWS>:\Windows\Logs\CBS\CBS.log .\CBS-export.log'; desc='Exporter le journal CBS pour analyse' }
+            [pscustomobject]@{ label='Copier DISM.log'; cmd='copy <LETTRE_WINDOWS>:\Windows\Logs\DISM\dism.log .\DISM-export.log'; desc='Exporter le journal DISM pour analyse' }
+            [pscustomobject]@{ label='DISM RestoreHealth (offline)'; cmd='dism /image:<LETTRE_WINDOWS>:\ /cleanup-image /restorehealth'; desc='Reparer l image Windows offline — adapter le chemin si necessaire, necessite source ISO ou reseau' }
+        )
+        'Winlogon / Login'      = @(
+            [pscustomobject]@{ label='Verifier Userinit'; cmd='reg load HKLM\OFFLINE <LETTRE_WINDOWS>:\Windows\System32\config\SOFTWARE && reg query "HKLM\OFFLINE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v Userinit'; desc='Verifier la valeur Userinit dans le registre Winlogon' }
+            [pscustomobject]@{ label='SFC offline'; cmd='sfc /scannow /offbootdir=<LETTRE_WINDOWS>:\ /offwindir=<LETTRE_WINDOWS>:\Windows'; desc='Verifier les fichiers systeme Windows offline' }
+        )
+        'Pilotes / Services'    = @(
+            [pscustomobject]@{ label='Exporter liste pilotes'; cmd='driverquery /FO csv > drivers-export.csv'; desc='Exporter la liste des pilotes installes' }
+            [pscustomobject]@{ label='Lister services'; cmd='sc query type= all state= all'; desc='Lister tous les services et leur etat' }
+        )
+        'WHEA / Materiel'       = @(
+            [pscustomobject]@{ label='Info memoire RAM'; cmd='wmic memorychip get capacity,manufacturer,speed /format:csv > memory-info.csv'; desc='Exporter les informations sur les barrettes RAM' }
+            [pscustomobject]@{ label='Planifier test memoire'; cmd='mdsched.exe'; desc='Lancer le diagnosticateur de memoire Windows' }
+            [pscustomobject]@{ label='Info materiel'; cmd='wmic computersystem get model,manufacturer,totalphysicalmemory /format:csv'; desc='Informations sur le materiel de la machine' }
+        )
+        'Alimentation / Boot'   = @(
+            [pscustomobject]@{ label='Rapport energie'; cmd='powercfg /energy'; desc='Analyser la consommation et les problemes energie' }
+            [pscustomobject]@{ label='SMART rapide'; cmd='wmic diskdrive get status,model,size /format:csv'; desc='Etat SMART des disques' }
+        )
+        'Intel RST/VMD'         = @(
+            [pscustomobject]@{ label='Exporter liste pilotes'; cmd='driverquery /FO csv > drivers-export.csv'; desc='Identifier le pilote RST/VMD installe' }
+            [pscustomobject]@{ label='Info stockage'; cmd='wmic diskdrive get model,status,size,interfacetype /format:csv'; desc='Identifier le type et etat des disques detectes' }
+        )
+    }
+    $safeActBlocks = @()
+    foreach ($famKey in $safeActFamilies.Keys) {
+        $famActions = $safeActFamilies[$famKey]
+        $famBtns = @()
+        foreach ($fa in $famActions) {
+            $faLabel = [System.Security.SecurityElement]::Escape([string]$fa.label)
+            $faCmd   = [System.Security.SecurityElement]::Escape([string]$fa.cmd)
+            $faDesc  = [System.Security.SecurityElement]::Escape([string]$fa.desc)
+            $famBtns += '<div class="pat-action-row"><button type="button" class="sav-copy-btn" data-cmd="' + $faCmd + '" data-label="' + $faLabel + '" onclick="danewCopyCmd(this)">&#128203; ' + $faLabel + '</button><code class="sav-cmd-code">' + $faCmd + '</code><span class="sav-cmd-desc">' + $faDesc + '</span></div>'
+        }
+        $safeActBlocks += '<div class="sav-act-family"><div class="sav-act-family-title">' + [System.Security.SecurityElement]::Escape($famKey) + '</div>' + ($famBtns -join '') + '</div>'
+    }
+    $safeActDisclaimer = '<div style="margin-bottom:14px;display:flex;flex-direction:column;gap:8px;">' +
+        '<p class="section-caption" style="margin:0;padding:10px 14px;background:rgba(180,83,9,0.08);border:1px solid rgba(180,83,9,0.25);border-radius:10px;"><strong>&#9888; Lettre Windows WinPE :</strong> En WinPE, la lettre de la partition Windows offline peut varier (D:, E:, F:...). Remplacez <code>&lt;LETTRE_WINDOWS&gt;</code> par la lettre detectee avant d utiliser une commande. Exemple : si Windows est sur D:, remplacez <code>&lt;LETTRE_WINDOWS&gt;</code> par <code>D</code>.</p>' +
+        '<p class="section-caption" style="margin:0;"><strong>Securite :</strong> Ces boutons copient uniquement la commande dans le presse-papier. Aucune commande n est executee automatiquement. Toute reparation doit etre validee par le technicien.</p>' +
+        '</div>'
+    $safeActionsBody = $safeActDisclaimer + '<div class="sav-act-grid">' + ($safeActBlocks -join '') + '</div>'
+
+    # ---- Metrics ----
+    $metrics = @(
+        (New-DanewMetricCardHtml -Label 'Severite' -Value (Get-DanewLocalizedStatusText $CrashAnalysis.severity_analysis.overall) -Tone $CrashAnalysis.severity_analysis.overall)
+        (New-DanewMetricCardHtml -Label 'Confiance principale' -Value (Get-DanewLocalizedConfidenceText (Get-DanewCrashSafeProperty -Object $CrashAnalysis.root_cause_analysis.primary_cause -Name 'confidence' -DefaultValue 'Unknown')) -Tone (Get-DanewCrashSafeProperty -Object $CrashAnalysis.root_cause_analysis.primary_cause -Name 'confidence' -DefaultValue 'neutral'))
+        (New-DanewMetricCardHtml -Label 'Patterns detectes' -Value $patternCount -Tone $(if ($patternCount -ge 3) { 'warn' } elseif ($patternCount -gt 0) { 'info' } else { 'neutral' }))
+        (New-DanewMetricCardHtml -Label 'Evt critiques' -Value $critTotalCount -Tone $(if ($critTotalCount -ge 5) { 'danger' } elseif ($critTotalCount -gt 0) { 'warn' } else { 'neutral' }))
+        (New-DanewMetricCardHtml -Label 'Causes suivies' -Value @($CrashAnalysis.root_cause_analysis.all_causes).Count -Tone 'info')
+        (New-DanewMetricCardHtml -Label 'Recommandations' -Value @($CrashAnalysis.recommendations).Count -Tone 'ready')
+    ) -join ''
+
+    # ---- Meta ----
+    $meta = New-DanewReportMetaListHtml -Items @(
+        [pscustomobject]@{ label = 'Horodatage';          value = $CrashAnalysis.timestamp }
+        [pscustomobject]@{ label = 'Impact';              value = (Get-DanewLocalizedImpactText $CrashAnalysis.impact) }
+        [pscustomobject]@{ label = 'Chemin racine';       value = $CrashAnalysis.root_path }
+        [pscustomobject]@{ label = 'Confiance detection'; value = (Get-DanewLocalizedConfidenceText $CrashAnalysis.detection_confidence) }
+    )
+
+    # ---- Section bodies ----
+    $summaryBody = $explanation + $clientTextHtml + '<div class="split-grid">' + (New-DanewMetricCardHtml -Label 'Cause principale' -Value (Get-DanewLocalizedCauseText (Get-DanewCrashSafeProperty -Object $CrashAnalysis.root_cause_analysis.primary_cause -Name 'cause' -DefaultValue 'Unknown')) -Tone $CrashAnalysis.severity_analysis.overall) + (New-DanewMetricCardHtml -Label 'Impact' -Value (Get-DanewLocalizedImpactText $CrashAnalysis.impact) -Tone 'warn') + '</div>'
+    $recommendationBody = '<ul class="report-list">' + ($recommendations -join '') + '</ul>'
+
+    # ---- Additional CSS (OFFLINE-SAFE) ----
+    $additionalCss = @'
+<style>
+/* SAV Enhanced — pattern cards, timeline, copy buttons */
+.client-text-box{display:flex;align-items:flex-start;gap:10px;margin:12px 0;padding:12px 16px;background:rgba(15,118,110,0.08);border:1px solid rgba(15,118,110,0.22);border-radius:12px;font-size:14px;}
+.client-text-icon{font-size:20px;flex-shrink:0;margin-top:1px;}
+.pattern-card{margin-bottom:14px;padding:16px;border:1px solid var(--line);border-radius:16px;background:var(--panel);}
+.pat-header{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px;}
+.pat-name{font-weight:700;font-size:15px;}
+.pat-summary{margin:0 0 10px 0;color:var(--muted);font-size:13px;}
+.pat-evidence{display:flex;flex-direction:column;gap:4px;margin-bottom:10px;}
+.pat-ev-item{display:grid;grid-template-columns:160px 200px 1fr;gap:6px;font-size:12px;padding:5px 8px;background:rgba(23,32,51,0.04);border-radius:8px;overflow:hidden;}
+.pat-ev-ts{color:var(--muted);font-family:Consolas,"Cascadia Mono",monospace;}
+.pat-ev-prov{color:var(--accent-strong);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pat-ev-msg{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pat-actions-wrap{margin-top:8px;}
+.pat-actions-wrap summary{cursor:pointer;font-size:13px;color:var(--muted);padding:4px 0;}
+.pat-actions-wrap summary:hover{color:var(--accent);}
+.pat-actions{display:flex;flex-direction:column;gap:8px;margin-top:8px;}
+.pat-action-row{display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;gap:4px 10px;align-items:start;padding:8px;background:rgba(23,32,51,0.03);border-radius:10px;border:1px solid var(--line);}
+.sav-copy-btn{grid-row:1;grid-column:1;padding:7px 12px;border-radius:10px;border:1px solid rgba(15,118,110,0.35);background:rgba(15,118,110,0.09);color:var(--accent-strong);cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap;transition:background 120ms,transform 120ms;}
+.sav-copy-btn:hover{background:rgba(15,118,110,0.18);transform:translateY(-1px);}
+.sav-copy-btn:active{transform:translateY(0);}
+.sav-copy-btn.copied{background:rgba(15,118,110,0.28);color:#0f766e;}
+.sav-cmd-code{grid-row:1;grid-column:2;font-family:Consolas,"Cascadia Mono",monospace;font-size:12px;background:rgba(23,32,51,0.06);border-radius:6px;padding:5px 8px;overflow-x:auto;white-space:pre;}
+.sav-cmd-desc{grid-row:2;grid-column:1/-1;font-size:11px;color:var(--muted);}
+.sav-act-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;}
+.sav-act-family{padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--panel);}
+.sav-act-family-title{font-weight:700;font-size:14px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--line);}
+@media(max-width:720px){.pat-ev-item{grid-template-columns:1fr;}.pat-action-row{grid-template-columns:1fr;}.sav-cmd-code{grid-row:2;grid-column:1;}.sav-cmd-desc{grid-row:3;}}
+body.theme-dark .client-text-box{background:rgba(20,184,166,0.08);border-color:rgba(20,184,166,0.2);}
+body.theme-dark .pattern-card{background:rgba(15,23,42,0.85);}
+body.theme-dark .pat-ev-item{background:rgba(255,255,255,0.04);}
+body.theme-dark .sav-copy-btn{background:rgba(20,184,166,0.12);border-color:rgba(20,184,166,0.3);color:#14b8a6;}
+body.theme-dark .sav-copy-btn:hover{background:rgba(20,184,166,0.22);}
+body.theme-dark .sav-cmd-code{background:rgba(255,255,255,0.05);}
+body.theme-dark .sav-act-family{background:rgba(15,23,42,0.85);}
+body.theme-dark .pat-action-row{background:rgba(255,255,255,0.03);}
+</style>
+'@
+
+    # ---- Additional JS (OFFLINE-SAFE — copy only, no auto-exec) ----
+    $additionalJs = @'
+<script>
+(function(){
+function danewCopyCmd(btn){
+    var cmd=btn.getAttribute('data-cmd');
+    var origText=btn.textContent;
+    function markCopied(){btn.textContent='✅ Copie!';btn.classList.add('copied');setTimeout(function(){btn.textContent=origText;btn.classList.remove('copied');},2200);}
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+        navigator.clipboard.writeText(cmd).then(markCopied,function(){legacyCopy(cmd,markCopied);});
+    } else { legacyCopy(cmd,markCopied); }
+}
+function legacyCopy(text,cb){
+    var ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';
+    document.body.appendChild(ta);ta.focus();ta.select();
+    try{document.execCommand('copy');}catch(e){}
+    document.body.removeChild(ta);cb();
+}
+window.danewCopyCmd=danewCopyCmd;
+
+// Family filter for event table
+document.addEventListener('DOMContentLoaded',function(){
+    var filterBtns=document.querySelectorAll('[data-family-filter]');
+    filterBtns.forEach(function(btn){
+        btn.addEventListener('click',function(){
+            var fam=btn.getAttribute('data-family-filter');
+            filterBtns.forEach(function(b){b.classList.remove('primary-button');});
+            btn.classList.add('primary-button');
+            var rows=document.querySelectorAll('#evtx-table tbody tr');
+            rows.forEach(function(row){
+                if(!fam||fam==='all'){row.hidden=false;return;}
+                var rowFam=(row.getAttribute('data-family')||'').toLowerCase();
+                row.hidden=rowFam.indexOf(fam.toLowerCase())===-1;
+            });
+        });
+    });
+});
+})();
+</script>
+'@
+
+    # ---- Toolbar filter buttons ----
+    $familyFilterBtns = @('Tout','BugCheck / BSOD','Disk / Storage','NTFS corruption','Windows Update failure','Service startup failures','DriverFrameworks issues','Winlogon / login failure','Windows Update / KB servicing','WHEA hardware errors','Kernel-Power shutdown') | ForEach-Object {
+        $fam = $_
+        $attr = if ($fam -eq 'Tout') { 'all' } else { $fam }
+        '<button type="button" data-family-filter="' + [System.Security.SecurityElement]::Escape($attr) + '">' + [System.Security.SecurityElement]::Escape($fam) + '</button>'
+    }
+    $toolbarFamilyHtml = '<span style="font-size:12px;color:var(--muted);margin-right:4px;">Famille:</span>' + ($familyFilterBtns -join '')
+
+    # ---- Assemble sections ----
     $sections = @(
-        (New-DanewReportSectionHtml -Title 'Resume executif' -Caption 'Le bandeau de synthese reprend la chaine de cause racine la plus probable sans lancer de reparation.' -SearchText ('summary primary cause severity impact ' + [string](Get-DanewCrashSafeProperty -Object $CrashAnalysis.root_cause_analysis.primary_cause -Name 'cause' -DefaultValue '')) -BodyHtml $summaryBody)
-        (New-DanewReportSectionHtml -Title 'Causes principales et secondaires' -Caption 'Recherche par texte de cause, score, confiance ou justification.' -SearchText 'causes confidence score reason root cause analysis' -BodyHtml (New-DanewReportTableHtml -Headers @('Cause', 'Confiance', 'Score', 'Justification') -Rows $causeRows -EmptyMessage 'Aucune cause ne correspond au filtre courant.'))
-        (New-DanewReportSectionHtml -Title 'Intelligence de chronologie' -Caption 'Synthese de motifs extraite des enregistrements classes.' -SearchText 'timeline intelligence patterns confidence summary' -BodyHtml (New-DanewReportTableHtml -Headers @('Motif', 'Confiance', 'Resume') -Rows $timelineRows -EmptyMessage 'Aucune ligne de chronologie ne correspond au filtre courant.') -Collapsed $true)
-        (New-DanewReportSectionHtml -Title 'Classification des evenements' -Caption '25 premiers enregistrements classes pour un triage rapide.' -SearchText 'event classification provider category message' -BodyHtml (New-DanewReportTableHtml -Headers @('Horodatage', 'ID evenement', 'Fournisseur', 'Categorie', 'Message') -Rows $eventRows -EmptyMessage 'Aucun evenement classe ne correspond au filtre courant.') -Collapsed $true)
+        (New-DanewReportSectionHtml -Title 'Resume executif' -Caption 'Cause racine la plus probable, criticite et message client. Aucune reparation ne doit etre lancee depuis cette phase.' -SearchText ('summary cause racine impact criticite ' + [string](Get-DanewCrashSafeProperty -Object $CrashAnalysis.root_cause_analysis.primary_cause -Name 'cause' -DefaultValue '')) -BodyHtml $summaryBody)
+        (New-DanewReportSectionHtml -Title 'Frise chronologique critique' -Caption ('Top ' + [string]([Math]::Min(40, $critTotalCount)) + ' evenements critiques (criticite >= 3) tries par timestamp. ' + $critTotalCount + ' evenements critiques detectes au total.') -SearchText 'frise chronologie critique timestamp famille provider event' -BodyHtml ($critNotice + (New-DanewReportTableHtml -Headers @('Horodatage', 'Famille', 'Fournisseur', 'ID Evt', 'Score', 'Message') -Rows $critTimelineRows -EmptyMessage 'Aucun evenement de criticite >= 3 detecte dans les journaux.')))
+        (New-DanewReportSectionHtml -Title 'Patterns de panne detectes' -Caption ([string]$patternCount + ' pattern(s) detecte(s). Chaque carte indique la sequence, les preuves et les actions SAV disponibles (copie seulement).') -SearchText 'patterns panne sequence preuves confidence cause impact' -BodyHtml $patternCardsHtml)
+        (New-DanewReportSectionHtml -Title 'Causes principales et secondaires' -Caption 'Score et justification pour chaque hypothese de cause racine, triee par score decroissant.' -SearchText 'causes confidence score reason root cause analysis' -BodyHtml (New-DanewReportTableHtml -Headers @('Cause', 'Confiance', 'Score', 'Justification') -Rows $causeRows -EmptyMessage 'Aucune cause ne correspond.'))
+        (New-DanewReportSectionHtml -Title 'Intelligence de chronologie' -Caption 'Motifs detectes dans la chronologie brute — complement de la section Patterns.' -SearchText 'timeline intelligence motifs confidence resume' -BodyHtml (New-DanewReportTableHtml -Headers @('Motif', 'Confiance', 'Resume') -Rows $timelineRows -EmptyMessage 'Aucun motif.') -Collapsed $true)
+        (New-DanewReportSectionHtml -Title 'Tableau des evenements (top 50)' -Caption 'Tous les evenements classes — utilisez les filtres famille dans la barre d outils secondaire.' -SearchText 'event classification provider category message criticite' -BodyHtml (New-DanewReportTableHtml -Headers @('Horodatage', 'ID Evt', 'Fournisseur', 'Categorie', 'Score', 'Message') -Rows $eventRows -EmptyMessage 'Aucun evenement.') -Collapsed $true)
         $(if ($dismCbsSectionHtml) { $dismCbsSectionHtml })
-        (New-DanewReportSectionHtml -Title 'Prochaines actions recommandees' -Caption 'Actions en lecture seule uniquement. Les reparations restent hors de cette phase.' -SearchText ('recommendations next steps ' + (@($CrashAnalysis.recommendations) -join ' ')) -BodyHtml $recommendationBody)
+        (New-DanewReportSectionHtml -Title 'Depannage SAV securise' -Caption 'Actions disponibles par famille de panne. Cliquer = copier la commande uniquement. Aucune execution automatique.' -SearchText 'depannage sav actions commandes copier chkdsk sfc dism driverquery' -BodyHtml $safeActionsBody)
+        (New-DanewReportSectionHtml -Title 'Prochaines actions recommandees' -Caption 'Synthese des actions en lecture seule validees pour cette phase.' -SearchText ('recommendations next steps ' + (@($CrashAnalysis.recommendations) -join ' ')) -BodyHtml $recommendationBody)
     ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
 
-    $html = New-DanewInteractiveReportHtml -Title 'Rapport de diagnostic SAV Danew' -Subtitle 'Rapport hors ligne oriente crash avec recherche sur les causes, motifs de chronologie et prochaines actions ciblees.' -Status ([string]$CrashAnalysis.severity_analysis.overall) -Eyebrow 'Analyse SAV / crash' -HeroMetricsHtml ('<div class="hero-metrics">' + $metrics + '</div>') -MetaHtml $meta -Sections $sections -SearchPlaceholder 'Filtrer les causes, motifs de chronologie, fournisseurs ou recommandations' -CurrentReportName 'sav-diagnostic'
+    $html = New-DanewInteractiveReportHtml `
+        -Title 'Rapport de diagnostic SAV Danew' `
+        -Subtitle 'Diagnostic hors ligne oriente crash: patterns, frise critique, hypotheses cause racine, depannage SAV securise.' `
+        -Status ([string]$CrashAnalysis.severity_analysis.overall) `
+        -Eyebrow 'Analyse SAV / crash' `
+        -HeroMetricsHtml ('<div class="hero-metrics">' + $metrics + '</div>') `
+        -MetaHtml $meta `
+        -Sections $sections `
+        -SearchPlaceholder 'Filtrer causes, patterns, events, fournisseurs ou recommandations' `
+        -CurrentReportName 'sav-diagnostic' `
+        -AdditionalStyleHtml $additionalCss `
+        -AdditionalScriptHtml $additionalJs `
+        -AdditionalToolbarHtml $toolbarFamilyHtml
 
     $html | Set-Content -Path $Path -Encoding UTF8
     Update-DanewInteractiveReportsIndex -ReportsPath (Split-Path -Parent $Path) | Out-Null
@@ -1160,6 +1384,14 @@ function Invoke-DanewCrashCauseAnalysis {
         }
         severity_analysis = $severity
         recommendations = $recommendations
+        detected_patterns = @($timeline.intelligence | ForEach-Object {
+            [pscustomobject]@{
+                pattern    = [string](Get-DanewCrashSafeProperty -Object $_ -Name 'pattern'    -DefaultValue '')
+                confidence = [string](Get-DanewCrashSafeProperty -Object $_ -Name 'confidence' -DefaultValue '')
+                summary    = [string](Get-DanewCrashSafeProperty -Object $_ -Name 'summary'    -DefaultValue '')
+                evidence_count = @(Get-DanewCrashSafeProperty -Object $_ -Name 'evidence' -DefaultValue @()).Count
+            }
+        })
         record_optimization = [pscustomobject]@{
             input_count = [int]$optimizedLogs.input_count
             output_count = [int]$optimizedLogs.output_count
