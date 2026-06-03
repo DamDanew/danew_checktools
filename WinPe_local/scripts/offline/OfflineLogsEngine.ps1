@@ -1329,6 +1329,9 @@ function Get-DanewExpectedEvtxMap {
         [pscustomobject]@{ channel = 'Security'; file_name = 'Security.evtx'; required = $false },
         [pscustomobject]@{ channel = 'Microsoft-Windows-Kernel-Boot/Operational'; file_name = 'Microsoft-Windows-Kernel-Boot%4Operational.evtx'; required = $false },
         [pscustomobject]@{ channel = 'Microsoft-Windows-User Profile Service/Operational'; file_name = 'Microsoft-Windows-User Profile Service%4Operational.evtx'; required = $false },
+        [pscustomobject]@{ channel = 'Microsoft-Windows-Winlogon/Operational'; file_name = 'Microsoft-Windows-Winlogon%4Operational.evtx'; required = $false },
+        [pscustomobject]@{ channel = 'Microsoft-Windows-Servicing/Operational'; file_name = 'Microsoft-Windows-Servicing%4Operational.evtx'; required = $false },
+        [pscustomobject]@{ channel = 'Microsoft-Windows-UpdateOrchestrator/Operational'; file_name = 'Microsoft-Windows-UpdateOrchestrator%4Operational.evtx'; required = $false },
         [pscustomobject]@{ channel = 'Microsoft-Windows-AppReadiness/Admin'; file_name = 'Microsoft-Windows-AppReadiness%4Admin.evtx'; required = $false },
         [pscustomobject]@{ channel = 'Microsoft-Windows-DriverFrameworks-UserMode/Operational'; file_name = 'Microsoft-Windows-DriverFrameworks-UserMode%4Operational.evtx'; required = $false },
         [pscustomobject]@{ channel = 'Microsoft-Windows-DriverFrameworks-KernelMode/Operational'; file_name = 'Microsoft-Windows-DriverFrameworks-KernelMode%4Operational.evtx'; required = $false }
@@ -2077,7 +2080,8 @@ function Get-DanewEvtxTargetedExportModel {
         if ($provider -match 'kernel-boot|boot|bcd|winload' -or $message -match 'boot|demarrage|bcd') { return 'Demarrage / boot' }
         if ($provider -match 'disk|ntfs|stor|nvme|iastor|vmd' -or $id -in @('7', '11', '51', '55', '98', '129', '140', '153', '157')) { return 'Disque / NTFS' }
         if ($provider -match 'driverframeworks|driver|pnp') { return 'Pilotes' }
-        if ($provider -match 'windowsupdateclient|update') { return 'Windows Update' }
+        if ($provider -match 'winlogon' -or $channel -match 'winlogon' -or $id -in @('4006', '1074')) { return 'Winlogon / Login' }
+        if ($provider -match 'windowsupdateclient|servicing|cbs|orchestrat|update' -or $channel -match 'servicing|orchestrat|setup') { return 'Windows Update / KB' }
         if ($provider -match 'whea') { return 'Materiel / WHEA' }
         if ($provider -match 'service control manager|service') { return 'Services' }
         if ($provider -match 'bitlocker|fve') { return 'BitLocker / Chiffrement' }
@@ -2213,7 +2217,8 @@ function Get-DanewEvtxTargetedExportModel {
             elseif ($provider -match 'ntfs' -and $id -in @('55', '98', '140')) { $score = 88 }
             elseif ($provider -match 'storport') { $score = 88 }
             elseif ($provider -match 'whea') { $score = 85 }
-            elseif ($provider -match 'windowsupdateclient' -and $levelFr -in @('Erreur', 'Critique')) { $score = 75 }
+            elseif (($provider -match 'winlogon' -or $id -eq '4006') -and $levelFr -in @('Erreur', 'Critique')) { $score = 82 }
+            elseif ($provider -match 'windowsupdateclient|servicing|cbs|orchestrat' -and $levelFr -in @('Erreur', 'Critique')) { $score = 75 }
             elseif ($provider -match 'driverframeworks' -and $levelFr -in @('Erreur', 'Critique')) { $score = 72 }
             elseif ($provider -match 'service control manager' -and $id -in @('7000', '7001', '7023', '7031', '7034')) { $score = 70 }
             elseif ($provider -match 'bitlocker|fve') { $score = 78 }
@@ -2688,7 +2693,8 @@ function Write-DanewTimelineHtml {
         if ($provider -match 'kernel-boot|boot' -or $message -match 'boot|demarrage') { return 'Demarrage / boot' }
         if ($provider -match 'disk|ntfs|stor|nvme|iaStor|vmd' -or $id -in @('7', '51', '55', '153')) { return 'Disque / NTFS' }
         if ($provider -match 'driverframeworks|driver|pnp') { return 'Pilotes' }
-        if ($provider -match 'windowsupdateclient|update') { return 'Windows Update' }
+        if ($provider -match 'winlogon' -or $channel -match 'winlogon' -or $id -in @('4006', '1074')) { return 'Winlogon / Login' }
+        if ($provider -match 'windowsupdateclient|servicing|cbs|orchestrat|update' -or $channel -match 'servicing|orchestrat|setup') { return 'Windows Update / KB' }
         if ($provider -match 'whea') { return 'Materiel / WHEA' }
         if ($provider -match 'service control manager|service') { return 'Services' }
         if ($channel -match 'security' -or $provider -match 'security|audit') { return 'Securite' }
@@ -2788,7 +2794,8 @@ function Write-DanewTimelineHtml {
             elseif ($provider -match '^disk$' -and $id -in @('7', '51', '153')) { $score = 90 }
             elseif ($provider -match 'ntfs' -and $id -eq '55') { $score = 90 }
             elseif ($provider -match 'whea') { $score = 85 }
-            elseif ($provider -match 'windowsupdateclient' -and $levelFr -in @('Erreur', 'Critique')) { $score = 75 }
+            elseif (($provider -match 'winlogon' -or $id -eq '4006') -and $levelFr -in @('Erreur', 'Critique')) { $score = 82 }
+            elseif ($provider -match 'windowsupdateclient|servicing|cbs|orchestrat' -and $levelFr -in @('Erreur', 'Critique')) { $score = 75 }
             elseif ($provider -match 'driverframeworks' -and $levelFr -in @('Erreur', 'Critique')) { $score = 70 }
             elseif ($provider -match 'service control manager' -and $levelFr -in @('Erreur', 'Critique')) { $score = 65 }
             elseif ($levelFr -eq 'Avertissement') { $score = 30 }
@@ -3852,9 +3859,10 @@ function Write-DanewEvtxByFileHtml {
         if ($provider -match 'kernel-boot|boot|bcd|winload' -or $message -match 'boot|demarrage|bcd') { return 'Demarrage / boot' }
         if ($provider -match 'disk|ntfs|stor|nvme|iastor|vmd' -or $id -in @('7', '11', '51', '55', '98', '129', '140', '153', '157')) { return 'Disque / NTFS' }
         if ($provider -match 'driverframeworks|driver|pnp') { return 'Pilotes' }
+        if ($provider -match 'winlogon' -or $channel -match 'winlogon' -or $id -in @('4006', '1074')) { return 'Winlogon / Login' }
+        if ($provider -match 'windowsupdateclient|servicing|cbs|orchestrat|update' -or $channel -match 'servicing|orchestrat|setup') { return 'Windows Update / KB' }
         if ($provider -match 'whea') { return 'Materiel / WHEA' }
         if ($provider -match 'service control manager|service') { return 'Services' }
-        if ($provider -match 'windowsupdateclient|update') { return 'Windows Update' }
         if ($provider -match 'bitlocker|fve') { return 'BitLocker / Chiffrement' }
         if ($channel -match 'security' -or $provider -match 'security|audit') { return 'Securite' }
         return 'Autres'
@@ -3872,7 +3880,8 @@ function Write-DanewEvtxByFileHtml {
         if ($provider -match '^disk$' -and $id -in @('7', '11', '51', '153')) { return 90 }
         if ($provider -match 'ntfs' -and $id -in @('55', '98', '140')) { return 88 }
         if ($provider -match 'whea') { return 85 }
-        if ($provider -match 'windowsupdateclient' -and $levelFr -in @('Erreur', 'Critique')) { return 76 }
+        if (($provider -match 'winlogon' -or $id -eq '4006') -and $levelFr -in @('Erreur', 'Critique')) { return 82 }
+        if ($provider -match 'windowsupdateclient|servicing|cbs|orchestrat' -and $levelFr -in @('Erreur', 'Critique')) { return 76 }
         if ($provider -match 'bitlocker|fve') { return 78 }
         if ($provider -match 'service control manager|service' -and $levelFr -in @('Erreur', 'Critique')) { return 72 }
         if ($levelFr -eq 'Critique') { return 75 }
@@ -5026,6 +5035,131 @@ function Write-DanewOfflineAnalysisProgress {
     & $ProgressCallback $line
 }
 
+function Read-DanewDismCbsTextLogs {
+    # OFFLINE-SAFE: reads text log files from offline Windows installation, no external deps
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$WindowsRoot,
+        [int]$MaxTailLines = 3000
+    )
+
+    $results = New-Object System.Collections.ArrayList
+
+    $logDefs = @(
+        [pscustomobject]@{
+            RelPath  = 'Windows\Logs\DISM\dism.log'
+            Provider = 'Microsoft-Windows-DISM'
+            Family   = 'DISM / Servicing'
+            # Lines of interest: Error/Warning lines, plus KB/package/failed/corruption keywords
+            Filter   = '(?i)(^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\s*(Error|Warning))|(KB\d{6,}.*(fail|error|0x[89A-Fa-f][0-9A-Fa-f]{7}))|(DISM Package Manager|Servicing|failed to|cannot|corruption|Image corruption)'
+        }
+        [pscustomobject]@{
+            RelPath  = 'Windows\Logs\CBS\CBS.log'
+            Provider = 'Microsoft-Windows-CBS'
+            Family   = 'Windows Update / KB'
+            Filter   = '(?i)(^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\s*(Error|Warning))|(KB\d{6,}.*(fail|error|0x[89A-Fa-f][0-9A-Fa-f]{7}))|(Failed to|Cannot|Mark store corruption|CSI transaction|Servicing|package|reboot required|0x[89A-Fa-f][0-9A-Fa-f]{7})'
+        }
+    )
+
+    foreach ($def in $logDefs) {
+        $fullPath = Join-Path $WindowsRoot $def.RelPath
+        if (-not (Test-Path -Path $fullPath -ErrorAction SilentlyContinue)) { continue }
+
+        try {
+            $encodingName = 'UTF8'
+            $stream = $null
+            try {
+                $stream = [System.IO.File]::Open($fullPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+                if ($stream.Length -ge 2) {
+                    $first = $stream.ReadByte()
+                    $second = $stream.ReadByte()
+                    if ($first -eq 0xFF -and $second -eq 0xFE) {
+                        $encodingName = 'Unicode'
+                    }
+                    elseif ($first -eq 0xFE -and $second -eq 0xFF) {
+                        $encodingName = 'BigEndianUnicode'
+                    }
+                }
+            }
+            catch {
+                $encodingName = 'UTF8'
+            }
+            finally {
+                if ($null -ne $stream) {
+                    $stream.Dispose()
+                }
+            }
+
+            $lines = Get-Content -Path $fullPath -Tail $MaxTailLines -Encoding $encodingName -ErrorAction Stop
+            $matched = $lines | Where-Object { $_ -match $def.Filter }
+
+            foreach ($line in $matched) {
+                # Parse timestamp: "2026-06-02 18:20:48, Error  DISM  message"
+                $ts      = ''
+                $level   = 'Information'
+                $message = $line.Trim()
+
+                if ($line -match '^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\s*(Error|Warning|Info[a-z]*)\s+\S+\s+(.+)$') {
+                    $ts      = $matches[1].Trim()
+                    $levelRaw = $matches[2].Trim()
+                    $message = $matches[3].Trim()
+                    $level   = switch -Regex ($levelRaw) {
+                        '(?i)Error'   { 'Erreur' }
+                        '(?i)Warning' { 'Avertissement' }
+                        default       { 'Information' }
+                    }
+                }
+                elseif ($line -match '^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})') {
+                    $ts = $matches[1].Trim()
+                    if ($line -match '(?i)error|failed|cannot|corruption') { $level = 'Erreur' }
+                    elseif ($line -match '(?i)warning') { $level = 'Avertissement' }
+                }
+
+                if ($message.Length -lt 8) { continue }
+
+                $importanceSav = switch ($level) {
+                    'Erreur'          { if ($message -match 'KB\d{6,}|corruption|failed to') { 78 } else { 65 } }
+                    'Avertissement'   { 45 }
+                    default           { 25 }
+                }
+
+                $explanationFr = switch -Regex ($message) {
+                    '(?i)KB\d{6,}'       { "Une mise a jour KB a ete traitee ou a echoue via $($def.Provider -replace 'Microsoft-Windows-','')." }
+                    '(?i)corruption'     { "Une corruption de l image Windows a ete detectee dans les journaux de maintenance." }
+                    '(?i)failed|cannot'  { "Une operation de maintenance systeme a echoue. Cause probable: composant Windows endommage." }
+                    default              { "Evenement detecte dans le journal texte $($def.Provider -replace 'Microsoft-Windows-','')." }
+                }
+
+                [void]$results.Add([pscustomobject]@{
+                    timestamp         = $ts
+                    level             = $level
+                    level_fr          = $level
+                    provider          = $def.Provider
+                    event_id          = 0
+                    channel           = ($def.Provider -replace 'Microsoft-Windows-', '') + '/TextLog'
+                    computer          = ''
+                    task_category     = ''
+                    opcode            = ''
+                    keywords          = ''
+                    source_file       = $fullPath
+                    installation_root = $WindowsRoot
+                    message           = $message
+                    family            = $def.Family
+                    importance_sav    = $importanceSav
+                    explanation_fr    = $explanationFr
+                    probable_cause_fr = 'Operation de maintenance Windows (DISM/CBS) en echec ou avertissement.'
+                    impact_fr         = 'Peut provoquer un echec de demarrage, login impossible ou instabilite systeme.'
+                })
+            }
+        }
+        catch {
+            # Skip silently — fichier verrouille ou inaccessible (WinPE, encodage)
+        }
+    }
+
+    return @($results)
+}
+
 function Invoke-DanewOfflineLogsAnalysis {
     param(
         [Parameter(Mandatory = $true)]
@@ -5357,6 +5491,29 @@ function Invoke-DanewOfflineLogsAnalysis {
         else {
             [void]$warnings.Add('EVTX issue in ' + [string]$issue.file_path + ': ' + [string]$issue.issue)
         }
+    }
+
+    # Parse DISM.log + CBS.log texte depuis les installations Windows offline detectees
+    $dismCbsEvents = @()
+    try {
+        $installRoots = @($validInstallations |
+            ForEach-Object { [string](Get-DanewSafeProperty -Object $_ -Name 'windows_root' -DefaultValue '') } |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+            Sort-Object -Unique)
+
+        foreach ($root in $installRoots) {
+            $parsed = Read-DanewDismCbsTextLogs -WindowsRoot $root -MaxTailLines 3000
+            $dismCbsEvents += $parsed
+        }
+
+        if (@($dismCbsEvents).Count -gt 0) {
+            $events = @($events) + @($dismCbsEvents)
+            Write-DanewOfflineSubtaskEvent -Stage 'info' -Name 'DISM/CBS text logs' `
+                -Details ('dism_cbs_events=' + @($dismCbsEvents).Count + '; roots=' + @($installRoots).Count)
+        }
+    }
+    catch {
+        [void]$warnings.Add('DISM/CBS text log parsing skipped: ' + $_.Exception.Message)
     }
 
     Write-DanewOfflineAnalysisProgress -ProgressCallback $ProgressCallback -StartedAt $analysisStartedAt -Step 8 -TotalSteps $totalProgressSteps -Message 'Build event summary and timeline model'

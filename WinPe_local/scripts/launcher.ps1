@@ -64,6 +64,7 @@ $recommendedActionValueLabel = $null
 $runtimeChipLabel = $null
 $windowsChipLabel = $null
 $usbChipLabel = $null
+$machineChipLabel = $null
 $analysisCompletionLabel = $null
 $openSavReportButton = $null
 $openTimelineFastReportButton = $null
@@ -1382,7 +1383,9 @@ function Show-DanewFallbackReportText {
         [Parameter(Mandatory = $true)]
         [string]$Title,
         [Parameter(Mandatory = $true)]
-        [string]$Content
+        [string]$Content,
+        [AllowEmptyString()]
+        [string]$FilePath = ''
     )
 
     [System.Windows.Forms.Application]::EnableVisualStyles()
@@ -1458,16 +1461,32 @@ function Show-DanewFallbackReportText {
         }
 
         if ($dialogResult -eq [System.Windows.Forms.DialogResult]::None) {
-            $diagnostic = 'RichTextBox.ShowDialog() returned but no user action detected. WinPE rendering issue? Dumping text content to file.'
-            Write-DanewReportOpeningTrace -Status 'fallback-richtextbox-dialogresult-none' -Title $Title -Path '' -Message $diagnostic
-            try {
-                if (-not (Test-Path -Path $reportDir)) {
-                    New-Item -Path $reportDir -ItemType Directory -Force | Out-Null
+            $diagnostic = 'RichTextBox.ShowDialog() returned None — WinPE rendering issue. Trying notepad fallback.'
+            Write-DanewReportOpeningTrace -Status 'fallback-richtextbox-dialogresult-none' -Title $Title -Path $FilePath -Message $diagnostic
+            # Try notepad.exe as last resort (always available in WinPE X:\Windows\System32)
+            $notepadOpened = $false
+            foreach ($notepadPath in @("$env:SystemRoot\System32\notepad.exe", 'X:\Windows\System32\notepad.exe', 'C:\Windows\System32\notepad.exe')) {
+                if (Test-Path -Path $notepadPath -ErrorAction SilentlyContinue) {
+                    $targetFile = $FilePath
+                    if ([string]::IsNullOrWhiteSpace($targetFile) -or -not (Test-Path $targetFile)) {
+                        # Write content to temp file
+                        $targetFile = Join-Path $env:TEMP ('danew-report-' + [System.IO.Path]::GetRandomFileName() + '.txt')
+                        try { [System.IO.File]::WriteAllText($targetFile, $Content, [System.Text.Encoding]::UTF8) } catch {}
+                    }
+                    if (Test-Path -Path $targetFile -ErrorAction SilentlyContinue) {
+                        try {
+                            Start-Process -FilePath $notepadPath -ArgumentList @($targetFile) -ErrorAction Stop | Out-Null
+                            Write-DanewReportOpeningTrace -Status 'fallback-notepad-ok' -Title $Title -Path $targetFile -BrowserPath $notepadPath -Message 'Notepad opened as WinPE RichTextBox fallback.'
+                            $notepadOpened = $true
+                            break
+                        } catch {}
+                    }
                 }
-                $reportLog = Join-Path $reportDir 'report-opening.log'
-                Add-Content -Path $reportLog -Value ('[' + (Get-Date -Format 'HH:mm:ss') + '] ' + $diagnostic) -Encoding UTF8
             }
-            catch {
+            if (-not $notepadOpened) {
+                # Last resort: MessageBox with truncated preview
+                $preview = if ($Content.Length -gt 1800) { $Content.Substring(0, 1800) + "`n... (tronque)" } else { $Content }
+                [System.Windows.Forms.MessageBox]::Show($preview, $Title, [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
             }
         }
     }
@@ -1514,12 +1533,69 @@ function Open-DanewFallbackReport {
     }
     Write-DanewReportOpeningTrace -Status 'fallback-enter' -Title ('Rapport - ' + $baseName) -Path $reportsPath -Message 'Open-DanewFallbackReport entered.'
 
+    # REPORTS_INDEX fallback : construire une liste lisible des rapports disponibles
+    $isIndex = $baseName -match '(?i)REPORTS_INDEX|reports-index'
+    if ($isIndex) {
+        $indexLines = New-Object System.Collections.ArrayList
+        [void]$indexLines.Add('=== RAPPORTS DANEW DISPONIBLES ===')
+        [void]$indexLines.Add('Dossier: ' + $reportsPath)
+        [void]$indexLines.Add('')
+        $reportDefs = @(
+            @{ Name='Diagnostic SAV'; Html='sav-diagnostic-report.html'; Txt='sav-diagnostic-report.txt' },
+            @{ Name='Chronologie';    Html='timeline-raw.html';          Txt='timeline-raw.txt' },
+            @{ Name='Evenements EVTX';Html='evtx-events.html';           Txt='evtx-events.txt' },
+            @{ Name='EVTX par fichier';Html='evtx-by-file.html';         Txt='evtx-by-file.txt' }
+        )
+        $i = 1
+        foreach ($rep in $reportDefs) {
+            $htmlExists = Test-Path (Join-Path $reportsPath $rep.Html) -ErrorAction SilentlyContinue
+            $txtExists  = Test-Path (Join-Path $reportsPath $rep.Txt) -ErrorAction SilentlyContinue
+            $htmlMark = if ($htmlExists) { '[HTML OK]' } else { '[HTML manquant]' }
+            $txtMark  = if ($txtExists)  { '[TXT OK]' }  else { '[TXT manquant]' }
+            [void]$indexLines.Add("$i. $($rep.Name)  $htmlMark  $txtMark")
+            [void]$indexLines.Add("   HTML: $($rep.Html)")
+            [void]$indexLines.Add("   TXT:  $($rep.Txt)")
+            [void]$indexLines.Add('')
+            $i++
+        }
+        [void]$indexLines.Add('Utilisez le bouton [RAPPORT TXT (Fallback)] pour acceder aux fichiers TXT.')
+        $indexContent = $indexLines -join [Environment]::NewLine
+        Write-DanewReportOpeningTrace -Status 'fallback-index-list' -Title ('Rapport - ' + $baseName) -Path $reportsPath -Message 'Showing dynamic reports index list.'
+
+        # Essai notepad systeme en premier (plus fiable que RichTextBox en WinPE)
+        $indexTxtPath = Join-Path $reportsPath ($baseName + '.txt')
+        $openedInNotepad = $false
+        foreach ($notepadPath in @("$env:SystemRoot\System32\notepad.exe", 'X:\Windows\System32\notepad.exe', 'C:\Windows\System32\notepad.exe')) {
+            if (Test-Path -Path $notepadPath -ErrorAction SilentlyContinue) {
+                $targetTxt = if (Test-Path $indexTxtPath) { $indexTxtPath } else {
+                    $tmp = Join-Path $env:TEMP 'danew-index.txt'
+                    try { [System.IO.File]::WriteAllText($tmp, $indexContent, [System.Text.Encoding]::UTF8) } catch {}
+                    $tmp
+                }
+                if (Test-Path $targetTxt -ErrorAction SilentlyContinue) {
+                    try {
+                        Start-Process -FilePath $notepadPath -ArgumentList @($targetTxt) -ErrorAction Stop | Out-Null
+                        Write-DanewReportOpeningTrace -Status 'fallback-index-notepad-ok' -Title ('Rapport - ' + $baseName) -Path $targetTxt -BrowserPath $notepadPath -Message 'Notepad opened for index fallback.'
+                        $openedInNotepad = $true
+                        break
+                    } catch {}
+                }
+            }
+        }
+        if (-not $openedInNotepad) {
+            Show-DanewFallbackReportText -Title 'Index des rapports' -Content $indexContent -FilePath $indexTxtPath
+        }
+        return $true
+    }
+
     foreach ($extension in @('.txt', '.csv')) {
         $candidate = ''
         try {
             $candidate = Join-Path $reportsPath ($baseName + $extension)
             if (Test-Path -Path $candidate -ErrorAction SilentlyContinue) {
                 Write-DanewReportOpeningTrace -Status 'fallback-file-found' -Title ('Rapport - ' + $baseName) -Path $candidate -Message 'TXT/CSV fallback found.'
+
+                # Essai Notepad++ portable
                 try {
                     $npp = Join-Path $RootPath 'tools\notepad++\notepad++.exe'
                     if (Test-Path -Path $npp -ErrorAction SilentlyContinue) {
@@ -1533,9 +1609,24 @@ function Open-DanewFallbackReport {
                     Write-DanewReportOpeningTrace -Status 'fallback-notepadpp-error' -Title ('Rapport - ' + $baseName) -Path $candidate -Message $_.Exception.Message
                 }
 
+                # Essai notepad système avant RichTextBox (plus robuste en WinPE)
+                $notepadLaunched = $false
+                foreach ($notepadPath in @("$env:SystemRoot\System32\notepad.exe", 'X:\Windows\System32\notepad.exe', 'C:\Windows\System32\notepad.exe')) {
+                    if (Test-Path -Path $notepadPath -ErrorAction SilentlyContinue) {
+                        try {
+                            Start-Process -FilePath $notepadPath -ArgumentList @($candidate) -ErrorAction Stop | Out-Null
+                            Write-DanewReportOpeningTrace -Status 'fallback-notepad-system-ok' -Title ('Rapport - ' + $baseName) -Path $candidate -BrowserPath $notepadPath -Message 'System notepad opened TXT fallback.'
+                            $notepadLaunched = $true
+                            break
+                        } catch {}
+                    }
+                }
+                if ($notepadLaunched) { return $true }
+
+                # Derniere option : RichTextBox WinForms
                 $content = Get-Content -Path $candidate -Raw -Encoding UTF8 -ErrorAction Stop
                 Write-DanewReportOpeningTrace -Status 'fallback-richtextbox-file' -Title ('Rapport - ' + $baseName) -Path $candidate -Message 'Showing TXT/CSV fallback in RichTextBox.'
-                Show-DanewFallbackReportText -Title ('Rapport - ' + $baseName) -Content $content
+                Show-DanewFallbackReportText -Title ('Rapport - ' + $baseName) -Content $content -FilePath $candidate
                 return $true
             }
         }
@@ -1880,19 +1971,15 @@ function Open-DanewReportFile {
 
     if ($isHtmlReport -and [string]::IsNullOrWhiteSpace($browser)) {
         $script:LastReportOpenError = 'Navigateur HTML non disponible. Aucun navigateur portable detecte dans tools\\browser.'
-        if (Test-DanewLikelyWinPE) {
-            Write-DanewReportOpeningTrace -Status 'open-report-fallback-no-browser' -Title $Title -Path $Path -Message $script:LastReportOpenError
-            Show-DanewHtmlFallbackNotice -Title $Title -Reason $script:LastReportOpenError
-            return (Open-DanewFallbackReport -ReportBaseName $reportBaseName -Config $config)
-        }
+        Write-DanewReportOpeningTrace -Status 'open-report-fallback-no-browser' -Title $Title -Path $Path -Message $script:LastReportOpenError
+        Show-DanewHtmlFallbackNotice -Title $Title -Reason $script:LastReportOpenError
+        return (Open-DanewFallbackReport -ReportBaseName $reportBaseName -Config $config)
     }
 
     if ($isHtmlReport -and -not [string]::IsNullOrWhiteSpace($browser) -and -not [string]::IsNullOrWhiteSpace($script:LastReportOpenError)) {
-        if (Test-DanewLikelyWinPE) {
-            Write-DanewReportOpeningTrace -Status 'open-report-fallback-browser-failed' -Title $Title -Path $Path -BrowserPath $browser -Message $script:LastReportOpenError
-            Show-DanewHtmlFallbackNotice -Title $Title -Reason $script:LastReportOpenError
-            return (Open-DanewFallbackReport -ReportBaseName $reportBaseName -Config $config)
-        }
+        Write-DanewReportOpeningTrace -Status 'open-report-fallback-browser-failed' -Title $Title -Path $Path -BrowserPath $browser -Message $script:LastReportOpenError
+        Show-DanewHtmlFallbackNotice -Title $Title -Reason $script:LastReportOpenError
+        return (Open-DanewFallbackReport -ReportBaseName $reportBaseName -Config $config)
     }
 
     try {
@@ -3532,7 +3619,9 @@ function Get-DanewWindowsDisplayFromOfflineReport {
         return 'Windows : Inconnu'
     }
 
-    $registry = Get-DanewObjectValue -Object $offline -Name 'registry_metadata' -Default $null
+    # registry_metadata est un array — prendre le premier element valide
+    $regRaw = Get-DanewObjectValue -Object $offline -Name 'registry_metadata' -Default $null
+    $registry = if ($regRaw -is [array]) { $regRaw | Where-Object { $_.status -eq 'PASS' } | Select-Object -First 1 } else { $regRaw }
     $productName = [string](Get-DanewObjectValue -Object $registry -Name 'product_name' -Default '')
     $displayVersion = [string](Get-DanewObjectValue -Object $registry -Name 'display_version' -Default '')
     $releaseId = [string](Get-DanewObjectValue -Object $registry -Name 'release_id' -Default '')
@@ -3577,8 +3666,8 @@ function Get-DanewWindowsDisplayFromOfflineReport {
     if (-not [string]::IsNullOrWhiteSpace($displayVersion)) {
         $parts += $displayVersion
     }
-    elseif (-not [string]::IsNullOrWhiteSpace($currentBuild)) {
-        $parts += ('build ' + $currentBuild)
+    if (-not [string]::IsNullOrWhiteSpace($currentBuild)) {
+        $parts += ('Build ' + $currentBuild)
     }
 
     return ('Windows : ' + ($parts -join ' '))
@@ -3590,7 +3679,7 @@ function Update-DanewSummaryChips {
         [object]$Snapshot
     )
 
-    if (-not $runtimeChipLabel -and -not $windowsChipLabel -and -not $usbChipLabel) {
+    if (-not $runtimeChipLabel -and -not $windowsChipLabel -and -not $usbChipLabel -and -not $machineChipLabel) {
         return
     }
 
@@ -3628,8 +3717,21 @@ function Update-DanewSummaryChips {
         }
     }
 
+    # Machine name depuis offline-windows-analysis.json
+    $machineText = 'Machine : Inconnu'
+    $offlineData = Get-DanewReportJson -Name 'offline-windows-analysis.json'
+    if ($offlineData) {
+        $regRaw = Get-DanewObjectValue -Object $offlineData -Name 'registry_metadata' -Default $null
+        $regEntry = if ($regRaw -is [array]) { $regRaw | Where-Object { $_.status -eq 'PASS' } | Select-Object -First 1 } else { $regRaw }
+        $computerName = [string](Get-DanewObjectValue -Object $regEntry -Name 'computer_name' -Default '')
+        if (-not [string]::IsNullOrWhiteSpace($computerName)) {
+            $machineText = 'Machine : ' + $computerName
+        }
+    }
+
     if ($runtimeChipLabel) { $runtimeChipLabel.Text = $runtimeText }
     if ($windowsChipLabel) { $windowsChipLabel.Text = $windowsText }
+    if ($machineChipLabel) { $machineChipLabel.Text = $machineText }
     if ($usbChipLabel) { $usbChipLabel.Text = $usbText }
 }
 
@@ -3716,11 +3818,13 @@ $script:SavSummaryDetailControls = @(
     $recommendedActionValueLabel
 )
 
-$runtimeChipLabel = New-DanewChipLabel -Text ('Execution : ' + $runtimeTitle) -Left 16 -Top 80 -Width 176
-$windowsChipLabel = New-DanewChipLabel -Text 'Windows : Inconnu' -Left 208 -Top 80 -Width 260
-$usbChipLabel = New-DanewChipLabel -Text 'USB : Inconnu' -Left 484 -Top 80 -Width 176
+$runtimeChipLabel = New-DanewChipLabel -Text ('Execution : ' + $runtimeTitle) -Left 16 -Top 80 -Width 152
+$windowsChipLabel = New-DanewChipLabel -Text 'Windows : Inconnu' -Left 176 -Top 80 -Width 238
+$machineChipLabel = New-DanewChipLabel -Text 'Machine : Inconnu' -Left 422 -Top 80 -Width 170
+$usbChipLabel = New-DanewChipLabel -Text 'USB : Inconnu' -Left 600 -Top 80 -Width 150
 [void]$statusGroup.Controls.Add($runtimeChipLabel)
 [void]$statusGroup.Controls.Add($windowsChipLabel)
+[void]$statusGroup.Controls.Add($machineChipLabel)
 [void]$statusGroup.Controls.Add($usbChipLabel)
 
 $savSummaryLabel = $summaryLabel

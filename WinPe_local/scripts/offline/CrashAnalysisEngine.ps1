@@ -62,6 +62,27 @@ function Convert-DanewCrashConfidenceLevel {
     return 'Low'
 }
 
+function Convert-DanewCrashTimestamp {
+    param([AllowNull()][object]$Value)
+
+    $text = [string]$Value
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return $null
+    }
+
+    $parsed = [datetime]::MinValue
+    $culture = [System.Globalization.CultureInfo]::InvariantCulture
+    $styles = [System.Globalization.DateTimeStyles]::AssumeLocal
+    if ([datetime]::TryParse($text, $culture, $styles, [ref]$parsed)) {
+        return $parsed
+    }
+    if ([datetime]::TryParse($text, [ref]$parsed)) {
+        return $parsed
+    }
+
+    return $null
+}
+
 function Convert-DanewCrashSeverityLevel {
     param(
         [string]$PrimaryCause,
@@ -205,6 +226,8 @@ function Get-DanewCrashClassification {
         if ($provider -match 'BugCheck' -or $eventId -eq 1001 -or $text -match 'bugcheck|bsod|blue screen|stop code|0x7b') { [void]$categories.Add('BugCheck / BSOD'); $criticality += 5 }
         if ($provider -match 'WHEA' -or $eventId -in @(17,18,19,47)) { [void]$categories.Add('WHEA hardware errors'); $criticality += 4 }
         if ($provider -match 'WindowsUpdateClient' -or $text -match 'windows update|update') { [void]$categories.Add('Windows Update failure'); $criticality += 3 }
+        if ($provider -match 'Winlogon' -or $channel -match 'Winlogon' -or $eventId -in @(4006,1074)) { [void]$categories.Add('Winlogon / login failure'); $criticality += 3 }
+        if ($provider -match 'Servicing|CBS|UpdateOrchestrator' -or $channel -match 'Servicing|UpdateOrchestrator|Setup' -or $text -match 'kb\d{6,}') { [void]$categories.Add('Windows Update / KB servicing'); $criticality += 3 }
         if ($provider -match 'DriverFrameworks' -or $text -match 'driverframeworks|driver framework') { [void]$categories.Add('DriverFrameworks issues'); $criticality += 3 }
         if ($provider -match 'Service Control Manager' -or $eventId -in @(7000,7001,7009,7011,7031,7034)) { [void]$categories.Add('Service startup failures'); $criticality += 2 }
         if ($provider -match 'Ntfs' -or $provider -match 'Disk' -or $eventId -in @(7,11,15,51,55,57,129,153,157,161)) { [void]$categories.Add('Disk / Storage'); $criticality += 4 }
@@ -227,6 +250,8 @@ function Get-DanewCrashClassification {
 
         [void]$classified.Add([pscustomobject]@{
             timestamp = [string](Get-DanewCrashSafeProperty -Object $logRecord -Name 'timestamp' -DefaultValue '')
+            level = [string](Get-DanewCrashSafeProperty -Object $logRecord -Name 'level' -DefaultValue '')
+            level_fr = [string](Get-DanewCrashSafeProperty -Object $logRecord -Name 'level_fr' -DefaultValue '')
             provider = $provider
             event_id = $eventId
             channel = $channel
@@ -278,6 +303,11 @@ function Get-DanewCrashTimelineIntelligence {
     $updateEvents = @($ClassifiedRecords | Where-Object { $_.categories -contains 'Windows Update failure' })
     $driverEvents = @($ClassifiedRecords | Where-Object { $_.categories -contains 'DriverFrameworks issues' -or $_.categories -contains 'Driver failure' })
     $storageEvents = @($ClassifiedRecords | Where-Object { $_.categories -contains 'Disk / Storage' -or $_.categories -contains 'NTFS corruption' })
+    $kbEvents = @($ClassifiedRecords | Where-Object {
+            ($_.categories -contains 'Windows Update / KB servicing') -or
+            ([string]$_.message -match 'KB\d{6,}') -or
+            ([string]$_.provider -match 'Servicing|CBS|UpdateOrchestrator|WindowsUpdateClient')
+        })
 
     if (@($updateEvents).Count -gt 0 -and @($bugcheckEvents).Count -gt 0) {
         [void]$intelligence.Add([pscustomobject]@{
@@ -285,6 +315,41 @@ function Get-DanewCrashTimelineIntelligence {
                 confidence = 'High'
                 evidence = @(@($updateEvents | Select-Object -First 3) + @($bugcheckEvents | Select-Object -First 3))
                 summary = 'A Windows Update sequence is followed by a crash/bugcheck sequence.'
+            })
+    }
+
+    $kbCrashPairs = New-Object System.Collections.ArrayList
+    foreach ($kbEvent in @($kbEvents)) {
+        $kbTime = Convert-DanewCrashTimestamp -Value $kbEvent.timestamp
+        if ($null -eq $kbTime) { continue }
+
+        foreach ($bugcheckEvent in @($bugcheckEvents)) {
+            $crashTime = Convert-DanewCrashTimestamp -Value $bugcheckEvent.timestamp
+            if ($null -eq $crashTime) { continue }
+            if ($crashTime -lt $kbTime) { continue }
+
+            $delta = $crashTime - $kbTime
+            if ($delta.TotalHours -le 24) {
+                $kbMatch = [Regex]::Match([string]$kbEvent.message, 'KB\d{6,}', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+                $kbName = if ($kbMatch.Success) { $kbMatch.Value.ToUpperInvariant() } else { 'KB non precisee' }
+                [void]$kbCrashPairs.Add([pscustomobject]@{
+                        kb = $kbName
+                        delta_minutes = [int][Math]::Round($delta.TotalMinutes)
+                        kb_event = $kbEvent
+                        crash_event = $bugcheckEvent
+                    })
+                break
+            }
+        }
+    }
+
+    if (@($kbCrashPairs).Count -gt 0) {
+        $firstPair = @($kbCrashPairs)[0]
+        [void]$intelligence.Add([pscustomobject]@{
+                pattern = 'KB -> crash within 24h'
+                confidence = if (@($kbCrashPairs).Count -ge 2) { 'High' } else { 'Medium' }
+                evidence = @($kbCrashPairs | Select-Object -First 5)
+                summary = ('A Windows update package ({0}) is followed by a BugCheck/BSOD within {1} minutes.' -f [string]$firstPair.kb, [int]$firstPair.delta_minutes)
             })
     }
 
@@ -306,9 +371,45 @@ function Get-DanewCrashTimelineIntelligence {
             })
     }
 
+    # DISM/CBS text log correlations (events injected by Read-DanewDismCbsTextLogs)
+    $dismCbsEvents = @($ClassifiedRecords | Where-Object {
+        (Get-DanewCrashSafeProperty -Object $_ -Name 'provider' -DefaultValue '') -match 'Microsoft-Windows-DISM|Microsoft-Windows-CBS' -or
+        (Get-DanewCrashSafeProperty -Object $_ -Name 'channel'  -DefaultValue '') -match 'DISM/TextLog|CBS/TextLog'
+    })
+    $winlogonEvents = @($ClassifiedRecords | Where-Object { $_.categories -contains 'Winlogon / login failure' })
+    $ntfsEvents = @($ClassifiedRecords | Where-Object { $_.categories -contains 'NTFS corruption' -or $_.categories -contains 'Disk / Storage' })
+
+    if (@($dismCbsEvents).Count -gt 0 -and @($bugcheckEvents).Count -gt 0) {
+        $hasPreciseTs = @($dismCbsEvents | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.timestamp) }).Count -gt 0
+        [void]$intelligence.Add([pscustomobject]@{
+            pattern    = 'DISM/CBS servicing before crash'
+            confidence = if ($hasPreciseTs) { 'Medium' } else { 'Low' }
+            evidence   = @(@($dismCbsEvents | Select-Object -First 3) + @($bugcheckEvents | Select-Object -First 2))
+            summary    = 'DISM or CBS servicing errors were found in text logs before a BugCheck/BSOD event.'
+        })
+    }
+
+    if (@($dismCbsEvents).Count -gt 0 -and @($winlogonEvents).Count -gt 0) {
+        [void]$intelligence.Add([pscustomobject]@{
+            pattern    = 'CBS/DISM servicing before login failure'
+            confidence = 'Medium'
+            evidence   = @(@($dismCbsEvents | Select-Object -First 3) + @($winlogonEvents | Select-Object -First 2))
+            summary    = 'CBS or DISM servicing errors precede Winlogon or login failure events.'
+        })
+    }
+
+    if (@($dismCbsEvents | Where-Object { [string]$_.message -match '(?i)corruption|corrupt' }).Count -gt 0 -and @($ntfsEvents).Count -gt 0) {
+        [void]$intelligence.Add([pscustomobject]@{
+            pattern    = 'CBS/DISM corruption marker with storage errors'
+            confidence = 'Medium'
+            evidence   = @(@($dismCbsEvents | Where-Object { [string]$_.message -match '(?i)corruption|corrupt' } | Select-Object -First 3) + @($ntfsEvents | Select-Object -First 2))
+            summary    = 'CBS or DISM reported image corruption, correlated with NTFS or storage errors.'
+        })
+    }
+
     return [pscustomobject]@{
         ordered_events = $ordered
-        intelligence = @($intelligence)
+        intelligence   = @($intelligence)
     }
 }
 
@@ -444,6 +545,13 @@ function Get-DanewCrashRootCauseAnalysis {
     $rstLikeDrivers = @($validRecords | Where-Object { $_.provider -match 'iaStor|RST|VMD|storport|RaidPort' -or [string]$_.message -match 'iaStor|RST|VMD|RaidPort' })
     $bootDeviceCrash = @($bugchecks | Where-Object { [string]$_.message -match 'INACCESSIBLE_BOOT_DEVICE|0x0000007B|0x7B' })
     $bitlockerVolumes = @($BitLockerAnalysis.volumes | Where-Object { ([string]$_.lock_status -match 'Locked') -or ([string]$_.protection_status -match 'On|Protected') })
+    $kbCrashPatterns = @($TimelineIntelligence.intelligence | Where-Object { [string]$_.pattern -eq 'KB -> crash within 24h' })
+    $dismCbsRecords = @($validRecords | Where-Object {
+        (Get-DanewCrashSafeProperty -Object $_ -Name 'provider' -DefaultValue '') -match 'Microsoft-Windows-DISM|Microsoft-Windows-CBS' -or
+        (Get-DanewCrashSafeProperty -Object $_ -Name 'channel'  -DefaultValue '') -match 'DISM/TextLog|CBS/TextLog'
+    })
+    $dismCbsBeforeCrash = @($TimelineIntelligence.intelligence | Where-Object { [string]$_.pattern -match 'DISM|CBS' })
+    $dismCbsCorruption = @($dismCbsRecords | Where-Object { [string]$_.message -match '(?i)corruption|corrupt|failed|cannot' })
 
     if (@($bitlockerVolumes).Count -gt 0) {
         Add-CauseRow -Cause 'BitLocker lock state' -Score 85 -Evidence @($bitlockerVolumes) -Reason 'BitLocker protected or locked volumes are present.'
@@ -466,6 +574,20 @@ function Get-DanewCrashRootCauseAnalysis {
 
         if (@($updates).Count -gt 0 -and @($bugchecks).Count -gt 0) {
             Add-CauseRow -Cause 'failed Windows Update' -Score 80 -Evidence @($updates + $bugchecks) -Reason 'Update activity precedes crash events.'
+        }
+
+        if (@($kbCrashPatterns).Count -gt 0) {
+            Add-CauseRow -Cause 'failed Windows Update KB sequence' -Score 84 -Evidence @($kbCrashPatterns) -Reason 'A specific Windows update package is followed by BugCheck/BSOD evidence within 24 hours.'
+        }
+
+        # DISM/CBS text log causes
+        if (@($dismCbsBeforeCrash).Count -gt 0 -and @($bugchecks).Count -gt 0) {
+            Add-CauseRow -Cause 'DISM/CBS servicing failure before crash' -Score 72 -Evidence @($dismCbsRecords | Select-Object -First 4) -Reason 'DISM or CBS servicing errors in text logs precede BugCheck/BSOD events.'
+        }
+
+        if (@($dismCbsCorruption).Count -gt 0) {
+            $hasCrashOrStorage = @($bugchecks).Count -gt 0 -or @($storage).Count -gt 0
+            Add-CauseRow -Cause 'CBS package servicing issue before login failure' -Score (if ($hasCrashOrStorage) { 68 } else { 48 }) -Evidence @($dismCbsCorruption | Select-Object -First 4) -Reason 'CBS or DISM reported corruption or failure during package servicing. May cause login or boot failure.'
         }
 
         if (@($rstLikeDrivers).Count -gt 0 -and (@($bugchecks).Count -gt 0 -or @($bootDeviceCrash).Count -gt 0)) {
@@ -515,7 +637,7 @@ function Get-DanewCrashSeverityAnalysis {
     $rows = New-Object System.Collections.ArrayList
     foreach ($cause in @($RootCauseAnalysis.all_causes)) {
         $severity = 'INFO'
-        if ([string]$cause.cause -in @('storage driver incompatibility', 'Intel RST/VMD issue', 'failing SSD', 'inaccessible NVMe controller', 'BitLocker lock state', 'corrupted NTFS filesystem', 'boot partition corruption', 'failed Windows Update')) {
+        if ([string]$cause.cause -in @('storage driver incompatibility', 'Intel RST/VMD issue', 'failing SSD', 'inaccessible NVMe controller', 'BitLocker lock state', 'corrupted NTFS filesystem', 'boot partition corruption', 'failed Windows Update', 'failed Windows Update KB sequence')) {
             $severity = if ([int]$cause.score -ge 80) { 'CRITICAL' } else { 'WARNING' }
         }
         elseif ([int]$cause.score -ge 60) {
@@ -628,13 +750,47 @@ function Write-DanewSavDiagnosticReportHtml {
 
     $summaryBody = $explanation + '<div class="split-grid">' + (New-DanewMetricCardHtml -Label 'Cause principale' -Value (Get-DanewLocalizedCauseText (Get-DanewCrashSafeProperty -Object $CrashAnalysis.root_cause_analysis.primary_cause -Name 'cause' -DefaultValue 'Unknown')) -Tone $CrashAnalysis.severity_analysis.overall) + (New-DanewMetricCardHtml -Label 'Impact' -Value (Get-DanewLocalizedImpactText $CrashAnalysis.impact) -Tone 'warn') + '</div>'
     $recommendationBody = '<ul class="report-list">' + ($recommendations -join '') + '</ul>'
+    # Section DISM/CBS si evenements trouves
+    $dismCbsClassified = @($CrashAnalysis.classification.records | Where-Object {
+        (Get-DanewCrashSafeProperty -Object $_ -Name 'provider' -DefaultValue '') -match 'Microsoft-Windows-DISM|Microsoft-Windows-CBS' -or
+        (Get-DanewCrashSafeProperty -Object $_ -Name 'channel'  -DefaultValue '') -match 'DISM/TextLog|CBS/TextLog'
+    })
+    $dismCbsSectionHtml = ''
+    if (@($dismCbsClassified).Count -gt 0) {
+        $dismKbs   = @($dismCbsClassified | Where-Object { [string](Get-DanewCrashSafeProperty -Object $_ -Name 'message' -DefaultValue '') -match 'KB\d{6,}' })
+        $dismErrors = @($dismCbsClassified | Where-Object {
+            $levelFr = [string](Get-DanewCrashSafeProperty -Object $_ -Name 'level_fr' -DefaultValue '')
+            $level = [string](Get-DanewCrashSafeProperty -Object $_ -Name 'level' -DefaultValue '')
+            $levelFr -eq 'Erreur' -or $level -eq 'Error'
+        })
+        $clientMsg = '<p class="section-caption" style="margin-top:10px;padding:10px;background:rgba(15,118,110,0.07);border-radius:8px;">' +
+            '<b>Information client :</b> Windows semble avoir effectue ou tente une operation de maintenance ou de mise a jour systeme (DISM/CBS) avant l incident.' +
+            '</p>'
+        $dismRows = @()
+        foreach ($ev in @($dismCbsClassified | Select-Object -First 20)) {
+            $timestampText = [string](Get-DanewCrashSafeProperty -Object $ev -Name 'timestamp' -DefaultValue '')
+            $levelText = [string](Get-DanewCrashSafeProperty -Object $ev -Name 'level_fr' -DefaultValue '')
+            if ([string]::IsNullOrWhiteSpace($levelText)) {
+                $levelText = [string](Get-DanewCrashSafeProperty -Object $ev -Name 'level' -DefaultValue '')
+            }
+            $providerText = [string](Get-DanewCrashSafeProperty -Object $ev -Name 'provider' -DefaultValue '')
+            $messageText = [string](Get-DanewCrashSafeProperty -Object $ev -Name 'message' -DefaultValue '')
+            $messageShort = if ($messageText.Length -gt 180) { $messageText.Substring(0, 180) } else { $messageText }
+            $rowSearch = ConvertTo-DanewReportHtmlText (($timestampText, $levelText, $providerText, $messageText) -join ' ')
+            $dismRows += "<tr data-search-row=`"$rowSearch`"><td>$([System.Security.SecurityElement]::Escape($timestampText))</td><td>$([System.Security.SecurityElement]::Escape($levelText))</td><td>$([System.Security.SecurityElement]::Escape($messageShort))</td></tr>"
+        }
+        $statLine = '<p>Evenements DISM/CBS detectes : <b>' + @($dismCbsClassified).Count + '</b> &nbsp;|&nbsp; Erreurs : <b>' + @($dismErrors).Count + '</b> &nbsp;|&nbsp; KB references : <b>' + @($dismKbs).Count + '</b></p>'
+        $dismCbsSectionHtml = New-DanewReportSectionHtml -Title 'Journaux DISM/CBS (maintenance systeme)' -Caption 'Evenements extraits des journaux texte DISM.log et CBS.log. Peuvent expliquer les echecs de mise a jour ou de reparation.' -SearchText 'dism cbs servicing KB maintenance update log' -BodyHtml ($clientMsg + $statLine + (New-DanewReportTableHtml -Headers @('Horodatage', 'Niveau', 'Message') -Rows $dismRows -EmptyMessage 'Aucun evenement DISM/CBS.')) -Collapsed $true
+    }
+
     $sections = @(
         (New-DanewReportSectionHtml -Title 'Resume executif' -Caption 'Le bandeau de synthese reprend la chaine de cause racine la plus probable sans lancer de reparation.' -SearchText ('summary primary cause severity impact ' + [string](Get-DanewCrashSafeProperty -Object $CrashAnalysis.root_cause_analysis.primary_cause -Name 'cause' -DefaultValue '')) -BodyHtml $summaryBody)
         (New-DanewReportSectionHtml -Title 'Causes principales et secondaires' -Caption 'Recherche par texte de cause, score, confiance ou justification.' -SearchText 'causes confidence score reason root cause analysis' -BodyHtml (New-DanewReportTableHtml -Headers @('Cause', 'Confiance', 'Score', 'Justification') -Rows $causeRows -EmptyMessage 'Aucune cause ne correspond au filtre courant.'))
         (New-DanewReportSectionHtml -Title 'Intelligence de chronologie' -Caption 'Synthese de motifs extraite des enregistrements classes.' -SearchText 'timeline intelligence patterns confidence summary' -BodyHtml (New-DanewReportTableHtml -Headers @('Motif', 'Confiance', 'Resume') -Rows $timelineRows -EmptyMessage 'Aucune ligne de chronologie ne correspond au filtre courant.') -Collapsed $true)
         (New-DanewReportSectionHtml -Title 'Classification des evenements' -Caption '25 premiers enregistrements classes pour un triage rapide.' -SearchText 'event classification provider category message' -BodyHtml (New-DanewReportTableHtml -Headers @('Horodatage', 'ID evenement', 'Fournisseur', 'Categorie', 'Message') -Rows $eventRows -EmptyMessage 'Aucun evenement classe ne correspond au filtre courant.') -Collapsed $true)
+        $(if ($dismCbsSectionHtml) { $dismCbsSectionHtml })
         (New-DanewReportSectionHtml -Title 'Prochaines actions recommandees' -Caption 'Actions en lecture seule uniquement. Les reparations restent hors de cette phase.' -SearchText ('recommendations next steps ' + (@($CrashAnalysis.recommendations) -join ' ')) -BodyHtml $recommendationBody)
-    )
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
 
     $html = New-DanewInteractiveReportHtml -Title 'Rapport de diagnostic SAV Danew' -Subtitle 'Rapport hors ligne oriente crash avec recherche sur les causes, motifs de chronologie et prochaines actions ciblees.' -Status ([string]$CrashAnalysis.severity_analysis.overall) -Eyebrow 'Analyse SAV / crash' -HeroMetricsHtml ('<div class="hero-metrics">' + $metrics + '</div>') -MetaHtml $meta -Sections $sections -SearchPlaceholder 'Filtrer les causes, motifs de chronologie, fournisseurs ou recommandations' -CurrentReportName 'sav-diagnostic'
 

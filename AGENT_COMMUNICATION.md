@@ -318,6 +318,41 @@ PENDING:
   - `pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\Install-Clean-PowerShell.ps1 -TargetVersion 7.6.2.0 -ConfigureVsCodeUser -ConfigureVsCodeWorkspace -RemoveGenericPowerShellProfile -DryRun -Quiet -LogPath H:\Danew_CheckTool\logs\dryrun-test-<timestamp>.log` => PASS (exit code 0).
   - Validation log: toutes les actions destructives marquees `DRYRUN: skip ...`.
 
+### 2026-06-02 VS Code Copilot (Agent B) reconstruction WinPE A a Z + verification conformite support
+
+FAIT:
+- Rebuild complet local relance de bout en bout:
+  - `Invoke-DanewWinPEFoundation.ps1 -InputPath .\WinPe_local -TargetTier sav-advanced -Mode Simulation`
+  - `Invoke-DanewPhase4Build.ps1 -InputPath .\WinPe_local -Mode Execute`
+- Artifacts rebuild confirms:
+  - `WinPe_local/reports/build-manifest.json`
+  - `WinPe_local/reports/rollback-manifest.json`
+  - `WinPe_local/reports/security-approval-report.json`
+  - `WinPe_local/reports/usb-export-validation.json`
+- Verification WinPE runtime relancee:
+  - `DanewCheckTool.CLI.ps1 -Command real-winpe-validation`
+  - artifacts regenerees dans `WinPe_local/reports`.
+- Correctif packages `boot.wim` execute avec fallback `dism.exe` (le cmdlet `Add-WindowsPackage` echoue localement avec `Classe non enregistree`).
+- Preuve packages obligatoires presentes apres correction:
+  - `WinPe_local/reports/boot-wim-repair-report.json` (status PASS)
+  - `WinPe_local/reports/boot-wim-package-verify-dism.json` (`all_present=true`, 6/6 packages).
+
+PENDING:
+- `Invoke-DanewCreateUsbMedia.ps1` en mode Analyze/Provision reste instable sur ce poste (phase montage/validation package interne), avec rapport `usb-export-report.json` stale en FAIL (faux negatif package validator source=none).
+- Creation physique finale du media a refaire soit:
+  - dans un host avec cmdlets DISM fully registered,
+  - soit apres patch du validateur package interne pour fallback `dism.exe`.
+
+TESTS:
+- `Invoke-DanewWinPEFoundation.ps1 ...` => PASS.
+- `Invoke-DanewPhase4Build.ps1 ...` => PASS.
+- `DanewCheckTool.CLI.ps1 -Command real-winpe-validation` => PASS (artifacts generes).
+- fallback DISM direct mount/add-package/unmount => PASS (6 packages requis detectes).
+
+CHECKPOINT DEMAIN:
+- Point a reprendre en priorite: validation terrain de boot reel WinPE sur la cle (confirmation definitive bootable/non-bootable).
+- Etat actuel: structure boot UEFI presente et packages WinPE verifies via DISM, mais verdict final conditionne au test reel machine.
+
 ### 2026-06-02 11:31 +02:00 VS Code Copilot (Agent B) relogin autre compte extension VS Code
 
 FAIT:
@@ -3909,6 +3944,32 @@ FILES LIBERES:
 - `WinPe_local/scripts/launcher.ps1`
 - `WinPe_local/scripts/tests/Run-UX1Tests.ps1`
 - `WinPe_local/scripts/tests/Run-UX2Tests.ps1`
+
+### 2026-06-03 VS Code Copilot (Agent B) correctif snapshot avant fallback packages boot.wim
+
+FAIT:
+- Mise a jour de `WinPe_local/scripts/Repair-DanewBootWimPackages.ps1` pour renforcer la recuperation en cas d'echec package:
+  - creation d'un snapshot `boot.wim.bak-YYYYMMDD-HHMMSS` avant servicing (sauf `-SkipBackup`),
+  - tentative primaire `Add-WindowsPackage`,
+  - fallback automatique `dism.exe /Add-Package` si echec du cmdlet (desactivable via `-DisableDismFallback`),
+  - restauration automatique du snapshot si echec global,
+  - rapport `reports/boot-wim-repair-report.json` enrichi (`package_apply_method`, `fallback_used`, `primary_apply_error`, `snapshot_path`, `snapshot_restored`).
+
+TESTS:
+- Verification syntaxe/diagnostics du script modifie: `get_errors` => aucun probleme detecte.
+
+### 2026-06-03 VS Code Copilot (Agent B) verification warnings creation cle
+
+FAIT:
+- Verification factuelle du journal pour la recreation/creation de cle executee le 2026-06-02.
+- Warnings confirms sur le flux de creation/provision:
+  - `Add-WindowsPackage` en echec local avec message `Classe non enregistree`, puis fallback `dism.exe` applique.
+  - validateur package interne signale un faux negatif `source=none` dans `usb-export-report.json` (etat stale FAIL) malgre correction DISM.
+- Contexte important:
+  - run de recreation USB via `launcher.ps1 -Action create-usb-media` egalement trace avec `Global status: PASS`.
+
+PENDING:
+- Si necessaire: relancer une creation media sur hote DISM completement enregistre ou patcher le validateur package interne pour fallback `dism.exe`.
 
 ### 2026-06-02 05:05 +02:00 CODEX (Agent A) browser fallback HTML WinPE
 

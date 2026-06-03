@@ -76,6 +76,11 @@ function Get-DanewLocalizedCauseText {
         'storage driver incompatibility' { return 'Incompatibilite de pilote de stockage' }
         'corrupted BCD' { return 'BCD corrompu' }
         'boot partition corruption' { return 'Partition de demarrage corrompue' }
+        'failed Windows Update KB sequence' { return 'Sequence de mise a jour KB ayant echoue' }
+        'Winlogon / login failure' { return 'Echec Winlogon ou connexion impossible' }
+        'Windows Update / KB servicing' { return 'Maintenance Windows Update / KB' }
+        'DISM/CBS servicing failure before crash' { return 'Echec de maintenance DISM/CBS avant le crash' }
+        'CBS package servicing issue before login failure' { return 'Probleme CBS avant echec de connexion' }
         default { return $text }
     }
 }
@@ -125,6 +130,8 @@ function Get-DanewLocalizedRecommendationText {
         'Correlate the primary cause with the offline storage and registry evidence.' { return 'Croiser la cause principale avec les preuves de stockage et de registre hors ligne.' }
         'Review storage, driver, and timeline evidence for the strongest failure chain.' { return 'Examiner les preuves de stockage, de pilotes et de chronologie pour identifier la chaine de panne la plus probable.' }
         'Do not perform repairs from this phase; keep the analysis read-only.' { return 'Ne pas lancer de reparation a cette etape ; conserver une analyse en lecture seule.' }
+        'Review DISM.log and CBS.log for failed servicing operations before the crash.' { return 'Examiner DISM.log et CBS.log pour identifier les operations de maintenance ayant echoue avant l incident.' }
+        'Compare CBS package failure timestamps with the crash or login failure timeline.' { return 'Comparer les horodatages d echec CBS avec la chronologie du crash ou de l echec de connexion.' }
         default { return $text }
     }
 }

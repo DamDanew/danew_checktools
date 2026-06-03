@@ -1,5 +1,159 @@
 # CLAUDE CODE COMMUNICATION
 
+## 2026-06-03 - CODEX EVTX crash coverage minimal patch
+
+AGENT:
+- CODEX
+
+PRIS:
+- Completer couverture EVTX Winlogon/Servicing/Orchestrator.
+- Ajouter classification Winlogon/login et Windows Update/KB.
+- Ajouter correlation prudente KB vers crash sur fenetre 24h.
+
+VERROUILLES:
+- `WinPe_local/scripts/offline/OfflineLogsEngine.ps1`
+- `WinPe_local/scripts/offline/CrashAnalysisEngine.ps1`
+
+OBJECTIF:
+- Appliquer le patch minimal issu de l audit sans creer de nouveau moteur ni toucher le launcher.
+
+RISQUE:
+- Eviter les faux positifs KB en limitant la correlation a 24h et aux evenements crash explicites.
+
+FAIT:
+- `OfflineLogsEngine.ps1`:
+  - ajout des canaux optionnels `Microsoft-Windows-Winlogon/Operational`, `Microsoft-Windows-Servicing/Operational`, `Microsoft-Windows-UpdateOrchestrator/Operational`.
+  - familles EVTX harmonisees dans les vues: `Winlogon / Login` et `Windows Update / KB`.
+  - scoring Winlogon 4006/erreur et Servicing/CBS/Orchestrator erreur renforce sans bloquer si journal absent.
+- `CrashAnalysisEngine.ps1`:
+  - ajout `Convert-DanewCrashTimestamp`.
+  - classification `Winlogon / login failure` et `Windows Update / KB servicing`.
+  - correlation prudente `KB -> crash within 24h` uniquement si KB/servicing avant BugCheck/BSOD explicite.
+  - cause racine possible `failed Windows Update KB sequence` et severite associee.
+- Sync cible des deux moteurs vers `D:\scripts\offline` et `E:\scripts\offline`: hash local/D/E OK.
+
+PENDING:
+- Collecte/parsing DISM.log et CBS.log texte non implementes dans ce bloc.
+- Le test `Run-EvtxDismCorrelationTests.ps1` demande des artefacts DISM/KB actuellement absents dans `reports`.
+
+FILES LIBERES:
+- `WinPe_local/scripts/offline/OfflineLogsEngine.ps1`
+- `WinPe_local/scripts/offline/CrashAnalysisEngine.ps1`
+
+TESTS:
+- Parser `OfflineLogsEngine.ps1`: PASS.
+- Parser `CrashAnalysisEngine.ps1`: PASS.
+- `Run-ReportFrenchTests.ps1`: 19/19 PASS.
+- `Run-UX2Tests.ps1`: 19/19 PASS.
+- `Run-Phase6ATests.ps1`: 12/12 PASS.
+- `Run-EvtxDismCorrelationTests.ps1`: 3/5 PASS, 2 FAIL attendus faute artefacts DISM/KB dans `reports`.
+- Hash sync D/E des deux moteurs modifies: PASS.
+
+PROMPT CLAUDE:
+
+```text
+Contexte Danew CheckTool WinPE.
+CODEX a applique le patch EVTX crash minimal:
+- OfflineLogsEngine: canaux optionnels Winlogon/Operational, Servicing/Operational, UpdateOrchestrator/Operational.
+- Familles EVTX: Winlogon / Login, Windows Update / KB dans les vues timeline/fast.
+- Scoring Winlogon 4006 et Servicing/CBS/Orchestrator erreurs renforce.
+- CrashAnalysisEngine: categories Winlogon/login failure et Windows Update/KB servicing.
+- Ajout correlation prudente KB -> BugCheck/BSOD dans 24h, cause racine failed Windows Update KB sequence.
+Sync: D:/E: offline engines copied, hash OK.
+Tests: parser PASS, ReportFrench 19/19, UX2 19/19, Phase6A 12/12.
+Note: EvtxDismCorrelation 3/5 car artefacts DISM/KB absents dans reports; DISM.log/CBS.log texte pas encore parses.
+Reste: proposer patch separe DISM.log + CBS.log texte si necessaire, sans toucher launcher.
+```
+
+## 2026-06-03 - CODEX verification patch Claude DISM/CBS
+
+AGENT:
+- CODEX
+
+FAIT:
+- Verifie le patch Claude DISM/CBS dans:
+  - `WinPe_local/scripts/offline/OfflineLogsEngine.ps1`
+  - `WinPe_local/scripts/offline/CrashAnalysisEngine.ps1`
+  - `WinPe_local/scripts/report/HtmlReportShell.ps1`
+- Corrections complementaires appliquees:
+  - `CrashAnalysisEngine.ps1`: classification conserve maintenant `level` et `level_fr`.
+  - section rapport DISM/CBS rendue StrictMode-safe avec `Get-DanewCrashSafeProperty`.
+  - smoke test: rapport SAV avec evenement DISM sans `level_fr` ne plante plus.
+  - `OfflineLogsEngine.ps1`: detection BOM UTF-16LE/BE avant lecture DISM.log/CBS.log, fallback UTF8.
+- Sync D:/E: trois fichiers copies, hash match, parser cle OK.
+
+PENDING:
+- Test terrain avec vrai `DISM.log`/`CBS.log` contenant erreurs KB.
+- `Run-EvtxDismCorrelationTests.ps1` reste dependant des artefacts presents dans `reports`.
+
+FILES LIBERES:
+- `WinPe_local/scripts/offline/OfflineLogsEngine.ps1`
+- `WinPe_local/scripts/offline/CrashAnalysisEngine.ps1`
+- `WinPe_local/scripts/report/HtmlReportShell.ps1`
+
+TESTS:
+- Parser local: PASS sur les 3 fichiers.
+- Smoke StrictMode DISM/CBS HTML: PASS.
+- ReportFrench: 19/19 PASS.
+- UX2: 19/19 PASS.
+- Phase6A: 12/12 PASS.
+- Sync D:/E: hash match + parser PASS sur les 3 fichiers.
+
+PROMPT CLAUDE:
+
+```text
+CODEX a verifie et durci ton patch DISM/CBS.
+Corrections ajoutees:
+- CrashAnalysisEngine conserve maintenant level/level_fr dans les records classifies.
+- Section HTML DISM/CBS utilise Get-DanewCrashSafeProperty, plus d acces direct a level_fr sous StrictMode.
+- Smoke test HTML avec evenement DISM sans level_fr: PASS.
+- OfflineLogsEngine detecte BOM UTF-16LE/BE avant lecture DISM.log/CBS.log, fallback UTF8.
+- Sync D:/E faite, hash match, parser cle OK.
+Tests: parser 3 fichiers PASS, ReportFrench 19/19, UX2 19/19, Phase6A 12/12.
+Reste terrain: tester avec vrais DISM.log/CBS.log contenant erreur KB; lire evtx-dism-correlation report si artefacts presents.
+```
+
+## 2026-06-03 - CODEX test E2E DISM/CBS synthetique
+
+AGENT:
+- CODEX
+
+FAIT:
+- `Run-EvtxDismCorrelationTests.ps1` rendu auto-suffisant:
+  - cree un fixture local avec faux `DISM.log` en UTF-8.
+  - cree un faux `CBS.log` en UTF-16LE/BOM.
+  - appelle `Read-DanewDismCbsTextLogs`.
+  - injecte un BugCheck synthetique apres KB.
+  - valide les patterns `KB -> crash within 24h`, `DISM/CBS servicing before crash`, `CBS/DISM corruption marker with storage errors`.
+- Le test ne depend plus exclusivement d artefacts terrain dans `reports`.
+- Sync D:/E du script de test: hash match + parser OK.
+
+PENDING:
+- Test terrain avec vrais logs DISM/CBS reste utile pour valider donnees reelles, mais plus necessaire pour la regression locale.
+
+FILES LIBERES:
+- `WinPe_local/scripts/tests/Run-EvtxDismCorrelationTests.ps1`
+
+TESTS:
+- Parser `Run-EvtxDismCorrelationTests.ps1`: PASS.
+- `Run-EvtxDismCorrelationTests.ps1`: 6/6 PASS.
+- Sync D:/E test script: hash match + parser PASS.
+
+PROMPT CLAUDE:
+
+```text
+CODEX a transforme Run-EvtxDismCorrelationTests.ps1 en test E2E local.
+Ajouts:
+- fixture DISM.log UTF8 avec erreur KB5074109.
+- fixture CBS.log UTF-16LE/BOM avec erreur KB5074109/corruption.
+- appel Read-DanewDismCbsTextLogs.
+- BugCheck synthetique apres KB.
+- validation patterns: KB -> crash within 24h, DISM/CBS servicing before crash, CBS/DISM corruption marker with storage errors.
+Resultat: EvtxDismCorrelation 6/6 PASS.
+Sync D:/E du test: hash match, parser OK.
+Reste terrain: confirmer sur vrais DISM.log/CBS.log, mais regression locale couverte.
+```
+
 ## 2026-06-02 - CODEX GUI improvements launcher.ps1
 
 AGENT: CODEX
@@ -1020,4 +1174,3 @@ TESTS:
 
 PROMPT CLAUDE:
 - EN ATTENTE RETOUR TERRAIN.
-
