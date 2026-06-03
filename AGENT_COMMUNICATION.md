@@ -3945,6 +3945,16 @@ FILES LIBERES:
 - `WinPe_local/scripts/tests/Run-UX1Tests.ps1`
 - `WinPe_local/scripts/tests/Run-UX2Tests.ps1`
 
+### 2026-06-03 VS Code Copilot (Agent B) backup date dossier separe
+
+FAIT:
+- Backup complet du projet cree dans un dossier separe horodate.
+- Commande utilisee: `robocopy H:\Danew_CheckTool H:\Backups\Danew_CheckTool-backup-20260603-181017 /E` (options robustesse R/W reduites).
+- Resultat robocopy: `exit=1` (succes avec fichiers copies).
+
+ARTEFACT:
+- `H:\Backups\Danew_CheckTool-backup-20260603-181017`
+
 ### 2026-06-03 VS Code Copilot (Agent B) finalisation proprete git + push
 
 FAIT:
