@@ -3958,6 +3958,20 @@ FAIT:
 TESTS:
 - Verification syntaxe/diagnostics du script modifie: `get_errors` => aucun probleme detecte.
 
+### 2026-06-03 VS Code Copilot (Agent B) push main + nettoyage temporaires
+
+FAIT:
+- Push effectue vers `origin/main` du commit `735a814` (`cf3e143..735a814`).
+- Nettoyage local cible des artefacts temporaires non suivis:
+  - suppression `node_modules/`
+  - suppression `WinPe_local/node_modules/`
+  - suppression `WinPe_local/test-results/`
+  - suppression `logs/`
+
+ETAT GIT:
+- Branche synchronisee: `main...origin/main` (plus d'avance locale).
+- Des fichiers non suivis non temporaires restent presents (scripts/docs/assets de travail), non supprimes volontairement.
+
 ### 2026-06-03 VS Code Copilot (Agent B) verification warnings creation cle
 
 FAIT:
