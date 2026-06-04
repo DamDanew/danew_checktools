@@ -1,5 +1,133 @@
 # CLAUDE CODE COMMUNICATION
 
+## 2026-06-04 - CODEX viewer natif rapports WinPE
+
+AGENT:
+- CODEX
+
+PRIS:
+- Remplacer l'ouverture navigateur HTML terrain par une visionneuse WinForms native.
+- Garder HTML comme export atelier, pas comme dependance WinPE.
+
+VERROUILLES:
+- `WinPe_local/scripts/launcher.ps1`
+
+OBJECTIF:
+- Boutons rapports ouvrent directement TXT/CSV/JSON dans l'application:
+  - Resume SAV lisible.
+  - Tableaux DataGridView triables/redimensionnables/deplacables pour CSV/JSON tabulaires.
+  - Fallback texte intégré, puis Notepad seulement en dernier recours.
+
+RISQUE:
+- Ne pas toucher aux moteurs d'analyse ni aux chemins de rapports existants.
+- Ne pas supprimer l'ouverture HTML existante, seulement la rendre secondaire.
+
+FAIT:
+- `launcher.ps1`:
+  - Ajout viewer natif WinForms pour rapports.
+  - HTML redirige d'abord vers compagnon natif:
+    - `sav-diagnostic-report.html` -> TXT puis JSON/CSV.
+    - `timeline-raw.html`, `evtx-events.html`, `evtx-by-file.html` -> CSV puis TXT/JSON.
+    - `REPORTS_INDEX.html` -> CSV/TXT.
+  - CSV/JSON ouverts dans `DataGridView`:
+    - colonnes triables.
+    - colonnes redimensionnables.
+    - colonnes deplacables.
+    - recherche locale.
+    - copier ligne.
+  - TXT ouvert dans viewer WinForms `TextBox` multiline au lieu de `RichTextBox`.
+  - Ancien chemin navigateur conserve seulement comme fallback legacy si le viewer natif echoue.
+- Sync USB:
+  - `D:\scripts\launcher.ps1`
+  - `E:\scripts\launcher.ps1`
+  - Hash local/D/E identique: `C4F3B37D91877DFA198BFF8B19C18AB69B7514246B9A8F16A1B3AB435E9842C1`
+
+PENDING:
+- Test terrain WinPE:
+  - cliquer `OUVRIR RAPPORTS`.
+  - verifier ouverture viewer natif, pas Chromium.
+  - cliquer `RAPPORT TXT/LISTE`.
+  - ouvrir `timeline-raw.csv` ou `evtx-events.csv`, verifier colonnes resize/move/sort.
+
+FILES LIBERES:
+- `WinPe_local/scripts/launcher.ps1`
+
+TESTS:
+- Parser local `launcher.ps1`: PASS.
+- Parser `D:\scripts\launcher.ps1`: PASS.
+- Parser `E:\scripts\launcher.ps1`: PASS.
+- UX2: 19/19 PASS.
+- UXEncoding: 7/7 PASS.
+- UX1: 11/12, echec connu `technical_details_hidden_by_default` lie au panneau droit deja valide par UX2.
+- Compagnons natifs presents sur `E:\reports`: REPORTS_INDEX, sav-diagnostic-report, timeline-raw, evtx-events, evtx-by-file.
+
+PROMPT CLAUDE:
+
+```text
+Contexte Danew CheckTool WinPE.
+CODEX a remplace le chemin terrain navigateur par viewer natif WinForms dans launcher.ps1.
+Fait:
+- HTML redirige d'abord vers TXT/CSV/JSON compagnon.
+- CSV/JSON -> DataGridView natif: tri, resize colonnes, deplacement colonnes, recherche, copier ligne.
+- TXT -> TextBox multiline natif, plus RichTextBox pour rapports.
+- Ancien navigateur garde seulement fallback legacy si viewer natif echoue.
+- Sync D:/E: launcher.ps1 hash identique C4F3B37D91877DFA198BFF8B19C18AB69B7514246B9A8F16A1B3AB435E9842C1.
+Tests: parser local/D/E PASS, UX2 19/19, UXEncoding 7/7, UX1 11/12 faux negatif connu.
+Reste terrain: en WinPE cliquer OUVRIR RAPPORTS, confirmer viewer natif sans Chromium; ouvrir evtx-events/timeline CSV et verifier tri/resize/deplacement colonnes.
+Contraintes: ne pas toucher backend analyse, pas WebView2/WPF/Electron/CDN.
+```
+
+
+## 2026-06-03 - CLAUDE Rapport SAV/patterns + durcissement production
+
+AGENT:
+- CLAUDE CODE
+
+FAIT:
+- `CrashAnalysisEngine.ps1` — seul fichier modifie (+367/-69 lignes):
+  - +6 patterns dans `Get-DanewCrashTimelineIntelligence` (NTFS->login, KernelPower->NTFS, Driver->Service, Service->Boot, WHEA, RST/VMD).
+  - `Get-DanewSavClientText`: 15 causes -> texte client non-technique.
+  - `Get-DanewSavPatternActions`: 16 patterns -> actions safe copy-only.
+  - `Write-DanewSavDiagnosticReportHtml` remplace: 9 sections (resume executif+client, frise critique, patterns+preuves, causes, chronologie, tableau top50, DISM/CBS, depannage SAV, recommandations).
+  - CSS inline offline-safe: pattern-card, sav-act-grid minmax 280px, @media 720px.
+  - JS inline offline-safe: `danewCopyCmd()` clipboard+fallback, filtre famille.
+  - Metriques hero +2 (patterns detectes, evt critiques).
+  - `detected_patterns` dans JSON export.
+  - Durcissement production: tous `C:\` dans cmd -> `<LETTRE_WINDOWS>:\`, `%windir%` -> chemin offline explicite.
+  - Disclaimer WinPE visible (2 emplacements): expliquer adaptation lettre.
+  - `reg query HKLM\...\Winlogon` -> `reg load HKLM\OFFLINE + reg query` (correct WinPE offline).
+  - Corrections: `(if` -> `$(if` (PS5 compat), DISM /online -> /image, sav-act-grid 340->280px.
+
+PENDING:
+- Sync D:/E: USB (cles absentes en fin de session): copier `CrashAnalysisEngine.ps1` quand branchees.
+- Test terrain WinPE 800x600: ouvrir `sav-diagnostic-report.html`, verifier rendu et placeholder `<LETTRE_WINDOWS>`.
+
+FILES LIBERES:
+- `WinPe_local/scripts/offline/CrashAnalysisEngine.ps1`
+
+TESTS:
+- Parser `CrashAnalysisEngine.ps1`: PASS.
+- `Run-ReportFrenchTests.ps1`: 19/19 PASS.
+- `Run-UX2Tests.ps1`: 19/19 PASS.
+- `Run-Phase6ATests.ps1`: 12/12 PASS.
+- `Run-EvtxDismCorrelationTests.ps1`: 6/6 PASS.
+- Residuel `C:\` dans cmd: 0.
+- `%windir%` dans cmd: 0.
+- `Invoke-Expression`/auto-exec: 0.
+- `launcher.ps1` non modifie: confirme.
+
+PROMPT CLAUDE:
+
+```text
+Contexte Danew CheckTool WinPE.
+Rapport SAV/patterns applique et valide localement.
+Seul CrashAnalysisEngine.ps1 modifie (+367/-69).
+Nouveau: 15 patterns, frise critique, patterns+preuves, depannage SAV copy-only, texte client.
+Durcissement: tous C:\ -> <LETTRE_WINDOWS>:\, disclaimer WinPE visible.
+Tests: ReportFrench 19/19, UX2 19/19, Phase6A 12/12, EvtxDismCorrelation 6/6.
+Pending: sync USB D:/E: (cles absentes), test terrain WinPE 800x600.
+```
+
 ## 2026-06-03 - CODEX EVTX crash coverage minimal patch
 
 AGENT:

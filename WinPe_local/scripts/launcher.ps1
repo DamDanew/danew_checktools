@@ -1400,10 +1400,10 @@ function Show-DanewFallbackReportText {
     $viewer.BackColor = [System.Drawing.Color]::White
     $viewer.Font = New-Object System.Drawing.Font('Segoe UI', 9)
 
-    $textBox = New-Object System.Windows.Forms.RichTextBox
+    $textBox = New-Object System.Windows.Forms.TextBox
     if (-not $textBox) {
         [System.Windows.Forms.MessageBox]::Show(
-            'RichTextBox creation failed. WinPE fallback unavailable.',
+            'TextBox creation failed. WinPE fallback unavailable.',
             'Fallback Error',
             [System.Windows.Forms.MessageBoxButtons]::OK,
             [System.Windows.Forms.MessageBoxIcon]::Error
@@ -1412,8 +1412,9 @@ function Show-DanewFallbackReportText {
     }
 
     $textBox.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $textBox.Multiline = $true
     $textBox.ReadOnly = $true
-    $textBox.ScrollBars = [System.Windows.Forms.RichTextBoxScrollBars]::Both
+    $textBox.ScrollBars = [System.Windows.Forms.ScrollBars]::Both
     $textBox.WordWrap = $false
     $textBox.BorderStyle = [System.Windows.Forms.BorderStyle]::None
     $textBox.BackColor = [System.Drawing.Color]::FromArgb(248, 250, 252)
@@ -1461,8 +1462,8 @@ function Show-DanewFallbackReportText {
         }
 
         if ($dialogResult -eq [System.Windows.Forms.DialogResult]::None) {
-            $diagnostic = 'RichTextBox.ShowDialog() returned None — WinPE rendering issue. Trying notepad fallback.'
-            Write-DanewReportOpeningTrace -Status 'fallback-richtextbox-dialogresult-none' -Title $Title -Path $FilePath -Message $diagnostic
+            $diagnostic = 'Text viewer ShowDialog() returned None. Trying notepad fallback.'
+            Write-DanewReportOpeningTrace -Status 'fallback-textbox-dialogresult-none' -Title $Title -Path $FilePath -Message $diagnostic
             # Try notepad.exe as last resort (always available in WinPE X:\Windows\System32)
             $notepadOpened = $false
             foreach ($notepadPath in @("$env:SystemRoot\System32\notepad.exe", 'X:\Windows\System32\notepad.exe', 'C:\Windows\System32\notepad.exe')) {
@@ -1476,7 +1477,7 @@ function Show-DanewFallbackReportText {
                     if (Test-Path -Path $targetFile -ErrorAction SilentlyContinue) {
                         try {
                             Start-Process -FilePath $notepadPath -ArgumentList @($targetFile) -ErrorAction Stop | Out-Null
-                            Write-DanewReportOpeningTrace -Status 'fallback-notepad-ok' -Title $Title -Path $targetFile -BrowserPath $notepadPath -Message 'Notepad opened as WinPE RichTextBox fallback.'
+                            Write-DanewReportOpeningTrace -Status 'fallback-notepad-ok' -Title $Title -Path $targetFile -BrowserPath $notepadPath -Message 'Notepad opened as WinPE text viewer fallback.'
                             $notepadOpened = $true
                             break
                         } catch {}
@@ -1491,9 +1492,9 @@ function Show-DanewFallbackReportText {
         }
     }
     catch {
-        Write-DanewReportOpeningTrace -Status 'fallback-richtextbox-error' -Title $Title -Path '' -Message $_.Exception.Message
+        Write-DanewReportOpeningTrace -Status 'fallback-textbox-error' -Title $Title -Path '' -Message $_.Exception.Message
         [System.Windows.Forms.MessageBox]::Show(
-            ('RichTextBox display error: ' + $_.Exception.Message),
+            ('Text viewer display error: ' + $_.Exception.Message),
             'Fallback Display Error',
             [System.Windows.Forms.MessageBoxButtons]::OK,
             [System.Windows.Forms.MessageBoxIcon]::Error
@@ -1562,7 +1563,7 @@ function Open-DanewFallbackReport {
         $indexContent = $indexLines -join [Environment]::NewLine
         Write-DanewReportOpeningTrace -Status 'fallback-index-list' -Title ('Rapport - ' + $baseName) -Path $reportsPath -Message 'Showing dynamic reports index list.'
 
-        # Essai notepad systeme en premier (plus fiable que RichTextBox en WinPE)
+        # Essai notepad systeme en premier (plus fiable que les controles riches en WinPE)
         $indexTxtPath = Join-Path $reportsPath ($baseName + '.txt')
         $openedInNotepad = $false
         foreach ($notepadPath in @("$env:SystemRoot\System32\notepad.exe", 'X:\Windows\System32\notepad.exe', 'C:\Windows\System32\notepad.exe')) {
@@ -1609,7 +1610,7 @@ function Open-DanewFallbackReport {
                     Write-DanewReportOpeningTrace -Status 'fallback-notepadpp-error' -Title ('Rapport - ' + $baseName) -Path $candidate -Message $_.Exception.Message
                 }
 
-                # Essai notepad système avant RichTextBox (plus robuste en WinPE)
+                # Essai notepad systeme avant viewer integre (plus robuste en WinPE)
                 $notepadLaunched = $false
                 foreach ($notepadPath in @("$env:SystemRoot\System32\notepad.exe", 'X:\Windows\System32\notepad.exe', 'C:\Windows\System32\notepad.exe')) {
                     if (Test-Path -Path $notepadPath -ErrorAction SilentlyContinue) {
@@ -1623,9 +1624,9 @@ function Open-DanewFallbackReport {
                 }
                 if ($notepadLaunched) { return $true }
 
-                # Derniere option : RichTextBox WinForms
+                # Derniere option : viewer texte WinForms
                 $content = Get-Content -Path $candidate -Raw -Encoding UTF8 -ErrorAction Stop
-                Write-DanewReportOpeningTrace -Status 'fallback-richtextbox-file' -Title ('Rapport - ' + $baseName) -Path $candidate -Message 'Showing TXT/CSV fallback in RichTextBox.'
+                Write-DanewReportOpeningTrace -Status 'fallback-textbox-file' -Title ('Rapport - ' + $baseName) -Path $candidate -Message 'Showing TXT/CSV fallback in native text viewer.'
                 Show-DanewFallbackReportText -Title ('Rapport - ' + $baseName) -Content $content -FilePath $candidate
                 return $true
             }
@@ -1657,7 +1658,7 @@ function Open-DanewFallbackReport {
                 }
                 [void]$lines.Add(([string]$property.Name + ': ' + $valueText))
             }
-            Write-DanewReportOpeningTrace -Status 'fallback-richtextbox-snapshot' -Title ('Rapport - ' + $baseName) -Path $snapshotPath -Message 'Showing gui-status-snapshot.json fallback in RichTextBox.'
+            Write-DanewReportOpeningTrace -Status 'fallback-textbox-snapshot' -Title ('Rapport - ' + $baseName) -Path $snapshotPath -Message 'Showing gui-status-snapshot.json fallback in native text viewer.'
             Show-DanewFallbackReportText -Title ('Rapport - ' + $baseName) -Content (@($lines) -join [Environment]::NewLine)
             return $true
         }
@@ -1759,6 +1760,11 @@ function Open-DanewTextReportCandidate {
         return $false
     }
 
+    $extension = [System.IO.Path]::GetExtension($Path)
+    if ($extension -and $extension.ToLowerInvariant() -in @('.csv', '.json')) {
+        return (Show-DanewNativeReportViewer -Path $Path -Title ('Rapport - ' + [System.IO.Path]::GetFileName($Path)))
+    }
+
     try {
         $content = Get-Content -Path $Path -Raw -Encoding UTF8 -ErrorAction Stop
     }
@@ -1774,6 +1780,400 @@ function Open-DanewTextReportCandidate {
 
     Show-DanewFallbackReportText -Title ('Rapport texte - ' + [System.IO.Path]::GetFileName($Path)) -Content $content
     return $true
+}
+
+function ConvertTo-DanewReportCellText {
+    param(
+        [AllowNull()]
+        [object]$Value
+    )
+
+    if ($null -eq $Value) {
+        return ''
+    }
+    if ($Value -is [System.Array]) {
+        $parts = New-Object System.Collections.ArrayList
+        foreach ($item in @($Value)) {
+            [void]$parts.Add((ConvertTo-DanewReportCellText -Value $item))
+        }
+        return (@($parts) -join '; ')
+    }
+    if ($Value -is [System.Management.Automation.PSCustomObject]) {
+        try {
+            return ($Value | ConvertTo-Json -Depth 8 -Compress)
+        }
+        catch {
+            return [string]$Value
+        }
+    }
+    return [string]$Value
+}
+
+function ConvertTo-DanewReportDataTable {
+    param(
+        [AllowNull()]
+        [object[]]$Rows
+    )
+
+    $table = New-Object System.Data.DataTable
+    $columns = New-Object System.Collections.ArrayList
+    foreach ($row in @($Rows)) {
+        if ($null -eq $row) {
+            continue
+        }
+        if ($row -is [System.Management.Automation.PSCustomObject]) {
+            foreach ($property in @($row.PSObject.Properties)) {
+                if (-not @($columns | Where-Object { $_ -ieq $property.Name })) {
+                    [void]$columns.Add([string]$property.Name)
+                }
+            }
+        }
+        else {
+            if (-not @($columns | Where-Object { $_ -ieq 'Valeur' })) {
+                [void]$columns.Add('Valeur')
+            }
+        }
+    }
+
+    if (@($columns).Count -eq 0) {
+        [void]$columns.Add('Information')
+    }
+
+    foreach ($columnName in @($columns)) {
+        [void]$table.Columns.Add([string]$columnName, [string])
+    }
+    [void]$table.Columns.Add('_search', [string])
+
+    foreach ($row in @($Rows)) {
+        $dataRow = $table.NewRow()
+        $searchParts = New-Object System.Collections.ArrayList
+        foreach ($columnName in @($columns)) {
+            $value = ''
+            if ($row -is [System.Management.Automation.PSCustomObject]) {
+                $property = $row.PSObject.Properties[[string]$columnName]
+                if ($null -ne $property) {
+                    $value = ConvertTo-DanewReportCellText -Value $property.Value
+                }
+            }
+            else {
+                $value = ConvertTo-DanewReportCellText -Value $row
+            }
+            $dataRow[[string]$columnName] = $value
+            if (-not [string]::IsNullOrWhiteSpace($value)) {
+                [void]$searchParts.Add($value)
+            }
+        }
+        $dataRow['_search'] = (@($searchParts) -join ' ')
+        [void]$table.Rows.Add($dataRow)
+    }
+
+    if ($table.Rows.Count -eq 0) {
+        $dataRow = $table.NewRow()
+        $dataRow[[string]$columns[0]] = 'Aucune ligne a afficher.'
+        $dataRow['_search'] = 'Aucune ligne a afficher.'
+        [void]$table.Rows.Add($dataRow)
+    }
+
+    return $table
+}
+
+function Get-DanewJsonReportRows {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$JsonObject
+    )
+
+    if ($JsonObject -is [System.Array]) {
+        return @($JsonObject)
+    }
+
+    foreach ($propertyName in @('events', 'reports', 'causes', 'items', 'records', 'rows', 'files')) {
+        $property = $JsonObject.PSObject.Properties[$propertyName]
+        if ($null -ne $property) {
+            $value = $property.Value
+            if ($value -is [System.Array]) {
+                return @($value)
+            }
+        }
+    }
+
+    $rows = New-Object System.Collections.ArrayList
+    foreach ($property in @($JsonObject.PSObject.Properties)) {
+        [void]$rows.Add([pscustomobject]@{
+            champ = [string]$property.Name
+            valeur = ConvertTo-DanewReportCellText -Value $property.Value
+        })
+    }
+    return @($rows)
+}
+
+function Show-DanewReportGrid {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Title,
+        [Parameter(Mandatory = $true)]
+        [object[]]$Rows,
+        [AllowEmptyString()]
+        [string]$SourcePath = ''
+    )
+
+    [System.Windows.Forms.Application]::EnableVisualStyles()
+
+    $viewer = New-Object System.Windows.Forms.Form
+    $viewer.Text = $Title
+    $viewer.StartPosition = 'CenterParent'
+    $viewer.ClientSize = New-Object System.Drawing.Size(1040, 640)
+    $viewer.MinimumSize = New-Object System.Drawing.Size(780, 480)
+    $viewer.BackColor = [System.Drawing.Color]::FromArgb(243, 246, 252)
+    $viewer.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+    $viewer.TopMost = $true
+
+    $header = New-Object System.Windows.Forms.Panel
+    $header.Dock = [System.Windows.Forms.DockStyle]::Top
+    $header.Height = 76
+    $header.BackColor = [System.Drawing.Color]::White
+
+    $titleLabel = New-Object System.Windows.Forms.Label
+    $titleLabel.Left = 14
+    $titleLabel.Top = 10
+    $titleLabel.Width = 720
+    $titleLabel.Height = 24
+    $titleLabel.Font = New-Object System.Drawing.Font('Segoe UI', 12, [System.Drawing.FontStyle]::Bold)
+    $titleLabel.Text = $Title
+
+    $hintLabel = New-Object System.Windows.Forms.Label
+    $hintLabel.Left = 14
+    $hintLabel.Top = 38
+    $hintLabel.Width = 720
+    $hintLabel.Height = 18
+    $hintLabel.ForeColor = [System.Drawing.Color]::FromArgb(71, 85, 105)
+    $hintLabel.Text = 'Recherche locale. Colonnes triables, redimensionnables et deplacables.'
+
+    $searchBox = New-Object System.Windows.Forms.TextBox
+    $searchBox.Left = 740
+    $searchBox.Top = 14
+    $searchBox.Width = 280
+    $searchBox.Height = 28
+    $searchBox.Anchor = 'Top,Right'
+
+    $countLabel = New-Object System.Windows.Forms.Label
+    $countLabel.Left = 740
+    $countLabel.Top = 46
+    $countLabel.Width = 280
+    $countLabel.Height = 18
+    $countLabel.Anchor = 'Top,Right'
+    $countLabel.ForeColor = [System.Drawing.Color]::FromArgb(71, 85, 105)
+
+    $grid = New-Object System.Windows.Forms.DataGridView
+    $grid.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $grid.AllowUserToAddRows = $false
+    $grid.AllowUserToDeleteRows = $false
+    $grid.AllowUserToOrderColumns = $true
+    $grid.AllowUserToResizeColumns = $true
+    $grid.AllowUserToResizeRows = $false
+    $grid.ReadOnly = $true
+    $grid.MultiSelect = $false
+    $grid.SelectionMode = [System.Windows.Forms.DataGridViewSelectionMode]::FullRowSelect
+    $grid.AutoSizeColumnsMode = [System.Windows.Forms.DataGridViewAutoSizeColumnsMode]::None
+    $grid.ScrollBars = [System.Windows.Forms.ScrollBars]::Both
+    $grid.RowHeadersVisible = $false
+    $grid.BackgroundColor = [System.Drawing.Color]::White
+    $grid.BorderStyle = [System.Windows.Forms.BorderStyle]::None
+    $grid.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+    $grid.ColumnHeadersDefaultCellStyle.Font = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)
+    $grid.DefaultCellStyle.WrapMode = [System.Windows.Forms.DataGridViewTriState]::False
+
+    $footer = New-Object System.Windows.Forms.Panel
+    $footer.Dock = [System.Windows.Forms.DockStyle]::Bottom
+    $footer.Height = 42
+    $footer.BackColor = [System.Drawing.Color]::White
+
+    $pathLabel = New-Object System.Windows.Forms.Label
+    $pathLabel.Left = 14
+    $pathLabel.Top = 12
+    $pathLabel.Width = 620
+    $pathLabel.Height = 18
+    $pathLabel.Anchor = 'Left,Right,Bottom'
+    $pathLabel.ForeColor = [System.Drawing.Color]::FromArgb(71, 85, 105)
+    $pathLabel.Text = $SourcePath
+
+    $copyButton = New-Object System.Windows.Forms.Button
+    $copyButton.Text = 'Copier ligne'
+    $copyButton.Width = 120
+    $copyButton.Height = 30
+    $copyButton.Left = 770
+    $copyButton.Top = 6
+    $copyButton.Anchor = 'Right,Bottom'
+    $copyButton.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+    $copyButton.BackColor = [System.Drawing.Color]::FromArgb(15, 118, 110)
+    $copyButton.ForeColor = [System.Drawing.Color]::White
+
+    $closeButton = New-Object System.Windows.Forms.Button
+    $closeButton.Text = 'Fermer'
+    $closeButton.Width = 120
+    $closeButton.Height = 30
+    $closeButton.Left = 900
+    $closeButton.Top = 6
+    $closeButton.Anchor = 'Right,Bottom'
+    $closeButton.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+
+    $table = ConvertTo-DanewReportDataTable -Rows @($Rows)
+    $view = New-Object System.Data.DataView -ArgumentList $table
+    $grid.DataSource = $view
+    if ($grid.Columns['_search']) {
+        $grid.Columns['_search'].Visible = $false
+    }
+    foreach ($column in @($grid.Columns)) {
+        $column.Width = [Math]::Max(90, [Math]::Min(280, ($column.HeaderText.Length * 9 + 36)))
+        $column.SortMode = [System.Windows.Forms.DataGridViewColumnSortMode]::Automatic
+    }
+
+    $updateCount = {
+        $countLabel.Text = ([string]$view.Count + ' ligne(s) visible(s) / ' + [string]$table.Rows.Count)
+    }
+    & $updateCount
+
+    $searchBox.Add_TextChanged({
+        $term = [string]$searchBox.Text
+        if ([string]::IsNullOrWhiteSpace($term)) {
+            $view.RowFilter = ''
+        }
+        else {
+            try {
+                $escaped = $term.Replace("'", "''").Replace('[', '[[]').Replace(']', '[]]').Replace('%', '[%]').Replace('*', '[*]')
+                $view.RowFilter = "[_search] LIKE '%$escaped%'"
+            }
+            catch {
+                $view.RowFilter = ''
+            }
+        }
+        & $updateCount
+    })
+
+    $copyButton.Add_Click({
+        if ($grid.CurrentRow -and -not $grid.CurrentRow.IsNewRow) {
+            $parts = New-Object System.Collections.ArrayList
+            foreach ($cell in @($grid.CurrentRow.Cells)) {
+                if ($cell.OwningColumn -and $cell.OwningColumn.Visible) {
+                    [void]$parts.Add(([string]$cell.OwningColumn.HeaderText + '=' + [string]$cell.Value))
+                }
+            }
+            [System.Windows.Forms.Clipboard]::SetText((@($parts) -join [Environment]::NewLine))
+        }
+    })
+    $closeButton.Add_Click({ $viewer.Close() })
+
+    [void]$header.Controls.Add($titleLabel)
+    [void]$header.Controls.Add($hintLabel)
+    [void]$header.Controls.Add($searchBox)
+    [void]$header.Controls.Add($countLabel)
+    [void]$footer.Controls.Add($pathLabel)
+    [void]$footer.Controls.Add($copyButton)
+    [void]$footer.Controls.Add($closeButton)
+    [void]$viewer.Controls.Add($grid)
+    [void]$viewer.Controls.Add($footer)
+    [void]$viewer.Controls.Add($header)
+
+    if ($form) {
+        [void]$viewer.ShowDialog($form)
+    }
+    else {
+        [void]$viewer.ShowDialog()
+    }
+    $viewer.Dispose()
+    return $true
+}
+
+function Show-DanewNativeReportViewer {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [Parameter(Mandatory = $true)]
+        [string]$Title
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -Path $Path -PathType Leaf -ErrorAction SilentlyContinue)) {
+        return $false
+    }
+
+    $extension = [System.IO.Path]::GetExtension($Path).ToLowerInvariant()
+    try {
+        if ($extension -eq '.csv') {
+            $rows = @(Import-Csv -Path $Path -Delimiter ';' -Encoding UTF8 -ErrorAction Stop)
+            if (@($rows).Count -eq 0 -or (@($rows[0].PSObject.Properties).Count -le 1)) {
+                $rows = @(Import-Csv -Path $Path -Delimiter ',' -Encoding UTF8 -ErrorAction Stop)
+            }
+            Write-DanewReportOpeningTrace -Status 'native-viewer-csv' -Title $Title -Path $Path -Message 'Opening CSV in DataGridView.'
+            return (Show-DanewReportGrid -Title $Title -Rows @($rows) -SourcePath $Path)
+        }
+        if ($extension -eq '.json') {
+            $json = Get-Content -Path $Path -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            $rows = @(Get-DanewJsonReportRows -JsonObject $json)
+            Write-DanewReportOpeningTrace -Status 'native-viewer-json' -Title $Title -Path $Path -Message 'Opening JSON in DataGridView.'
+            return (Show-DanewReportGrid -Title $Title -Rows @($rows) -SourcePath $Path)
+        }
+        $content = Get-Content -Path $Path -Raw -Encoding UTF8 -ErrorAction Stop
+        Write-DanewReportOpeningTrace -Status 'native-viewer-text' -Title $Title -Path $Path -Message 'Opening text in native viewer.'
+        Show-DanewFallbackReportText -Title $Title -Content $content -FilePath $Path
+        return $true
+    }
+    catch {
+        Write-DanewReportOpeningTrace -Status 'native-viewer-error' -Title $Title -Path $Path -Message $_.Exception.Message
+        return $false
+    }
+}
+
+function Get-DanewNativeCompanionReportPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    $directory = Split-Path -Parent $Path
+    $baseName = [System.IO.Path]::GetFileNameWithoutExtension($Path)
+    $lowerBase = $baseName.ToLowerInvariant()
+    $preferredNames = @()
+
+    if ($lowerBase -in @('reports_index', 'reports-index')) {
+        $preferredNames = @('REPORTS_INDEX.csv', 'REPORTS_INDEX.txt', 'reports-index.txt', 'reports-index.csv')
+    }
+    elseif ($lowerBase -in @('timeline-raw', 'evtx-events', 'evtx-by-file')) {
+        $preferredNames = @($baseName + '.csv', $baseName + '.txt', $baseName + '.json')
+    }
+    elseif ($lowerBase -eq 'sav-diagnostic-report') {
+        $preferredNames = @('sav-diagnostic-report.txt', 'sav-diagnostic-report.json', 'sav-diagnostic-report.csv')
+    }
+    else {
+        $preferredNames = @($baseName + '.txt', $baseName + '.csv', $baseName + '.json')
+    }
+
+    foreach ($name in @($preferredNames)) {
+        $candidate = Join-Path $directory $name
+        if (Test-Path -Path $candidate -PathType Leaf -ErrorAction SilentlyContinue) {
+            return $candidate
+        }
+    }
+
+    return ''
+}
+
+function Open-DanewNativeReportFromHtml {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [Parameter(Mandatory = $true)]
+        [string]$Title
+    )
+
+    $companion = Get-DanewNativeCompanionReportPath -Path $Path
+    if (-not [string]::IsNullOrWhiteSpace($companion)) {
+        Write-DanewReportOpeningTrace -Status 'native-viewer-companion' -Title $Title -Path $companion -Message ('HTML redirected to native report companion: ' + $Path)
+        return (Show-DanewNativeReportViewer -Path $companion -Title $Title)
+    }
+
+    $baseName = [System.IO.Path]::GetFileNameWithoutExtension($Path)
+    Write-DanewReportOpeningTrace -Status 'native-viewer-no-companion' -Title $Title -Path $Path -Message 'No native companion found; using fallback report flow.'
+    return (Open-DanewFallbackReport -ReportBaseName $baseName -Config $config)
 }
 
 function Show-DanewTextReportsListDialog {
@@ -1887,6 +2287,15 @@ function Open-DanewReportFile {
     $extension = [System.IO.Path]::GetExtension($Path)
     $isHtmlReport = ($extension -and $extension.ToLowerInvariant() -in @('.html', '.htm'))
     $reportBaseName = [System.IO.Path]::GetFileNameWithoutExtension($Path)
+
+    if ($isHtmlReport) {
+        Write-DanewReportOpeningTrace -Status 'open-report-native-first' -Title $Title -Path $Path -Message 'HTML report redirected to native WinForms viewer first.'
+        if (Open-DanewNativeReportFromHtml -Path $Path -Title $Title) {
+            return $true
+        }
+        Write-DanewReportOpeningTrace -Status 'open-report-native-first-failed' -Title $Title -Path $Path -Message 'Native viewer failed; falling back to legacy open flow.'
+    }
+
     $browser = ''
     if ($isHtmlReport) {
         $browser = Get-DanewPortableBrowserPath
