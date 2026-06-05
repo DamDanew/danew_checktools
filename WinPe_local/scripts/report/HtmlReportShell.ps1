@@ -350,7 +350,7 @@ function New-DanewInteractiveReportHtml {
 
     $currentReport = ([string]$CurrentReportName).ToLowerInvariant()
     $navLinks = @(
-        @{ href = 'REPORTS_INDEX.html'; label = '← Index'; name = 'index' }
+        @{ href = 'REPORTS_INDEX.html'; label = '&larr; Index'; name = 'index' }
         @{ href = 'sav-diagnostic-report.html'; label = 'Diagnostic SAV'; name = 'sav-diagnostic' }
         @{ href = 'timeline-raw.html'; label = 'Chronologie'; name = 'timeline-raw' }
         @{ href = 'evtx-events.html'; label = 'Evenements EVTX'; name = 'evtx-events' }
@@ -360,7 +360,8 @@ function New-DanewInteractiveReportHtml {
     $navLinksHtml = @()
     foreach ($link in $navLinks) {
         $safeHref = ConvertTo-DanewReportHtmlText ([string]$link.href)
-        $safeLabel = ConvertTo-DanewReportHtmlText ([string]$link.label)
+        # Labels may contain safe HTML entities (e.g. &larr;) — escape only < > " not &
+        $safeLabel = ([string]$link.label) -replace '<','&lt;' -replace '>','&gt;'
         $activeClass = if ([string]$link.name -eq $currentReport) { ' active' } else { '' }
         $safeName = ConvertTo-DanewReportHtmlText ([string]$link.name)
         $navLinksHtml += '<a class="nav-link' + $activeClass + '" href="' + $safeHref + '" data-nav-report="' + $safeName + '">' + $safeLabel + '</a>'
@@ -464,6 +465,34 @@ h1 {
     align-items: center;
     gap: 8px;
 }
+/* 3 zones: search | view controls | tools */
+.toolbar-zone { display: flex; align-items: center; gap: 6px; }
+.toolbar-zone-search { flex: 1 1 280px; }
+.toolbar-zone-search input[type="search"] { flex: 1; min-width: 160px; }
+.toolbar-zone-view { gap: 6px; }
+.toolbar-zone-tools { margin-left: auto; gap: 4px; }
+.toolbar-btn-clear {
+    padding: 8px 10px !important;
+    border-radius: 10px !important;
+    font-size: 13px;
+    opacity: 0.7;
+    min-width: 0 !important;
+}
+.toolbar-btn-clear:hover { opacity: 1 !important; }
+.toolbar-icon-btn {
+    padding: 10px 11px !important;
+    border-radius: 12px !important;
+    font-size: 16px;
+    min-width: 0 !important;
+    line-height: 1;
+    border: 1px solid var(--line);
+    background: var(--panel-strong);
+    cursor: pointer;
+    color: var(--text);
+    transition: background 120ms, transform 80ms;
+}
+.toolbar-icon-btn:hover { background: rgba(15,118,110,0.09); transform: translateY(-1px); }
+.toolbar-icon-btn:active { transform: translateY(0); }
 .toolbar-row.secondary {
     padding-top: 6px;
     border-top: 1px solid var(--line);
@@ -959,14 +988,20 @@ $navbarHtml
 </div>
 <div class="toolbar report-toolbar">
 <div class="toolbar-row primary">
-<input type="search" placeholder="$safeSearchPlaceholder" data-report-search>
-<button type="button" data-action="clear-search">Effacer filtre</button>
-<div class="toolbar-count" data-report-count aria-live="polite"></div>
-<button type="button" class="primary-button" data-action="expand-all">Developper tout</button>
-<button type="button" data-action="collapse-all">Reduire tout</button>
-<button type="button" data-action="toggle-theme">Theme</button>
-<button type="button" data-action="top">Haut</button>
-<button type="button" data-action="print">Imprimer</button>
+  <div class="toolbar-zone toolbar-zone-search">
+    <input type="search" placeholder="$safeSearchPlaceholder" data-report-search>
+    <button type="button" class="toolbar-btn-clear" data-action="clear-search" title="Effacer la recherche">&#10005;</button>
+    <div class="toolbar-count" data-report-count aria-live="polite"></div>
+  </div>
+  <div class="toolbar-zone toolbar-zone-view">
+    <button type="button" class="primary-button" data-action="expand-all" title="Déplier toutes les sections">&#9660; Tout déplier</button>
+    <button type="button" data-action="collapse-all" title="Replier toutes les sections">&#9650; Tout replier</button>
+  </div>
+  <div class="toolbar-zone toolbar-zone-tools">
+    <button type="button" class="toolbar-icon-btn" data-action="toggle-theme" title="Basculer thème clair/sombre" aria-label="Thème">&#9788;</button>
+    <button type="button" class="toolbar-icon-btn" data-action="top" title="Revenir en haut de page" aria-label="Haut">&#8679;</button>
+    <button type="button" class="toolbar-icon-btn" data-action="print" title="Imprimer ce rapport" aria-label="Imprimer">&#128438;</button>
+  </div>
 </div>
 <div class="toolbar-row secondary" id="toolbar-secondary" data-toolbar-secondary>
 $AdditionalToolbarHtml

@@ -225,7 +225,10 @@ function Get-DanewCrashClassification {
         if ($provider -match 'Kernel-Power' -or $eventId -eq 41) { [void]$categories.Add('Kernel-Power shutdown'); $criticality += 4 }
         if ($provider -match 'BugCheck' -or $eventId -eq 1001 -or $text -match 'bugcheck|bsod|blue screen|stop code|0x7b') { [void]$categories.Add('BugCheck / BSOD'); $criticality += 5 }
         if ($provider -match 'WHEA' -or $eventId -in @(17,18,19,47)) { [void]$categories.Add('WHEA hardware errors'); $criticality += 4 }
-        if ($provider -match 'WindowsUpdateClient' -or $text -match 'windows update|update') { [void]$categories.Add('Windows Update failure'); $criticality += 3 }
+        # Exclure les faux positifs "update" : edgeupdate, googleupdate, MozillaUpdate, etc. (services tiers non liés à Windows Update)
+        $isFalseUpdatePositive = $provider -match 'edgeupdate|googleupdate|MozillaUpdate|ChromeUpdate|SoftwareUpdate|AdobeUpdate|JavaUpdate|UpdateService' -or
+                                 ($text -match '\bupdate\b' -and $provider -notmatch 'Windows|Microsoft|WU|WUAUCLT|WindowsUpdate' -and $channel -match 'Application')
+        if (-not $isFalseUpdatePositive -and ($provider -match 'WindowsUpdateClient|wuauclt|wusa|WindowsUpdate' -or ($text -match 'windows update|wuauclt|KB\d{6,}|cumulative update|quality update') )) { [void]$categories.Add('Windows Update failure'); $criticality += 3 }
         if ($provider -match 'Winlogon' -or $channel -match 'Winlogon' -or $eventId -in @(4006,1074)) { [void]$categories.Add('Winlogon / login failure'); $criticality += 3 }
         if ($provider -match 'Servicing|CBS|UpdateOrchestrator' -or $channel -match 'Servicing|UpdateOrchestrator|Setup' -or $text -match 'kb\d{6,}') { [void]$categories.Add('Windows Update / KB servicing'); $criticality += 3 }
         if ($provider -match 'DriverFrameworks' -or $text -match 'driverframeworks|driver framework') { [void]$categories.Add('DriverFrameworks issues'); $criticality += 3 }
@@ -754,6 +757,37 @@ function Get-DanewSavClientText {
     }
 }
 
+function Get-DanewPatternSummaryFr {
+    param([string]$PatternName, [string]$EnglishSummary)
+    # Traduit les summaries générés en anglais par le moteur de patterns
+    $map = @{
+        'Repeated Kernel-Power loops'                = "Plusieurs arrêts anormaux du noyau ont été détectés en séquence — signe d'instabilité alimentation ou matérielle."
+        'Repeated BugCheck loops'                    = "Plusieurs écrans bleus (BSOD) ont été détectés — cause probable : pilote, mémoire ou matériel défaillant."
+        'Update -> reboot -> crash chain'            = "Une mise à jour Windows a déclenché une chaîne d'erreurs menant à un crash ou un redémarrage forcé."
+        'NTFS corruption before login'               = "Une corruption du système de fichiers NTFS a été détectée avant la session utilisateur — intégrité du disque compromise."
+        'Kernel-Power reboot triggering bugchecks'   = "Des redémarrages forcés par le noyau ont provoqué des erreurs système en cascade."
+        'Driver failure causing repeated restarts'   = "Un pilote défaillant provoque des redémarrages répétés — remplacement ou rollback recommandé."
+        'Repeated service failures'                  = "Des services système échouent de façon répétée au démarrage — corruption possible ou dépendance manquante."
+        'WHEA hardware error indicating instability' = "Des erreurs matérielles bas niveau (WHEA) ont été détectées — CPU, RAM ou carte mère à vérifier."
+        'Intel RST/VMD issue causing storage failure'= "Un problème avec le pilote Intel RST/VMD empêche l'accès au stockage — mise à jour ou désactivation nécessaire."
+        'DISM/CBS servicing before crash'            = "Une opération de maintenance DISM/CBS était en cours avant le crash — intégrité de l'image Windows à vérifier."
+        'CBS/DISM servicing before login failure'    = "Une opération CBS/DISM incomplète a provoqué un échec de connexion — réparation de l'image recommandée."
+        'CBS/DISM corruption marker'                 = "Des marqueurs de corruption ont été détectés dans les journaux CBS/DISM — exécuter DISM CheckHealth."
+        'Winlogon failure loop'                      = "Le processus de connexion Windows échoue en boucle — profil utilisateur ou service d'authentification compromis."
+        'Storage errors before system halt'          = "Des erreurs de stockage précèdent chaque arrêt système — disque dur ou contrôleur à remplacer."
+        'BitLocker blocking boot'                    = "BitLocker bloque le démarrage — la clé de récupération est requise pour déverrouiller le lecteur."
+    }
+    # Cherche par nom de pattern exact, sinon retourne l'anglais si court ou un message générique
+    if ($map.ContainsKey($PatternName)) { return $map[$PatternName] }
+    # Tentative de correspondance partielle
+    foreach ($key in $map.Keys) {
+        if ($PatternName -like "*$key*" -or $key -like "*$PatternName*") { return $map[$key] }
+    }
+    # Fallback : retourner le résumé anglais s'il est disponible
+    if ($EnglishSummary) { return $EnglishSummary }
+    return "Pattern de panne détecté — consulter les preuves ci-dessous."
+}
+
 function Get-DanewSavPatternActions {
     param([string]$PatternName)
     $map = @{
@@ -840,6 +874,113 @@ function Get-DanewSavPatternActions {
     return $result
 }
 
+function Get-DanewWindowsUpdatePackages {
+    <#
+    .SYNOPSIS Extrait et classe les paquets Windows Update depuis les records classifiés.
+    Retourne une liste structurée: KB, type, statut, date, package, code erreur.
+    #>
+    param([object]$CrashAnalysis)
+
+    $wuProviders = 'WindowsUpdateClient|Microsoft-Windows-WindowsUpdateClient|wuauserv|wusa|CBS|Servicing|UpdateOrchestrator|SetupDiagnostics'
+    $wuCategories = @('Windows Update failure', 'Windows Update / KB servicing')
+
+    $packages = [System.Collections.Generic.List[object]]::new()
+    $seen = @{}
+
+    foreach ($rec in @($CrashAnalysis.classification.records)) {
+        $prov  = [string](Get-DanewCrashSafeProperty -Object $rec -Name 'provider'  -DefaultValue '')
+        $msg   = [string](Get-DanewCrashSafeProperty -Object $rec -Name 'message'   -DefaultValue '')
+        $eid   = [int](Get-DanewCrashSafeProperty    -Object $rec -Name 'event_id'  -DefaultValue 0)
+        $ts    = [string](Get-DanewCrashSafeProperty  -Object $rec -Name 'timestamp' -DefaultValue '')
+        $lvl   = [string](Get-DanewCrashSafeProperty  -Object $rec -Name 'level_fr'  -DefaultValue '')
+        $chan   = [string](Get-DanewCrashSafeProperty  -Object $rec -Name 'channel'   -DefaultValue '')
+        $cats  = @(Get-DanewCrashSafeProperty          -Object $rec -Name 'categories' -DefaultValue @())
+        $crit  = [int](Get-DanewCrashSafeProperty      -Object $rec -Name 'criticality' -DefaultValue 0)
+
+        $isWU = ($prov -match $wuProviders) -or ($cats | Where-Object { $wuCategories -contains $_ })
+        $hasKB = $msg -match 'KB\d{6,}'
+        if (-not $isWU -and -not $hasKB) { continue }
+
+        # --- Extraire les KB ---
+        $kbMatches = [regex]::Matches($msg, 'KB(\d{6,})')
+        $kbList = @($kbMatches | ForEach-Object { 'KB' + $_.Groups[1].Value } | Select-Object -Unique)
+        if ($kbList.Count -eq 0) { $kbList = @('(aucun KB)') }
+
+        foreach ($kb in $kbList) {
+            # --- Statut ---
+            $status = 'Inconnu'
+            $statusIcon = '⚙️'
+            $statusTone = 'neutral'
+            if ($eid -eq 19 -or $msg -match 'successful|install.*complet|install.*success|success.*install') {
+                $status = 'INSTALLÉ'; $statusIcon = '✅'; $statusTone = 'success'
+            } elseif ($eid -eq 20 -or $msg -match 'failed|failure|échec|erreur|error|0x8[0-9a-fA-F]{7}') {
+                $status = 'ÉCHEC'; $statusIcon = '❌'; $statusTone = 'danger'
+            } elseif ($msg -match 'restart|reboot|pending') {
+                $status = 'EN ATTENTE REDÉMARRAGE'; $statusIcon = '🔄'; $statusTone = 'warn'
+            } elseif ($msg -match 'download|télécharg') {
+                $status = 'TÉLÉCHARGEMENT'; $statusIcon = '⬇️'; $statusTone = 'info'
+            } elseif ($lvl -eq 'Erreur') {
+                $status = 'ÉCHEC'; $statusIcon = '❌'; $statusTone = 'danger'
+            } elseif ($lvl -eq 'Information' -and ($isWU)) {
+                $status = 'INSTALLÉ'; $statusIcon = '✅'; $statusTone = 'success'
+            }
+
+            # --- Type de paquet ---
+            $msgLow = $msg.ToLowerInvariant()
+            $pkgType = 'Mise à jour'
+            $pkgLabel = 'UPDATE'
+            $pkgColor = '#1d4ed8'
+            if ($msgLow -match 'driver|pilote|hdaudio|pci|usb|nvidia|amd|intel|realtek|broadcom|mediatek') {
+                $pkgType = 'Pilote'; $pkgLabel = 'DRIVER'; $pkgColor = '#0891b2'
+            } elseif ($msgLow -match 'firmware|bios|uefi|microcode') {
+                $pkgType = 'BIOS / Firmware'; $pkgLabel = 'BIOS'; $pkgColor = '#7c3aed'
+            } elseif ($msgLow -match 'feature update|mise à niveau|upgrade') {
+                $pkgType = 'Mise à niveau (Feature)'; $pkgLabel = 'FEATURE'; $pkgColor = '#0f766e'
+            } elseif ($msgLow -match 'security|sécurité|defender|antivirus|malicious') {
+                $pkgType = 'Sécurité'; $pkgLabel = 'SECURITY'; $pkgColor = '#b45309'
+            } elseif ($msgLow -match 'cumulative|cumulatif') {
+                $pkgType = 'Cumulatif'; $pkgLabel = 'CUMUL'; $pkgColor = '#1d4ed8'
+            } elseif ($msgLow -match 'servic|cbs|dism') {
+                $pkgType = 'Maintenance CBS/DISM'; $pkgLabel = 'CBS'; $pkgColor = '#6d28d9'
+            }
+
+            # --- Nom du paquet (extraire de la parenthèse ou chemin) ---
+            $pkgName = ''
+            if ($msg -match 'for\s+update\s+(.+?)(?:\s+\(|$)') { $pkgName = $Matches[1].Trim() }
+            elseif ($msg -match 'package\s+([^\s,]+)') { $pkgName = $Matches[1].Trim() }
+            elseif ($msg -match 'Initiating changes for package\s+([^\s,]+)') { $pkgName = $Matches[1].Trim() }
+
+            # --- Code erreur ---
+            $errCode = ''
+            if ($msg -match '(0x[0-9a-fA-F]{7,8})') { $errCode = $Matches[1] }
+
+            # --- Déduplication KB+statut ---
+            $key = $kb + '_' + $status + '_' + $ts.Substring(0, [Math]::Min(10, $ts.Length))
+            if ($seen.ContainsKey($key)) { continue }
+            $seen[$key] = $true
+
+            $packages.Add([pscustomobject]@{
+                kb         = $kb
+                timestamp  = $ts
+                type       = $pkgType
+                label      = $pkgLabel
+                color      = $pkgColor
+                status     = $status
+                statusIcon = $statusIcon
+                statusTone = $statusTone
+                pkgName    = $pkgName
+                errCode    = $errCode
+                provider   = $prov
+                message    = $msg
+                eventId    = $eid
+                criticality= $crit
+            })
+        }
+    }
+
+    return @($packages | Sort-Object timestamp)
+}
+
 function Write-DanewSavDiagnosticReportHtml {
     param(
         [Parameter(Mandatory = $true)]
@@ -912,24 +1053,271 @@ function Write-DanewSavDiagnosticReportHtml {
     $clientTextHtml = '<div class="client-text-box"><span class="client-text-icon" aria-hidden="true">&#128100;</span><div><strong>Information client :</strong> ' + [System.Security.SecurityElement]::Escape($clientText) + '</div></div>'
 
     # ---- Critical timeline (criticality >= 3, max 40 events) ----
+    # On charge score >= 2 dans le DOM — le filtre min/max est géré côté JS
+    # Score 0 = non classifié (trop nombreux), score 1 = inexistant, score 2+ = pertinent
     $critAllRecords = @($CrashAnalysis.classification.records | Where-Object {
-        [int](Get-DanewCrashSafeProperty -Object $_ -Name 'criticality' -DefaultValue 0) -ge 3
+        [int](Get-DanewCrashSafeProperty -Object $_ -Name 'criticality' -DefaultValue 0) -ge 2
     } | Sort-Object { [string](Get-DanewCrashSafeProperty -Object $_ -Name 'timestamp' -DefaultValue '') })
     $critTotalCount = @($critAllRecords).Count
-    $critTimelineRows = @()
-    foreach ($rec in @($critAllRecords | Select-Object -First 40)) {
-        $cats  = @(Get-DanewCrashSafeProperty -Object $rec -Name 'categories' -DefaultValue @()) -join '; '
-        $crit  = [int](Get-DanewCrashSafeProperty -Object $rec -Name 'criticality' -DefaultValue 0)
-        $ts    = [string](Get-DanewCrashSafeProperty -Object $rec -Name 'timestamp'  -DefaultValue '')
-        $eid   = [string](Get-DanewCrashSafeProperty -Object $rec -Name 'event_id'   -DefaultValue '')
-        $prov  = [string](Get-DanewCrashSafeProperty -Object $rec -Name 'provider'   -DefaultValue '')
-        $msg   = [string](Get-DanewCrashSafeProperty -Object $rec -Name 'message'    -DefaultValue '')
-        $msgS  = if ($msg.Length -gt 120) { $msg.Substring(0, 120) + '...' } else { $msg }
-        $critTone = if ($crit -ge 5) { 'danger' } elseif ($crit -ge 4) { 'warn' } else { 'neutral' }
-        $rs    = ConvertTo-DanewReportHtmlText (($ts, $eid, $prov, $cats, $msgS) -join ' ')
-        $critTimelineRows += "<tr data-search-row=`"$rs`"><td>$([System.Security.SecurityElement]::Escape($ts))</td><td>$([System.Security.SecurityElement]::Escape($cats))</td><td>$([System.Security.SecurityElement]::Escape($prov))</td><td>$([System.Security.SecurityElement]::Escape($eid))</td><td><span class='report-badge report-badge-$critTone'>$([System.Security.SecurityElement]::Escape([string]$crit))</span></td><td>$([System.Security.SecurityElement]::Escape($msgS))</td></tr>"
+
+    # Mapping famille -> couleur de la ligne verticale
+    $familyColorMap = @{
+        'BugCheck / BSOD'          = '#b42318'
+        'Disk / Storage'           = '#c2410c'
+        'NTFS corruption'          = '#c2410c'
+        'Boot / BCD'               = '#b45309'
+        'Kernel-Power shutdown'    = '#9a3412'
+        'Windows Update failure'   = '#1d4ed8'
+        'Windows Update / KB servicing' = '#1d4ed8'
+        'DISM / Servicing'         = '#6d28d9'
+        'WHEA hardware errors'     = '#7c3aed'
+        'DriverFrameworks issues'  = '#0369a1'
+        'Service startup failures' = '#0891b2'
+        'Winlogon / login failure' = '#0f766e'
+        'Memory instability'       = '#7c2d12'
+        'BitLocker related issues' = '#374151'
     }
-    $critNotice = if ($critTotalCount -gt 40) { '<p class="section-caption">Affichage limite aux 40 premiers evenements critiques sur ' + $critTotalCount + ' detectes.</p>' } else { '' }
+
+    $critFriseCards = @()
+    foreach ($rec in @($critAllRecords | Select-Object -First 40)) {
+        $cats     = @(Get-DanewCrashSafeProperty -Object $rec -Name 'categories'  -DefaultValue @())
+        $crit     = [int](Get-DanewCrashSafeProperty -Object $rec -Name 'criticality' -DefaultValue 0)
+        $ts       = [string](Get-DanewCrashSafeProperty -Object $rec -Name 'timestamp'  -DefaultValue '')
+        $eid      = [string](Get-DanewCrashSafeProperty -Object $rec -Name 'event_id'   -DefaultValue '')
+        $prov     = [string](Get-DanewCrashSafeProperty -Object $rec -Name 'provider'   -DefaultValue '')
+        $msg      = [string](Get-DanewCrashSafeProperty -Object $rec -Name 'message'    -DefaultValue '')
+        $levelFr  = [string](Get-DanewCrashSafeProperty -Object $rec -Name 'level_fr'   -DefaultValue '')
+        $channel  = [string](Get-DanewCrashSafeProperty -Object $rec -Name 'channel'    -DefaultValue '')
+        $catsJoin = $cats -join ' · '
+        $msgS     = if ($msg.Length -gt 120) { $msg.Substring(0, 120) + '…' } else { $msg }
+
+        # Couleur selon la famille
+        $color = '#64748b'
+        foreach ($cat in $cats) { if ($familyColorMap.ContainsKey($cat)) { $color = $familyColorMap[$cat]; break } }
+
+        # Criticité lisible
+        $critTone  = if ($crit -ge 5) { 'danger' } elseif ($crit -ge 4) { 'warn' } else { 'neutral' }
+        $critText  = switch ($crit) { 5 { 'CRITIQUE' } 4 { 'ÉLEVÉ' } 3 { 'MOYEN' } default { "Score $crit" } }
+        $critIcon  = if ($crit -ge 5) { '&#9940;' } elseif ($crit -ge 4) { '&#9888;' } else { '&#9679;' }
+
+        # Niveau (Erreur/Avert./Info)
+        # N'afficher le niveau que si c'est une Erreur ou Avertissement (pas Information)
+        $showLevel = $levelFr -eq 'Erreur' -or $levelFr -eq 'Avertissement'
+        $levelIcon = switch ($levelFr) { 'Erreur' { '&#10060;' } 'Avertissement' { '&#9888;' } default { '' } }
+        $levelColor = switch ($levelFr) { 'Erreur' { '#dc2626' } 'Avertissement' { '#d97706' } default { '#6b7280' } }
+
+        # --- Détection Windows Update : KB, type, statut ---
+        $wuKb = ''; $wuStatus = ''; $wuStatusIcon = ''; $wuStatusTone = ''; $wuLabel = ''; $wuLabelColor = ''
+        $msgLow = $msg.ToLowerInvariant()
+        $isWuEvent = ($prov -match 'WindowsUpdateClient|wuauserv|wusa|CBS|Servicing|UpdateOrchestrator') -or
+                     ($cats -contains 'Windows Update failure') -or ($cats -contains 'Windows Update / KB servicing') -or
+                     ($msg -match 'KB\d{6,}')
+        if ($isWuEvent) {
+            $kbMatch = [regex]::Match($msg, 'KB(\d{6,})')
+            if ($kbMatch.Success) { $wuKb = 'KB' + $kbMatch.Groups[1].Value }
+            # Statut
+            $eidInt = [int]$eid
+            if ($eidInt -eq 19 -or $msgLow -match 'successful|install.*complet|success.*install') {
+                $wuStatus = 'Installé'; $wuStatusIcon = '✅'; $wuStatusTone = 'success'
+            } elseif ($eidInt -eq 20 -or $msgLow -match 'failed|failure|echec|0x8[0-9a-f]{7}' -or $levelFr -eq 'Erreur') {
+                $wuStatus = 'Échec'; $wuStatusIcon = '❌'; $wuStatusTone = 'danger'
+            } elseif ($msgLow -match 'restart|reboot|pending|attente') {
+                $wuStatus = 'En attente'; $wuStatusIcon = '🔄'; $wuStatusTone = 'warn'
+            } else {
+                $wuStatus = 'Autre'; $wuStatusIcon = 'ℹ️'; $wuStatusTone = 'info'
+            }
+            # Type de paquet
+            if ($msgLow -match 'driver|pilote|hdaudio|nvidia|amd|intel.*driver') { $wuLabel = 'DRIVER'; $wuLabelColor = '#0891b2' }
+            elseif ($msgLow -match 'firmware|bios|uefi|microcode') { $wuLabel = 'BIOS'; $wuLabelColor = '#7c3aed' }
+            elseif ($msgLow -match 'security|sécurité|defender') { $wuLabel = 'SECURITY'; $wuLabelColor = '#b45309' }
+            elseif ($msgLow -match 'feature update|mise à niveau|upgrade') { $wuLabel = 'FEATURE'; $wuLabelColor = '#0f766e' }
+            elseif ($msgLow -match 'cumulative|cumulatif') { $wuLabel = 'CUMUL'; $wuLabelColor = '#1d4ed8' }
+            elseif ($msgLow -match 'cbs|dism|servic') { $wuLabel = 'CBS'; $wuLabelColor = '#6d28d9' }
+            else { $wuLabel = 'UPDATE'; $wuLabelColor = '#1d4ed8' }
+        }
+
+        # Échapper pour HTML et pour attributs data-*
+        $tsEsc    = [System.Security.SecurityElement]::Escape($ts)
+        $provEsc  = [System.Security.SecurityElement]::Escape($prov)
+        $eidEsc   = [System.Security.SecurityElement]::Escape($eid)
+        $catEsc   = [System.Security.SecurityElement]::Escape($catsJoin)
+        $msgEsc   = [System.Security.SecurityElement]::Escape($msg)
+        $msgSEsc  = [System.Security.SecurityElement]::Escape($msgS)
+        $colorEsc = [System.Security.SecurityElement]::Escape($color)
+        $lvlEsc   = [System.Security.SecurityElement]::Escape($levelFr)
+        $chanEsc  = [System.Security.SecurityElement]::Escape($channel)
+        $critTxtEsc = [System.Security.SecurityElement]::Escape($critText)
+        $critNumEsc = [System.Security.SecurityElement]::Escape([string]$crit)
+        $wuStatusEsc = [System.Security.SecurityElement]::Escape($wuStatus)
+        $wuKbEsc     = [System.Security.SecurityElement]::Escape($wuKb)
+        $wuLabelColorEsc = [System.Security.SecurityElement]::Escape($wuLabelColor)
+        $wuLabelEsc  = [System.Security.SecurityElement]::Escape($wuLabel)
+
+        # Badge WU optionnel dans le header
+        $wuBadgeHtml = if ($isWuEvent) {
+            $kbChip = if ($wuKb) { '<span class="frise-wu-kb">' + $wuKbEsc + '</span>' } else { '' }
+            $typeBadge = '<span class="frise-wu-label" style="background:' + $wuLabelColorEsc + ';">' + $wuLabelEsc + '</span>'
+            $statusBadge = '<span class="frise-wu-status frise-wu-' + $wuStatusTone + '">' + $wuStatusIcon + ' ' + $wuStatusEsc + '</span>'
+            $kbChip + $typeBadge + $statusBadge
+        } else { '' }
+
+        $critFriseCards += @"
+<div class="frise-card frise-card-$critTone" style="border-left-color:$colorEsc" role="button" tabindex="0"
+  data-ts="$tsEsc" data-prov="$provEsc" data-evid="$eidEsc" data-msg="$msgEsc"
+  data-cat="$catEsc" data-level="$lvlEsc" data-crit="$critNumEsc" data-chan="$chanEsc"
+  data-wu-status="$wuStatusEsc" data-wu-kb="$wuKbEsc"
+  onclick="showFriseDetail(this)" onkeydown="if(event.key==='Enter'||event.key===' ')showFriseDetail(this)">
+  <div class="frise-dot" style="background:$colorEsc;border-color:$colorEsc">$critIcon</div>
+  <div class="frise-body">
+    <div class="frise-header">
+      <span class="frise-ts">$tsEsc</span>
+      <span class="frise-badge frise-badge-$critTone">$critTxtEsc</span>
+      $(if ($showLevel) { '<span class="frise-level" style="color:' + $levelColor + '">' + $levelIcon + ' ' + $lvlEsc + '</span>' } else { '' })
+      <span class="frise-evtid">ID $eidEsc</span>
+    </div>
+    $(if ($isWuEvent) { '<div class="frise-wu-bar">' + $wuBadgeHtml + '</div>' } else { '' })
+    <div class="frise-family" style="color:$colorEsc">$catEsc</div>
+    <div class="frise-provider">$provEsc</div>
+    <div class="frise-msg">$msgSEsc</div>
+    <div class="frise-click-hint">&#128269; Cliquer pour voir les détails complets</div>
+  </div>
+</div>
+"@
+    }
+
+    $friseLegend = @'
+<div class="frise-legend">
+  <span class="frise-legend-title">Légende :</span>
+  <span class="frise-legend-item" style="background:rgba(75,85,99,0.15);color:#374151;">&#9632; Contexte (score 2)</span>
+  <span class="frise-legend-item frise-legend-neutral">&#9679; MOYEN (score 3)</span>
+  <span class="frise-legend-item frise-legend-warn">&#9650; ÉLEVÉ (score 4)</span>
+  <span class="frise-legend-item frise-legend-danger">&#9940; CRITIQUE (score 5)</span>
+  <span class="frise-legend-item" style="background:rgba(220,38,38,0.1);color:#dc2626;">&#10060; Erreur</span>
+  <span class="frise-legend-item" style="background:rgba(217,119,6,0.1);color:#d97706;">&#9888;&#65039; Avert.</span>
+  <span class="frise-legend-click">&#128269; Cliquer sur une carte = panneau détails</span>
+</div>
+'@
+    # ---- Frise horizontale : dots JSON (via ConvertTo-Json pour échappement correct) ----
+    $friseDotsObjects = [System.Collections.Generic.List[object]]::new()
+    foreach ($rec in @($critAllRecords | Select-Object -First 40)) {
+        $ts   = [string](Get-DanewCrashSafeProperty -Object $rec -Name 'timestamp'  -DefaultValue '')
+        $eid  = [string](Get-DanewCrashSafeProperty -Object $rec -Name 'event_id'   -DefaultValue '')
+        $prov = [string](Get-DanewCrashSafeProperty -Object $rec -Name 'provider'   -DefaultValue '')
+        $msg  = [string](Get-DanewCrashSafeProperty -Object $rec -Name 'message'    -DefaultValue '')
+        $crit = [int](Get-DanewCrashSafeProperty -Object $rec -Name 'criticality'   -DefaultValue 0)
+        $cats = @(Get-DanewCrashSafeProperty -Object $rec -Name 'categories' -DefaultValue @())
+        $cat  = if ($cats.Count -gt 0) { $cats[0] } else { '' }
+        $lvl  = [string](Get-DanewCrashSafeProperty -Object $rec -Name 'level_fr'   -DefaultValue '')
+        $chan = [string](Get-DanewCrashSafeProperty -Object $rec -Name 'channel'     -DefaultValue '')
+        $color = '#64748b'
+        foreach ($c in $cats) { if ($familyColorMap.ContainsKey($c)) { $color = $familyColorMap[$c]; break } }
+        $msgTrunc = if ($msg.Length -gt 600) { $msg.Substring(0, 600) } else { $msg }
+
+        # WU detection pour le JSON dots
+        $msgLowD = $msg.ToLowerInvariant()
+        $isWuD = ($prov -match 'WindowsUpdateClient|wuauserv|wusa|CBS|Servicing|UpdateOrchestrator') -or
+                 ($cats -contains 'Windows Update failure') -or ($cats -contains 'Windows Update / KB servicing') -or
+                 ($msg -match 'KB\d{6,}')
+        $wuKbD = ''; $wuStatusD = ''; $wuStatusToneD = ''; $wuLabelD = ''; $wuLabelColorD = ''; $wuDotColorD = ''
+        if ($isWuD) {
+            $km = [regex]::Match($msg, 'KB(\d{6,})')
+            if ($km.Success) { $wuKbD = 'KB' + $km.Groups[1].Value }
+            $eidDInt = [int]$eid
+            if ($eidDInt -eq 19 -or $msgLowD -match 'successful|install.*complet|success.*install') {
+                $wuStatusD = 'Installé'; $wuStatusToneD = 'success'; $wuDotColorD = '#059669'
+            } elseif ($eidDInt -eq 20 -or $msgLowD -match 'failed|failure|echec|0x8[0-9a-f]{7}' -or $lvl -eq 'Erreur') {
+                $wuStatusD = 'Échec'; $wuStatusToneD = 'danger'; $wuDotColorD = '#dc2626'
+            } elseif ($msgLowD -match 'restart|reboot|pending|attente') {
+                $wuStatusD = 'En attente'; $wuStatusToneD = 'warn'; $wuDotColorD = '#d97706'
+            } else {
+                $wuStatusD = 'Autre'; $wuStatusToneD = 'info'; $wuDotColorD = '#0891b2'
+            }
+            if ($msgLowD -match 'driver|pilote') { $wuLabelD = 'DRIVER'; $wuLabelColorD = '#0891b2' }
+            elseif ($msgLowD -match 'firmware|bios|uefi') { $wuLabelD = 'BIOS'; $wuLabelColorD = '#7c3aed' }
+            elseif ($msgLowD -match 'security|sécurité') { $wuLabelD = 'SEC'; $wuLabelColorD = '#b45309' }
+            elseif ($msgLowD -match 'feature update|upgrade') { $wuLabelD = 'FEAT'; $wuLabelColorD = '#0f766e' }
+            elseif ($msgLowD -match 'cumulative|cumulatif') { $wuLabelD = 'CUM'; $wuLabelColorD = '#1d4ed8' }
+            elseif ($msgLowD -match 'cbs|dism|servic') { $wuLabelD = 'CBS'; $wuLabelColorD = '#6d28d9' }
+            else { $wuLabelD = 'WU'; $wuLabelColorD = '#1d4ed8' }
+        }
+
+        $friseDotsObjects.Add([pscustomobject]@{
+            ts = $ts; eid = $eid; prov = $prov; msg = $msgTrunc
+            crit = $crit; cat = $cat; color = $color; level = $lvl; chan = $chan
+            wuKb = $wuKbD; wuStatus = $wuStatusD; wuTone = $wuStatusToneD
+            wuDotColor = $wuDotColorD; wuLabel = $wuLabelD; wuLabelColor = $wuLabelColorD
+            isWu = $isWuD
+        })
+    }
+    $friseDotsJsonArr = $friseDotsObjects | ConvertTo-Json -Compress -Depth 2
+
+    $friseHorizontalHtml = @"
+<div class="frise-h-wrap" id="friseHWrap" hidden>
+  <div class="frise-h-toolbar">
+    <span class="frise-h-info" id="friseHInfo"></span>
+    <span class="frise-h-hint">&#x1F50D; Cliquer sur un point = panneau détails</span>
+    <button type="button" class="frise-h-fullscreen-btn" id="friseHFullscreenBtn" onclick="toggleFriseFullscreen()" title="Plein écran">&#x26F6; Plein écran</button>
+  </div>
+  <div class="frise-h-scroll" id="friseHScroll">
+    <div class="frise-h-stage" id="friseHStage">
+      <div class="frise-h-axis" id="friseHAxis"></div>
+      <div class="frise-h-track">
+        <div class="frise-h-line-bar"></div>
+        <div class="frise-h-dots" id="friseHDots"></div>
+      </div>
+    </div>
+  </div>
+  <script id="friseHData" type="application/json">$friseDotsJsonArr</script>
+  <script id="friseHMeta" type="application/json">$([pscustomobject]@{
+    primaryCause  = [string](Get-DanewCrashSafeProperty -Object $CrashAnalysis.root_cause_analysis.primary_cause -Name 'cause' -DefaultValue '')
+    primaryCauseFr= Get-DanewSavClientText -PrimaryCause $CrashAnalysis.root_cause_analysis.primary_cause
+    confidence    = [string](Get-DanewCrashSafeProperty -Object $CrashAnalysis.root_cause_analysis.primary_cause -Name 'confidence' -DefaultValue '')
+    severity      = [string]$CrashAnalysis.severity_analysis.overall
+    rootPath      = [string]$CrashAnalysis.root_path
+    scanDate      = [string]$CrashAnalysis.timestamp
+  } | ConvertTo-Json -Compress)</script>
+</div>
+"@
+
+    $friseToggleBar = @'
+<div class="frise-view-toggle">
+  <button type="button" class="frise-view-btn active" id="btnFriseList" onclick="switchFriseView('list')">&#9776; Vue liste</button>
+  <button type="button" class="frise-view-btn" id="btnFriseH" onclick="switchFriseView('horizontal')">&#9135; Vue frise horizontale</button>
+  <div class="frise-wu-filter" id="friseWuFilter">
+    <label class="frise-filter-label">Windows Update</label>
+    <button type="button" class="frise-wu-btn frise-wu-btn-all active" onclick="setFriseWuFilter('all')" title="Tous les événements">Tout</button>
+    <button type="button" class="frise-wu-btn frise-wu-btn-success" onclick="setFriseWuFilter('wu')" title="Seulement les événements Windows Update">&#127975; WU seuls</button>
+    <button type="button" class="frise-wu-btn frise-wu-btn-success" onclick="setFriseWuFilter('Installé')" title="Mises à jour installées avec succès">&#9989; Installés</button>
+    <button type="button" class="frise-wu-btn frise-wu-btn-danger" onclick="setFriseWuFilter('Échec')" title="Mises à jour en échec">&#10060; Échecs</button>
+    <button type="button" class="frise-wu-btn frise-wu-btn-warn" onclick="setFriseWuFilter('En attente')" title="Mises à jour en attente redémarrage">&#128260; En attente</button>
+    <button type="button" class="frise-wu-btn frise-wu-btn-info" onclick="setFriseWuFilter('Autre')" title="Autres événements WU">&#8505;&#65039; Autres</button>
+  </div>
+  <div class="frise-score-filter" id="friseScoreFilter">
+    <label class="frise-filter-label">Score min</label>
+    <div class="frise-score-btns" id="friseMinBtns">
+      <button type="button" class="frise-score-btn" data-min="2" onclick="setFriseScoreMin(2)" title="Afficher contexte + tout (Services, Thermal...)">&#9632; 2</button>
+      <button type="button" class="frise-score-btn" data-min="3" onclick="setFriseScoreMin(3)" title="Afficher MOYEN + ÉLEVÉ + CRITIQUE">&#9679; 3</button>
+      <button type="button" class="frise-score-btn active" data-min="4" onclick="setFriseScoreMin(4)" title="Afficher ÉLEVÉ + CRITIQUE">&#9650; 4</button>
+      <button type="button" class="frise-score-btn" data-min="5" onclick="setFriseScoreMin(5)" title="Afficher CRITIQUE uniquement">&#9940; 5</button>
+    </div>
+    <label class="frise-filter-label">Score max</label>
+    <div class="frise-score-btns" id="friseMaxBtns">
+      <button type="button" class="frise-score-btn" data-max="2" onclick="setFriseScoreMax(2)" title="Afficher contexte seulement (score 2)">&#9632; 2</button>
+      <button type="button" class="frise-score-btn" data-max="3" onclick="setFriseScoreMax(3)" title="Afficher jusqu'à MOYEN">&#9679; 3</button>
+      <button type="button" class="frise-score-btn" data-max="4" onclick="setFriseScoreMax(4)" title="Afficher jusqu'à ÉLEVÉ">&#9650; 4</button>
+      <button type="button" class="frise-score-btn active" data-max="5" onclick="setFriseScoreMax(5)" title="Afficher tout">&#9940; 5</button>
+    </div>
+    <span class="frise-filter-count" id="friseFilterCount"></span>
+  </div>
+</div>
+'@
+
+    $critFriseHtml = if (@($critFriseCards).Count -gt 0) {
+        $friseLegend + $friseToggleBar + $friseHorizontalHtml + '<div class="frise-timeline" id="friseVList">' + ($critFriseCards -join '') + '</div>'
+    } else {
+        '<p class="section-caption">Aucun evenement de criticite &gt;= 3 detecte dans les journaux.</p>'
+    }
+    $critNotice = if ($critTotalCount -gt 40) { '<p class="section-caption" style="margin-bottom:12px;">&#9432; Affichage limite aux 40 premiers evenements critiques sur ' + $critTotalCount + ' detectes au total.</p>' } else { '' }
 
     # ---- Pattern cards with safe actions ----
     $allPatterns  = @($CrashAnalysis.timeline_intelligence.intelligence)
@@ -940,17 +1328,26 @@ function Write-DanewSavDiagnosticReportHtml {
         foreach ($pat in $allPatterns) {
             $patName = [string](Get-DanewCrashSafeProperty -Object $pat -Name 'pattern'    -DefaultValue 'Pattern inconnu')
             $patConf = [string](Get-DanewCrashSafeProperty -Object $pat -Name 'confidence' -DefaultValue 'Low')
-            $patSumm = [string](Get-DanewCrashSafeProperty -Object $pat -Name 'summary'    -DefaultValue '')
+            $patSummRaw = [string](Get-DanewCrashSafeProperty -Object $pat -Name 'summary' -DefaultValue '')
+            $patSumm = Get-DanewPatternSummaryFr -PatternName $patName -EnglishSummary $patSummRaw
             $patEv   = @(Get-DanewCrashSafeProperty -Object $pat -Name 'evidence' -DefaultValue @())
             $confTone = switch ($patConf) { 'High' { 'danger' } 'Medium' { 'warn' } default { 'neutral' } }
 
             $evItems = @()
+            $evIdx = 0
             foreach ($ev in @($patEv | Select-Object -First 3)) {
                 $evTs   = [string](Get-DanewCrashSafeProperty -Object $ev -Name 'timestamp' -DefaultValue '')
                 $evProv = [string](Get-DanewCrashSafeProperty -Object $ev -Name 'provider'  -DefaultValue '')
                 $evMsg  = [string](Get-DanewCrashSafeProperty -Object $ev -Name 'message'   -DefaultValue '')
+                $evId   = [string](Get-DanewCrashSafeProperty -Object $ev -Name 'event_id'  -DefaultValue '')
                 $evMsgS = if ($evMsg.Length -gt 100) { $evMsg.Substring(0, 100) + '...' } else { $evMsg }
-                $evItems += '<div class="pat-ev-item"><span class="pat-ev-ts">' + [System.Security.SecurityElement]::Escape($evTs) + '</span><span class="pat-ev-prov">' + [System.Security.SecurityElement]::Escape($evProv) + '</span><span class="pat-ev-msg">' + [System.Security.SecurityElement]::Escape($evMsgS) + '</span></div>'
+                $evTsEsc = [System.Security.SecurityElement]::Escape($evTs)
+                $evProvEsc = [System.Security.SecurityElement]::Escape($evProv)
+                $evMsgEsc = [System.Security.SecurityElement]::Escape($evMsg)
+                $evMsgSEsc = [System.Security.SecurityElement]::Escape($evMsgS)
+                $evIdEsc = [System.Security.SecurityElement]::Escape($evId)
+                $evItems += '<div class="pat-ev-item" data-pat-idx="' + $evIdx + '" data-ts="' + $evTsEsc + '" data-prov="' + $evProvEsc + '" data-msg="' + $evMsgEsc + '" data-evid="' + $evIdEsc + '" onclick="showPatternDetail(this)" style="cursor:pointer;"><span class="pat-ev-ts">' + $evTsEsc + '</span><span class="pat-ev-prov">' + $evProvEsc + '</span><span class="pat-ev-msg">' + $evMsgSEsc + '</span></div>'
+                $evIdx++
             }
 
             $patActions = Get-DanewSavPatternActions -PatternName $patName
@@ -961,11 +1358,87 @@ function Write-DanewSavDiagnosticReportHtml {
                 $aDesc  = [System.Security.SecurityElement]::Escape([string]$action.desc)
                 $actHtml += '<div class="pat-action-row"><button type="button" class="sav-copy-btn" data-cmd="' + $aCmd + '" data-label="' + $aLabel + '" onclick="danewCopyCmd(this)">&#128203; ' + $aLabel + '</button><code class="sav-cmd-code">' + $aCmd + '</code><span class="sav-cmd-desc">' + $aDesc + '</span></div>'
             }
-            $actWrap = if ($actHtml) { '<details class="pat-actions-wrap"><summary>Actions SAV disponibles (copie seule — adapter &lt;LETTRE_WINDOWS&gt; avant usage)</summary><div class="pat-actions">' + $actHtml + '</div></details>' } else { '' }
+            $actWrap = if ($actHtml) { '<details class="pat-actions-wrap" open><summary>&#128295; Actions SAV disponibles <span class="pat-actions-badge">copie seule</span></summary><div class="pat-actions">' + $actHtml + '</div></details>' } else { '' }
 
             $cards += '<div class="pattern-card"><div class="pat-header"><span class="pat-name">' + [System.Security.SecurityElement]::Escape($patName) + '</span><span class="report-badge report-badge-' + $confTone + '">' + [System.Security.SecurityElement]::Escape($patConf) + '</span></div><p class="pat-summary">' + [System.Security.SecurityElement]::Escape($patSumm) + '</p><div class="pat-evidence">' + ($evItems -join '') + '</div>' + $actWrap + '</div>'
         }
-        $patternCardsHtml = $cards -join ''
+
+        # Create patterns section with legend, cards, detail panel, and summary table
+        $patLegend = @"
+<div class="pat-legend">
+  <p><strong>Comment utiliser cette section :</strong></p>
+  <ul>
+    <li><span class="legend-badge legend-badge-danger">HIGH</span> = Confiance élevée — cause probable</li>
+    <li><span class="legend-badge legend-badge-warn">MEDIUM</span> = Confiance moyenne — cause possible</li>
+    <li><span class="legend-badge legend-badge-neutral">LOW</span> = Confiance faible — à vérifier</li>
+    <li>Cliquez sur une ligne d'évidence pour voir les détails complets → panneau de droite</li>
+    <li>Copiez les commandes SAV (boutons) pour dépannage manuel en WinPE</li>
+    <li>Chaque ligne affiche les 3 premiers événements du pattern ; le tableau en bas résume tous</li>
+  </ul>
+</div>
+"@
+
+        # Build evidence table data from all patterns
+        $allEvidenceData = @()
+        foreach ($pat in $allPatterns) {
+            $pn = [string](Get-DanewCrashSafeProperty -Object $pat -Name 'pattern' -DefaultValue 'Pattern inconnu')
+            $pc = [string](Get-DanewCrashSafeProperty -Object $pat -Name 'confidence' -DefaultValue 'Low')
+            $pev = @(Get-DanewCrashSafeProperty -Object $pat -Name 'evidence' -DefaultValue @())
+            foreach ($e in $pev) {
+                $ets = [string](Get-DanewCrashSafeProperty -Object $e -Name 'timestamp' -DefaultValue '')
+                $epv = [string](Get-DanewCrashSafeProperty -Object $e -Name 'provider' -DefaultValue '')
+                $emg = [string](Get-DanewCrashSafeProperty -Object $e -Name 'message' -DefaultValue '')
+                $allEvidenceData += @{pattern=$pn; confidence=$pc; timestamp=$ets; provider=$epv; message=$emg}
+            }
+        }
+
+        $evidenceTableHtml = ''
+        if (@($allEvidenceData).Count -gt 0) {
+            $tableRows = @()
+            foreach ($ed in $allEvidenceData) {
+                $pnEsc = [System.Security.SecurityElement]::Escape([string]$ed.pattern)
+                $etsEsc = [System.Security.SecurityElement]::Escape([string]$ed.timestamp)
+                $epvEsc = [System.Security.SecurityElement]::Escape([string]$ed.provider)
+                $emgEsc = [System.Security.SecurityElement]::Escape([string]$ed.message)
+                $confTone = switch ([string]$ed.confidence) { 'High' { 'danger' } 'Medium' { 'warn' } default { 'neutral' } }
+                $tableRows += '<tr data-pattern="' + $pnEsc + '" data-conf="' + [string]$ed.confidence + '" data-ts="' + $etsEsc + '" data-prov="' + $epvEsc + '" data-msg="' + $emgEsc + '" data-evid="" onclick="showPatternDetail(this)" style="cursor:pointer;"><td><strong>' + $pnEsc + '</strong></td><td><span class="report-badge report-badge-' + $confTone + '">' + [System.Security.SecurityElement]::Escape([string]$ed.confidence) + '</span></td><td>' + $etsEsc + '</td><td>' + $epvEsc + '</td><td>' + $emgEsc + '</td></tr>'
+            }
+            $evidenceTableHtml = @"
+<div class="pat-table-wrap">
+  <h4>Tableau récapitulatif - Tous les événements</h4>
+  <table class="pat-evidence-table" id="patEvidenceTable">
+    <thead>
+      <tr>
+        <th data-sort-trigger="pattern">Pattern</th>
+        <th data-sort-trigger="confidence">Confiance</th>
+        <th data-sort-trigger="timestamp">Date/Heure</th>
+        <th data-sort-trigger="provider">Source</th>
+        <th data-sort-trigger="message">Détails</th>
+      </tr>
+    </thead>
+    <tbody>
+      $($tableRows -join '')
+    </tbody>
+  </table>
+</div>
+"@
+        }
+
+        # Fixed overlay panel — same pattern as OfflineLogsEngine evtx-detail-panel
+        $fixedDetailPanel = @'
+<aside class="pat-detail-panel" id="patDetailPanel" hidden>
+  <div class="pat-detail-head">
+    <h3 id="patDetailTitle">Détail événement</h3>
+    <button type="button" class="ghost-button" id="patDetailClose" title="Fermer">&#10005; Fermer</button>
+  </div>
+  <div class="pat-detail-body" id="patDetailBody"></div>
+  <div class="pat-detail-footer" id="patDetailFooter">
+    <button type="button" class="pat-detail-copy-btn" id="patCopyBtnGlobal">&#128203; Copier tout</button>
+    <button type="button" class="pat-detail-ai-btn" id="patAiBtnGlobal">&#129302; Analyse IA complète</button>
+  </div>
+</aside>
+'@
+        $patternCardsHtml = $patLegend + '<div class="pat-cards-list">' + ($cards -join '') + '</div>' + $evidenceTableHtml + $fixedDetailPanel
     }
 
     # ---- DISM/CBS section ----
@@ -994,6 +1467,52 @@ function Write-DanewSavDiagnosticReportHtml {
         }
         $dStatLine = '<p>Evenements DISM/CBS : <b>' + @($dismCbsClassified).Count + '</b> &nbsp;|&nbsp; Erreurs : <b>' + @($dismErrors).Count + '</b> &nbsp;|&nbsp; KB references : <b>' + @($dismKbs).Count + '</b></p>'
         $dismCbsSectionHtml = New-DanewReportSectionHtml -Title 'Journaux DISM/CBS (maintenance systeme)' -Caption 'Evenements extraits des journaux texte DISM.log et CBS.log. Peuvent expliquer les echecs de mise a jour ou de reparation.' -SearchText 'dism cbs servicing KB maintenance update log' -BodyHtml ($dismClientMsg + $dStatLine + (New-DanewReportTableHtml -Headers @('Horodatage', 'Niveau', 'Message') -Rows $dismRows -EmptyMessage 'Aucun evenement DISM/CBS.')) -Collapsed $true
+    }
+
+    # ---- Windows Update Package History section ----
+    $wuPackages = @(Get-DanewWindowsUpdatePackages -CrashAnalysis $CrashAnalysis)
+    $wuSectionHtml = ''
+    if ($wuPackages.Count -gt 0) {
+        $wuSuccess = @($wuPackages | Where-Object { $_.statusTone -eq 'success' }).Count
+        $wuFailed  = @($wuPackages | Where-Object { $_.statusTone -eq 'danger'  }).Count
+        $wuPending = @($wuPackages | Where-Object { $_.statusTone -eq 'warn'    }).Count
+        $wuOther   = $wuPackages.Count - $wuSuccess - $wuFailed - $wuPending
+
+        # Summary cards
+        $wuSummary = '<div class="wu-summary">' +
+            '<div class="wu-stat wu-stat-success"><span class="wu-stat-icon">&#9989;</span><span class="wu-stat-val">' + $wuSuccess + '</span><span class="wu-stat-lbl">Installés</span></div>' +
+            '<div class="wu-stat wu-stat-danger"><span class="wu-stat-icon">&#10060;</span><span class="wu-stat-val">' + $wuFailed + '</span><span class="wu-stat-lbl">Échecs</span></div>' +
+            '<div class="wu-stat wu-stat-warn"><span class="wu-stat-icon">&#128260;</span><span class="wu-stat-val">' + $wuPending + '</span><span class="wu-stat-lbl">En attente</span></div>' +
+            '<div class="wu-stat wu-stat-neutral"><span class="wu-stat-icon">&#8505;</span><span class="wu-stat-val">' + $wuOther + '</span><span class="wu-stat-lbl">Autres</span></div>' +
+            '</div>'
+
+        # Table rows
+        $wuRows = @()
+        foreach ($pkg in $wuPackages) {
+            $kbEsc    = [System.Security.SecurityElement]::Escape($pkg.kb)
+            $tsEsc    = [System.Security.SecurityElement]::Escape($pkg.timestamp)
+            $typeEsc  = [System.Security.SecurityElement]::Escape($pkg.type)
+            $stEsc    = [System.Security.SecurityElement]::Escape($pkg.status)
+            $stIcon   = $pkg.statusIcon
+            $nameEsc  = [System.Security.SecurityElement]::Escape($pkg.pkgName)
+            $errEsc   = [System.Security.SecurityElement]::Escape($pkg.errCode)
+            $colorEsc = [System.Security.SecurityElement]::Escape($pkg.color)
+            $msgEsc   = [System.Security.SecurityElement]::Escape($pkg.message)
+            $toneEsc  = [System.Security.SecurityElement]::Escape($pkg.statusTone)
+            $labelEsc = [System.Security.SecurityElement]::Escape($pkg.label)
+            $tone = $pkg.statusTone
+            $rowBg = switch ($tone) { 'success' { 'rgba(16,185,129,0.06)' } 'danger' { 'rgba(239,68,68,0.07)' } 'warn' { 'rgba(245,158,11,0.07)' } default { '' } }
+
+            $searchText = ConvertTo-DanewReportHtmlText (($pkg.kb, $pkg.type, $pkg.timestamp, $pkg.status, $pkg.pkgName, $pkg.errCode) -join ' ')
+            $wuRows += "<tr data-search-row=`"$searchText`" data-status=`"$toneEsc`" data-ts=`"$tsEsc`" data-prov=`"$([System.Security.SecurityElement]::Escape($pkg.provider))`" data-msg=`"$msgEsc`" data-evid=`"$([string]$pkg.eventId)`" data-crit=`"$([string]$pkg.criticality)`" data-cat=`"$typeEsc`" data-level=`"`" data-chan=`"`" style=`"background:$rowBg;cursor:pointer;`" onclick=`"showPatternDetail(this)`"><td><span class='wu-kb-chip'>$kbEsc</span></td><td><span class='wu-type-badge' style='background:$colorEsc;'>$labelEsc</span></td><td>$typeEsc</td><td>$tsEsc</td><td>$stIcon <span class='wu-status-$toneEsc'>$stEsc</span></td><td>$nameEsc</td><td class='wu-err-code'>$errEsc</td></tr>"
+        }
+
+        $wuSectionHtml = New-DanewReportSectionHtml `
+            -Title 'Historique Windows Update' `
+            -Caption ([string]$wuPackages.Count + ' paquet(s) detectes. Cliquer une ligne = panneau details complet.') `
+            -SearchText 'windows update KB driver bios security feature cumulative installed failed' `
+            -BodyHtml ($wuSummary + (New-DanewReportTableHtml -Headers @('KB', 'Type', 'Catégorie', 'Date/Heure', 'Statut', 'Nom paquet', 'Code erreur') -Rows $wuRows -EmptyMessage 'Aucun paquet Windows Update détecté.')) `
+            -Collapsed $false
     }
 
     # ---- Safe actions section (consolidated per pattern family) ----
@@ -1065,7 +1584,7 @@ function Write-DanewSavDiagnosticReportHtml {
 
     # ---- Meta ----
     $meta = New-DanewReportMetaListHtml -Items @(
-        [pscustomobject]@{ label = 'Horodatage';          value = $CrashAnalysis.timestamp }
+        [pscustomobject]@{ label = 'Horodatage';          value = $(try { [datetime]::Parse($CrashAnalysis.timestamp).ToString("dd/MM/yyyy 'à' HH'h'mm") } catch { $CrashAnalysis.timestamp }) }
         [pscustomobject]@{ label = 'Impact';              value = (Get-DanewLocalizedImpactText $CrashAnalysis.impact) }
         [pscustomobject]@{ label = 'Chemin racine';       value = $CrashAnalysis.root_path }
         [pscustomobject]@{ label = 'Confiance detection'; value = (Get-DanewLocalizedConfidenceText $CrashAnalysis.detection_confidence) }
@@ -1079,6 +1598,33 @@ function Write-DanewSavDiagnosticReportHtml {
     $additionalCss = @'
 <style>
 /* SAV Enhanced — pattern cards, timeline, copy buttons */
+/* Windows Update History */
+.wu-summary{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;}
+.wu-stat{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:14px 20px;border-radius:14px;border:1px solid var(--line);background:var(--panel);min-width:90px;text-align:center;}
+.wu-stat-icon{font-size:22px;}
+.wu-stat-val{font-size:28px;font-weight:800;line-height:1;}
+.wu-stat-lbl{font-size:11px;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted);}
+.wu-stat-success{border-color:rgba(16,185,129,0.3);background:rgba(16,185,129,0.06);}
+.wu-stat-success .wu-stat-val{color:#065f46;}
+.wu-stat-danger{border-color:rgba(239,68,68,0.3);background:rgba(239,68,68,0.06);}
+.wu-stat-danger .wu-stat-val{color:#991b1b;}
+.wu-stat-warn{border-color:rgba(245,158,11,0.3);background:rgba(245,158,11,0.06);}
+.wu-stat-warn .wu-stat-val{color:#78350f;}
+.wu-stat-neutral{border-color:var(--line);background:rgba(23,32,51,0.04);}
+.wu-stat-neutral .wu-stat-val{color:var(--muted);}
+.wu-kb-chip{display:inline-block;padding:3px 8px;border-radius:6px;font-family:Consolas,"Cascadia Mono",monospace;font-size:12px;font-weight:700;background:#dbeafe;color:#1e40af;white-space:nowrap;}
+.wu-type-badge{display:inline-block;padding:3px 8px;border-radius:6px;font-size:10px;font-weight:700;color:#fff;letter-spacing:0.04em;text-transform:uppercase;}
+.wu-status-success{color:#065f46;font-weight:700;}
+.wu-status-danger{color:#991b1b;font-weight:700;}
+.wu-status-warn{color:#78350f;font-weight:700;}
+.wu-err-code{font-family:Consolas,"Cascadia Mono",monospace;font-size:11px;color:var(--muted);}
+body.theme-dark .wu-kb-chip{background:rgba(30,64,175,0.25);color:#93c5fd;}
+body.theme-dark .wu-stat-success{background:rgba(16,185,129,0.08);}
+body.theme-dark .wu-stat-success .wu-stat-val{color:#6ee7b7;}
+body.theme-dark .wu-stat-danger{background:rgba(239,68,68,0.08);}
+body.theme-dark .wu-stat-danger .wu-stat-val{color:#fca5a5;}
+body.theme-dark .wu-stat-warn{background:rgba(245,158,11,0.08);}
+body.theme-dark .wu-stat-warn .wu-stat-val{color:#fbbf24;}
 .client-text-box{display:flex;align-items:flex-start;gap:10px;margin:12px 0;padding:12px 16px;background:rgba(15,118,110,0.08);border:1px solid rgba(15,118,110,0.22);border-radius:12px;font-size:14px;}
 .client-text-icon{font-size:20px;flex-shrink:0;margin-top:1px;}
 .pattern-card{margin-bottom:14px;padding:16px;border:1px solid var(--line);border-radius:16px;background:var(--panel);}
@@ -1086,13 +1632,17 @@ function Write-DanewSavDiagnosticReportHtml {
 .pat-name{font-weight:700;font-size:15px;}
 .pat-summary{margin:0 0 10px 0;color:var(--muted);font-size:13px;}
 .pat-evidence{display:flex;flex-direction:column;gap:4px;margin-bottom:10px;}
-.pat-ev-item{display:grid;grid-template-columns:160px 200px 1fr;gap:6px;font-size:12px;padding:5px 8px;background:rgba(23,32,51,0.04);border-radius:8px;overflow:hidden;}
+.pat-ev-item{display:grid;grid-template-columns:130px 140px 1fr;grid-auto-rows:auto;gap:6px;font-size:12px;padding:5px 8px;background:rgba(23,32,51,0.04);border-radius:8px;align-items:start;}
 .pat-ev-ts{color:var(--muted);font-family:Consolas,"Cascadia Mono",monospace;}
 .pat-ev-prov{color:var(--accent-strong);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.pat-ev-msg{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.pat-actions-wrap{margin-top:8px;}
-.pat-actions-wrap summary{cursor:pointer;font-size:13px;color:var(--muted);padding:4px 0;}
-.pat-actions-wrap summary:hover{color:var(--accent);}
+.pat-ev-msg{overflow:hidden;word-break:break-word;white-space:pre-wrap;line-height:1.35;max-height:6.75em;padding-top:2px;}
+.pat-actions-wrap{margin-top:10px;border:1px solid rgba(15,118,110,0.2);border-radius:10px;overflow:hidden;}
+.pat-actions-wrap summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--accent-strong);padding:8px 12px;background:rgba(15,118,110,0.06);display:flex;align-items:center;gap:8px;list-style:none;}
+.pat-actions-wrap summary::-webkit-details-marker{display:none;}
+.pat-actions-wrap summary::before{content:'▸';transition:transform 180ms;font-size:11px;color:var(--accent);}
+.pat-actions-wrap[open] summary::before{content:'▾';}
+.pat-actions-wrap summary:hover{background:rgba(15,118,110,0.1);}
+.pat-actions-badge{display:inline-block;padding:2px 7px;border-radius:5px;font-size:10px;font-weight:700;background:rgba(15,118,110,0.15);color:var(--accent-strong);margin-left:auto;text-transform:uppercase;letter-spacing:0.04em;}
 .pat-actions{display:flex;flex-direction:column;gap:8px;margin-top:8px;}
 .pat-action-row{display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;gap:4px 10px;align-items:start;padding:8px;background:rgba(23,32,51,0.03);border-radius:10px;border:1px solid var(--line);}
 .sav-copy-btn{grid-row:1;grid-column:1;padding:7px 12px;border-radius:10px;border:1px solid rgba(15,118,110,0.35);background:rgba(15,118,110,0.09);color:var(--accent-strong);cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap;transition:background 120ms,transform 120ms;}
@@ -1104,7 +1654,91 @@ function Write-DanewSavDiagnosticReportHtml {
 .sav-act-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;}
 .sav-act-family{padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--panel);}
 .sav-act-family-title{font-weight:700;font-size:14px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--line);}
-@media(max-width:720px){.pat-ev-item{grid-template-columns:1fr;}.pat-action-row{grid-template-columns:1fr;}.sav-cmd-code{grid-row:2;grid-column:1;}.sav-cmd-desc{grid-row:3;}}
+.pat-legend{padding:14px;background:rgba(15,118,110,0.06);border:1px solid rgba(15,118,110,0.15);border-radius:12px;margin-bottom:16px;}
+.pat-legend p{margin:0 0 10px 0;font-size:13px;font-weight:600;}
+.pat-legend ul{margin:0;padding-left:20px;font-size:12px;line-height:1.6;}
+.pat-legend li{margin-bottom:6px;}
+.legend-badge{display:inline-block;padding:3px 8px;border-radius:5px;font-size:11px;font-weight:600;margin-right:6px;}
+.legend-badge-danger{background:#fee2e2;color:#7f1d1d;}
+.legend-badge-warn{background:#fef3c7;color:#78350f;}
+.legend-badge-neutral{background:#e5e7eb;color:#374151;}
+body.theme-dark .pat-legend{background:rgba(20,184,166,0.06);border-color:rgba(20,184,166,0.15);}
+body.theme-dark .legend-badge-danger{background:rgba(220,38,38,0.2);color:#fca5a5;}
+body.theme-dark .legend-badge-warn{background:rgba(217,119,6,0.2);color:#fbbf24;}
+body.theme-dark .legend-badge-neutral{background:rgba(107,114,128,0.2);color:#d1d5db;}
+.pat-cards-list{display:flex;flex-direction:column;gap:14px;margin-bottom:20px;}
+.pat-detail-panel{position:fixed;top:76px;right:16px;width:400px;max-height:calc(100vh - 96px);display:flex;flex-direction:column;z-index:1200;border:1px solid var(--line);border-radius:18px;background:#ffffff;box-shadow:0 8px 40px rgba(0,0,0,0.18);pointer-events:none;overflow:hidden;}
+.pat-detail-panel[hidden]{display:none!important;}
+.pat-detail-panel>*{pointer-events:auto;}
+.pat-detail-panel{animation:patSlideIn 0.22s ease;}
+.pat-detail-head{padding:14px 16px 12px;border-bottom:1px solid var(--line);flex-shrink:0;}
+.pat-detail-body{flex:1;overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:10px;}
+.pat-detail-footer{flex-shrink:0;display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--line);background:rgba(248,250,252,0.95);}
+@keyframes patSlideIn{from{opacity:0;transform:translateX(30px);}to{opacity:1;transform:translateX(0);}}
+.pat-detail-head{display:flex;align-items:center;gap:8px;}
+.pat-detail-head h3{margin:0;font-size:15px;flex:1;}
+.pat-detail-field{padding-bottom:10px;border-bottom:1px solid var(--line);}
+.pat-detail-field:last-child{border-bottom:none;padding-bottom:0;}
+.pat-detail-label{font-size:11px;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted);font-weight:600;display:block;margin-bottom:4px;}
+.pat-detail-value{font-family:Consolas,"Cascadia Mono",monospace;white-space:pre-wrap;word-break:break-word;background:#f8fafc;border:1px solid var(--line);padding:8px 10px;border-radius:8px;font-size:12px;line-height:1.45;max-height:220px;overflow-y:auto;}
+.pat-detail-ctx-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;}
+.pat-detail-chip{display:inline-block;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:700;}
+.pat-detail-chip-kb{background:#dbeafe;color:#1e40af;font-family:Consolas,monospace;}
+.pat-detail-chip-danger{background:#fee2e2;color:#7f1d1d;}
+.pat-detail-chip-warn{background:#fef3c7;color:#78350f;}
+.pat-detail-chip-neutral{background:#e5e7eb;color:#374151;}
+.pat-detail-ctx-box{background:rgba(23,32,51,0.04);border-radius:8px;padding:10px 12px;font-size:12px;line-height:1.5;}
+.pat-detail-nearby{display:flex;flex-direction:column;gap:5px;margin-top:4px;}
+.pat-detail-nearby-row{display:grid;grid-template-columns:64px 70px 1fr 1fr;gap:5px;align-items:center;font-size:11px;padding:4px 6px;background:rgba(23,32,51,0.03);border-radius:6px;}
+.pat-detail-nearby-time{font-family:Consolas,monospace;color:var(--muted);}
+.pat-detail-nearby-prov{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pat-detail-nearby-cat{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+body.theme-dark .pat-detail-ctx-box{background:rgba(255,255,255,0.04);}
+body.theme-dark .pat-detail-chip-kb{background:rgba(30,64,175,0.2);color:#93c5fd;}
+body.theme-dark .pat-detail-chip-danger{background:rgba(220,38,38,0.2);color:#fca5a5;}
+body.theme-dark .pat-detail-chip-warn{background:rgba(217,119,6,0.2);color:#fbbf24;}
+body.theme-dark .pat-detail-nearby-row{background:rgba(255,255,255,0.03);}
+.pat-detail-btn-row{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;}
+.pat-detail-copy-btn{display:inline-flex;align-items:center;gap:4px;padding:6px 12px;background:rgba(15,118,110,0.1);border:1px solid rgba(15,118,110,0.25);border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;color:var(--accent-strong);transition:background 120ms,transform 80ms;}
+.pat-detail-copy-btn:hover{background:rgba(15,118,110,0.22);transform:translateY(-1px);}
+.pat-detail-copy-btn:active{transform:translateY(0);}
+.pat-detail-ai-btn{display:inline-flex;align-items:center;gap:4px;padding:6px 12px;background:rgba(99,60,180,0.1);border:1px solid rgba(99,60,180,0.28);border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;color:#5b21b6;transition:background 120ms,transform 80ms;}
+.pat-detail-ai-btn:hover{background:rgba(99,60,180,0.2);transform:translateY(-1px);}
+.pat-detail-ai-btn:active{transform:translateY(0);}
+.pat-detail-ai-btn.copied{background:rgba(99,60,180,0.25);color:#4c1d95;}
+body.theme-dark .pat-detail-ai-btn{color:#c4b5fd;background:rgba(139,92,246,0.12);border-color:rgba(139,92,246,0.3);}
+body.theme-dark .pat-detail-ai-btn:hover{background:rgba(139,92,246,0.22);}
+.pat-ev-item:hover{background:rgba(15,118,110,0.07)!important;outline:2px solid rgba(15,118,110,0.25);border-radius:8px;}
+.pat-ev-item.selected{background:rgba(15,118,110,0.13)!important;outline:2px solid var(--accent);border-radius:8px;}
+.pat-table-wrap{margin-top:20px;}
+.pat-table-wrap h4{margin:0 0 12px 0;font-size:14px;font-weight:700;}
+.pat-evidence-table{width:100%;border-collapse:collapse;font-size:12px;}
+.pat-evidence-table thead{background:rgba(23,32,51,0.06);}
+.pat-evidence-table th{padding:10px;text-align:left;font-weight:700;cursor:pointer;user-select:none;border-bottom:2px solid var(--line);}
+.pat-evidence-table th[data-sort-trigger]{position:relative;padding-right:22px;}
+.pat-evidence-table th[data-sort-trigger]::after{content:' \2195';position:absolute;right:4px;opacity:0.4;font-size:10px;}
+.pat-evidence-table th[data-sort-trigger].sort-asc::after{content:' \2191';opacity:1;}
+.pat-evidence-table th[data-sort-trigger].sort-desc::after{content:' \2193';opacity:1;}
+.pat-evidence-table td{padding:10px;border-bottom:1px solid var(--line);}
+.pat-evidence-table tbody tr{cursor:pointer;}
+.pat-evidence-table tbody tr:hover{background:rgba(15,118,110,0.05);}
+.pat-evidence-table tbody tr.selected{background:rgba(15,118,110,0.12);}
+body.theme-dark .pat-detail-panel{background:rgba(15,23,42,0.97);border-color:rgba(255,255,255,0.12);}
+body.theme-dark .pat-detail-footer{background:rgba(15,23,42,0.95);border-color:rgba(255,255,255,0.08);}
+body.theme-dark .pat-detail-value{background:rgba(255,255,255,0.05);border-color:rgba(255,255,255,0.1);}
+body.theme-dark .pat-ev-item:hover{background:rgba(20,184,166,0.1)!important;}
+body.theme-dark .pat-ev-item.selected{background:rgba(20,184,166,0.15)!important;}
+body.theme-dark .pat-evidence-table thead{background:rgba(255,255,255,0.05);}
+body.theme-dark .pat-evidence-table tbody tr:hover{background:rgba(20,184,166,0.06);}
+@media(max-width:720px){
+  .pat-ev-item{grid-template-columns:1fr;}
+  .pat-ev-msg{max-height:10em;}
+  .pat-action-row{grid-template-columns:1fr;}
+  .sav-cmd-code{grid-row:2;grid-column:1;}
+  .sav-cmd-desc{grid-row:3;}
+  .pat-evidence-table{font-size:11px;}
+  .pat-evidence-table th,.pat-evidence-table td{padding:6px 4px;}
+}
 body.theme-dark .client-text-box{background:rgba(20,184,166,0.08);border-color:rgba(20,184,166,0.2);}
 body.theme-dark .pattern-card{background:rgba(15,23,42,0.85);}
 body.theme-dark .pat-ev-item{background:rgba(255,255,255,0.04);}
@@ -1113,6 +1747,139 @@ body.theme-dark .sav-copy-btn:hover{background:rgba(20,184,166,0.22);}
 body.theme-dark .sav-cmd-code{background:rgba(255,255,255,0.05);}
 body.theme-dark .sav-act-family{background:rgba(15,23,42,0.85);}
 body.theme-dark .pat-action-row{background:rgba(255,255,255,0.03);}
+/* Frise chronologique critique — timeline visuelle avec cartes */
+/* ===================== FRISE TOGGLE ===================== */
+.frise-view-toggle{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:14px;}
+.frise-view-btn{padding:8px 16px;border-radius:10px;border:1px solid var(--line);background:var(--panel);cursor:pointer;font-size:13px;font-weight:600;color:var(--muted);transition:all 150ms;}
+.frise-view-btn.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+.frise-view-btn:hover:not(.active){border-color:var(--accent);color:var(--accent);}
+/* WU filter */
+.frise-wu-filter{display:flex;align-items:center;gap:5px;flex-wrap:wrap;}
+.frise-wu-btn{padding:4px 9px;border-radius:7px;border:1px solid var(--line);background:var(--panel-strong);cursor:pointer;font-size:11px;font-weight:600;color:var(--muted);transition:all 120ms;white-space:nowrap;}
+.frise-wu-btn:hover{opacity:0.85;}
+.frise-wu-btn.active{color:#fff;}
+.frise-wu-btn-all.active{background:#475569;border-color:#475569;}
+.frise-wu-btn-success.active{background:#059669;border-color:#059669;}
+.frise-wu-btn-danger.active{background:#dc2626;border-color:#dc2626;}
+.frise-wu-btn-warn.active{background:#d97706;border-color:#d97706;}
+.frise-wu-btn-info.active{background:#0891b2;border-color:#0891b2;}
+/* WU bar inside frise card */
+.frise-wu-bar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:5px;margin-top:2px;}
+.frise-wu-kb{display:inline-block;padding:2px 6px;border-radius:5px;font-family:Consolas,monospace;font-size:10px;font-weight:700;background:#dbeafe;color:#1e40af;}
+.frise-wu-label{display:inline-block;padding:2px 6px;border-radius:5px;font-size:9px;font-weight:700;color:#fff;text-transform:uppercase;letter-spacing:0.04em;}
+.frise-wu-status{font-size:11px;font-weight:700;}
+.frise-wu-success{color:#065f46;}
+.frise-wu-danger{color:#991b1b;}
+.frise-wu-warn{color:#92400e;}
+.frise-wu-info{color:#0e7490;}
+body.theme-dark .frise-wu-kb{background:rgba(30,64,175,0.25);color:#93c5fd;}
+body.theme-dark .frise-wu-success{color:#6ee7b7;}
+body.theme-dark .frise-wu-danger{color:#fca5a5;}
+body.theme-dark .frise-wu-warn{color:#fbbf24;}
+/* Score filter */
+.frise-score-filter{display:flex;align-items:center;gap:6px;margin-left:auto;padding:4px 10px;background:rgba(23,32,51,0.04);border:1px solid var(--line);border-radius:12px;flex-wrap:wrap;}
+.frise-filter-label{font-size:11px;font-weight:600;color:var(--muted);white-space:nowrap;}
+.frise-score-btns{display:flex;gap:3px;}
+.frise-score-btn{padding:4px 9px;border-radius:7px;border:1px solid var(--line);background:var(--panel-strong);cursor:pointer;font-size:11px;font-weight:700;color:var(--muted);transition:all 120ms;white-space:nowrap;}
+.frise-score-btn:hover{border-color:var(--accent);color:var(--accent);}
+.frise-score-btn.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+.frise-score-btn[data-min="2"].active,.frise-score-btn[data-max="2"].active{background:#4b5563;border-color:#4b5563;}
+.frise-score-btn[data-min="3"].active,.frise-score-btn[data-max="3"].active{background:#6b7280;border-color:#6b7280;}
+.frise-score-btn[data-min="4"].active,.frise-score-btn[data-max="4"].active{background:#d97706;border-color:#d97706;}
+.frise-score-btn[data-min="5"].active,.frise-score-btn[data-max="5"].active{background:#b42318;border-color:#b42318;}
+.frise-filter-count{font-size:11px;color:var(--muted);padding-left:4px;border-left:1px solid var(--line);white-space:nowrap;}
+body.theme-dark .frise-score-filter{background:rgba(255,255,255,0.04);}
+body.theme-dark .frise-score-btn{background:rgba(255,255,255,0.05);}
+body.theme-dark .frise-score-btn.active{color:#fff;}
+
+/* ===================== FRISE HORIZONTALE ===================== */
+.frise-h-wrap{margin-bottom:12px;}
+.frise-h-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:10px;font-size:12px;flex-wrap:wrap;}
+.frise-h-info{color:var(--muted);flex:1;}
+.frise-h-hint{color:var(--accent);font-style:italic;opacity:0.8;}
+.frise-h-fullscreen-btn{padding:6px 12px;border-radius:9px;border:1px solid var(--line);background:var(--panel-strong);cursor:pointer;font-size:12px;font-weight:600;color:var(--text);transition:all 150ms;white-space:nowrap;}
+.frise-h-fullscreen-btn:hover{border-color:var(--accent);color:var(--accent);background:rgba(15,118,110,0.07);}
+/* Plein écran */
+.frise-h-wrap.frise-fullscreen{position:fixed;inset:0;z-index:2000;background:var(--panel-strong,#fff);display:flex;flex-direction:column;justify-content:center;padding:14px 32px 20px;overflow:hidden;}
+.frise-h-wrap.frise-fullscreen .frise-h-toolbar{flex-shrink:0;margin-bottom:16px;}
+.frise-h-wrap.frise-fullscreen .frise-h-scroll{overflow-x:auto;overflow-y:visible;flex-shrink:0;}
+.frise-h-wrap.frise-fullscreen .frise-h-stage{min-width:100%;}
+.frise-h-wrap.frise-fullscreen .frise-h-track{height:220px;}
+.frise-h-wrap.frise-fullscreen .frise-h-axis span{line-height:1.3;}
+.frise-h-wrap.frise-fullscreen .frise-h-fullscreen-btn{background:rgba(220,38,38,0.08);border-color:rgba(220,38,38,0.3);color:#dc2626;}
+.frise-h-wrap.frise-fullscreen .frise-h-fullscreen-btn:hover{background:rgba(220,38,38,0.16);}
+body.frise-fullscreen-active{overflow:hidden;}
+body.theme-dark .frise-h-wrap.frise-fullscreen{background:rgb(10,15,30);}
+body.theme-dark .frise-h-wrap.frise-fullscreen{background:rgb(10,15,30);}
+.frise-h-scroll{overflow-x:auto;overflow-y:visible;padding-bottom:8px;cursor:grab;}
+.frise-h-scroll:active{cursor:grabbing;}
+.frise-h-stage{min-width:900px;position:relative;padding:0 40px;}
+.frise-h-axis{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);font-family:Consolas,monospace;margin-bottom:6px;}
+.frise-h-track{position:relative;height:140px;}
+.frise-h-line-bar{position:absolute;top:50%;left:0;right:0;height:3px;background:linear-gradient(90deg,#b42318,#c2410c 25%,#1d4ed8 50%,#0f766e 80%,#374151);border-radius:2px;opacity:0.22;transform:translateY(-50%);}
+.frise-h-dots{position:absolute;top:0;left:0;right:0;bottom:0;}
+.frise-h-dot-wrap{position:absolute;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;cursor:pointer;}
+.frise-h-dot-wrap:hover .frise-h-dot{transform:scale(1.35);box-shadow:0 4px 14px rgba(0,0,0,0.25);}
+.frise-h-dot-wrap.selected .frise-h-dot{box-shadow:0 0 0 3px rgba(15,118,110,0.4);}
+.frise-h-dot{border-radius:50%;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.2);transition:transform 150ms,box-shadow 150ms;cursor:pointer;}
+.frise-h-label-top{position:absolute;bottom:calc(50% + 14px);text-align:center;font-size:10px;font-weight:600;max-width:100px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:2px 5px;pointer-events:none;}
+.frise-h-label-bottom{position:absolute;top:calc(50% + 14px);text-align:center;font-size:10px;font-weight:600;max-width:100px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:2px 5px;pointer-events:none;}
+.frise-h-time{position:absolute;font-size:9px;color:var(--muted);font-family:Consolas,monospace;white-space:nowrap;pointer-events:none;}
+.frise-h-time-top{bottom:calc(50% - 12px);}
+.frise-h-time-bottom{top:calc(50% + 2px);}
+.frise-h-connector{position:absolute;width:1px;background:var(--line);pointer-events:none;}
+body.theme-dark .frise-h-label-top,body.theme-dark .frise-h-label-bottom{background:rgba(15,23,42,0.9);border-color:rgba(255,255,255,0.12);}
+body.theme-dark .frise-h-dot{border-color:rgba(15,23,42,0.8);}
+
+/* ===================== FRISE CHRONOLOGIQUE ===================== */
+.frise-legend{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px;padding:12px 14px;background:rgba(23,32,51,0.04);border-radius:10px;font-size:12px;align-items:center;}
+.frise-legend-title{font-weight:700;margin-right:4px;color:var(--muted);}
+.frise-legend-item{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:600;}
+.frise-legend-danger{background:#fee2e2;color:#7f1d1d;}
+.frise-legend-warn{background:#fef3c7;color:#78350f;}
+.frise-legend-neutral{background:#e5e7eb;color:#374151;}
+.frise-legend-click{font-size:11px;color:var(--muted);margin-left:auto;font-style:italic;}
+.frise-timeline{position:relative;padding:4px 0 4px 0;}
+.frise-timeline::before{content:'';position:absolute;left:14px;top:0;bottom:0;width:3px;background:linear-gradient(180deg,#b42318 0%,#c2410c 20%,#1d4ed8 50%,#0f766e 80%,#374151 100%);border-radius:2px;opacity:0.25;}
+.frise-card{display:flex;gap:0;margin-bottom:12px;position:relative;margin-left:44px;border:1px solid var(--line);border-radius:12px;background:var(--panel);border-left:4px solid #64748b;cursor:pointer;transition:box-shadow 180ms,transform 120ms,border-left-width 120ms;outline:none;}
+.frise-card[hidden]{display:none!important;}
+.frise-card:hover{box-shadow:0 6px 20px rgba(0,0,0,0.13);transform:translateX(2px);border-left-width:6px;}
+.frise-card:focus-visible{box-shadow:0 0 0 3px rgba(15,118,110,0.35);}
+.frise-card.selected{box-shadow:0 6px 22px rgba(0,0,0,0.16);border-left-width:6px;outline:2px solid rgba(15,118,110,0.4);}
+.frise-card-danger.selected{outline-color:rgba(180,35,24,0.4);}
+.frise-card-warn.selected{outline-color:rgba(180,83,9,0.4);}
+.frise-dot{display:flex;align-items:center;justify-content:center;width:30px;height:30px;min-width:30px;border-radius:50%;background:white;border:3px solid currentColor;font-size:14px;position:absolute;left:-52px;top:50%;transform:translateY(-50%);z-index:10;box-shadow:0 2px 6px rgba(0,0,0,0.15);}
+.frise-body{flex:1;min-width:0;padding:11px 14px;}
+.frise-header{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;}
+.frise-ts{font-family:Consolas,"Cascadia Mono",monospace;font-size:12px;font-weight:700;color:var(--text);background:rgba(23,32,51,0.06);padding:2px 7px;border-radius:5px;}
+.frise-badge{display:inline-block;padding:3px 9px;border-radius:6px;font-size:11px;font-weight:700;letter-spacing:0.03em;}
+.frise-badge-danger{background:#fee2e2;color:#7f1d1d;}
+.frise-badge-warn{background:#fef3c7;color:#78350f;}
+.frise-badge-neutral{background:#e5e7eb;color:#374151;}
+.frise-level{font-size:11px;font-weight:600;}
+.frise-evtid{font-size:11px;color:var(--muted);font-family:Consolas,"Cascadia Mono",monospace;margin-left:auto;}
+.frise-family{font-size:12px;font-weight:700;margin-bottom:3px;}
+.frise-provider{font-size:11px;color:var(--muted);margin-bottom:5px;}
+.frise-msg{font-size:12px;color:var(--text);line-height:1.45;word-break:break-word;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;}
+.frise-click-hint{font-size:11px;color:var(--accent);margin-top:7px;opacity:0.7;transition:opacity 150ms;}
+.frise-card:hover .frise-click-hint{opacity:1;font-weight:600;}
+body.theme-dark .frise-legend{background:rgba(255,255,255,0.04);}
+body.theme-dark .frise-legend-danger{background:rgba(220,38,38,0.2);color:#fca5a5;}
+body.theme-dark .frise-legend-warn{background:rgba(217,119,6,0.2);color:#fbbf24;}
+body.theme-dark .frise-legend-neutral{background:rgba(107,114,128,0.2);color:#d1d5db;}
+body.theme-dark .frise-card{background:rgba(15,23,42,0.75);border-color:rgba(255,255,255,0.08);}
+body.theme-dark .frise-dot{background:rgba(15,23,42,0.95);}
+body.theme-dark .frise-ts{background:rgba(255,255,255,0.06);}
+body.theme-dark .frise-badge-danger{background:rgba(220,38,38,0.22);color:#fca5a5;}
+body.theme-dark .frise-badge-warn{background:rgba(217,119,6,0.22);color:#fbbf24;}
+body.theme-dark .frise-badge-neutral{background:rgba(107,114,128,0.18);color:#d1d5db;}
+@media(max-width:720px){
+  .frise-card{margin-left:28px;border-left-width:3px;}
+  .frise-dot{width:22px;height:22px;font-size:12px;left:-36px;border-width:2px;}
+  .frise-timeline::before{left:8px;width:2px;}
+  .frise-ts{font-size:11px;}
+  .frise-msg{font-size:11px;-webkit-line-clamp:2;}
+}
 </style>
 '@
 
@@ -1136,6 +1903,545 @@ function legacyCopy(text,cb){
 }
 window.danewCopyCmd=danewCopyCmd;
 
+// ==================== FRISE FILTRE SCORE ====================
+var _friseMinScore=4, _friseMaxScore=5, _friseWuFilter='all';
+function applyFriseScoreFilter(){
+    var cards=document.querySelectorAll('.frise-card');
+    var visible=0;
+    cards.forEach(function(c){
+        var s=parseInt(c.getAttribute('data-crit')||'0',10);
+        var wuStatus=c.getAttribute('data-wu-status')||'';
+        var isWuCard=!!wuStatus;
+        var scoreOk=(s>=_friseMinScore&&s<=_friseMaxScore);
+        var wuOk=true;
+        if(_friseWuFilter==='wu') wuOk=isWuCard;
+        else if(_friseWuFilter!=='all') wuOk=(wuStatus===_friseWuFilter);
+        var show=scoreOk&&wuOk;
+        c.hidden=!show;
+        if(show) visible++;
+    });
+    var dots=document.querySelectorAll('.frise-h-dot-wrap');
+    var visibleDots=0;
+    dots.forEach(function(d){
+        var s=parseInt(d.getAttribute('data-crit')||'0',10);
+        var wuStatus=d.getAttribute('data-wu-status')||'';
+        var isWuDot=!!wuStatus;
+        var scoreOk=(s>=_friseMinScore&&s<=_friseMaxScore);
+        var wuOk=true;
+        if(_friseWuFilter==='wu') wuOk=isWuDot;
+        else if(_friseWuFilter!=='all') wuOk=(wuStatus===_friseWuFilter);
+        var show=scoreOk&&wuOk;
+        d.style.display=show?'':'none';
+        if(show) visibleDots++;
+    });
+    var countEl=document.getElementById('friseFilterCount');
+    if(countEl) countEl.textContent=visible+' / '+cards.length+' événements';
+}
+function setFriseWuFilter(filter){
+    _friseWuFilter=filter;
+    document.querySelectorAll('.frise-wu-btn').forEach(function(b){b.classList.remove('active');});
+    var map={'all':'frise-wu-btn-all','wu':'frise-wu-btn-success','Installé':'frise-wu-btn-success','Échec':'frise-wu-btn-danger','En attente':'frise-wu-btn-warn','Autre':'frise-wu-btn-info'};
+    var cls=map[filter]||'frise-wu-btn-all';
+    document.querySelectorAll('.'+cls+'[onclick*="'+filter.replace(/é/g,'\\u00e9')+'"]').forEach(function(b){b.classList.add('active');});
+    // Fallback: match by onclick attr
+    document.querySelectorAll('.frise-wu-btn').forEach(function(b){
+        var oa=b.getAttribute('onclick')||'';
+        if(oa.indexOf("'"+filter+"'")>=0||oa.indexOf('"'+filter+'"')>=0) b.classList.add('active');
+    });
+    applyFriseScoreFilter();
+}
+window.setFriseWuFilter=setFriseWuFilter;
+function setFriseScoreMin(v){
+    _friseMinScore=v;
+    if(_friseMaxScore<v) { _friseMaxScore=v; updateScoreBtnActive('max',v); }
+    updateScoreBtnActive('min',v);
+    applyFriseScoreFilter();
+}
+function setFriseScoreMax(v){
+    _friseMaxScore=v;
+    if(_friseMinScore>v) { _friseMinScore=v; updateScoreBtnActive('min',v); }
+    updateScoreBtnActive('max',v);
+    applyFriseScoreFilter();
+}
+function updateScoreBtnActive(type,v){
+    var attr=type==='min'?'data-min':'data-max';
+    var id=type==='min'?'friseMinBtns':'friseMaxBtns';
+    var container=document.getElementById(id);
+    if(!container) return;
+    container.querySelectorAll('.frise-score-btn').forEach(function(b){
+        b.classList.toggle('active',parseInt(b.getAttribute(attr)||'0',10)===v);
+    });
+}
+window.setFriseScoreMin=setFriseScoreMin;
+window.setFriseScoreMax=setFriseScoreMax;
+
+// ==================== FRISE PLEIN ÉCRAN ====================
+var _friseFullscreen=false;
+function _applyPanelFullscreenStyle(active){
+    var panel=document.getElementById('patDetailPanel');
+    if(!panel) return;
+    if(active){
+        panel.style.zIndex='2100';
+        panel.style.top='60px';
+        panel.style.right='20px';
+        panel.style.maxHeight='calc(100vh - 80px)';
+    } else {
+        panel.style.zIndex='';
+        panel.style.top='';
+        panel.style.right='';
+        panel.style.maxHeight='';
+    }
+}
+function toggleFriseFullscreen(){
+    var wrap=document.getElementById('friseHWrap');
+    var btn=document.getElementById('friseHFullscreenBtn');
+    if(!wrap) return;
+    _friseFullscreen=!_friseFullscreen;
+    if(_friseFullscreen){
+        wrap.classList.add('frise-fullscreen');
+        document.body.classList.add('frise-fullscreen-active');
+        if(btn){ btn.innerHTML='&#x2715; Fermer plein écran'; btn.title='Quitter le plein écran (Échap)'; }
+        _applyPanelFullscreenStyle(true);
+        setTimeout(function(){ _friseHBuilt=false; buildFriseH(); },50);
+    } else {
+        wrap.classList.remove('frise-fullscreen');
+        document.body.classList.remove('frise-fullscreen-active');
+        if(btn){ btn.innerHTML='&#x26F6; Plein écran'; btn.title='Plein écran'; }
+        _applyPanelFullscreenStyle(false);
+        setTimeout(function(){ _friseHBuilt=false; buildFriseH(); },50);
+    }
+}
+window.toggleFriseFullscreen=toggleFriseFullscreen;
+// Échap pour quitter le plein écran
+document.addEventListener('keydown',function(e){
+    if(e.key==='Escape'&&_friseFullscreen) toggleFriseFullscreen();
+});
+
+// ==================== FRISE HORIZONTALE ====================
+function switchFriseView(mode){
+    var listEl=document.getElementById('friseVList');
+    var hEl=document.getElementById('friseHWrap');
+    var btnL=document.getElementById('btnFriseList');
+    var btnH=document.getElementById('btnFriseH');
+    if(mode==='horizontal'){
+        if(listEl) listEl.hidden=true;
+        if(hEl){ hEl.hidden=false; buildFriseH(); }
+        if(btnL) btnL.classList.remove('active');
+        if(btnH) btnH.classList.add('active');
+    } else {
+        if(listEl) listEl.hidden=false;
+        if(hEl) hEl.hidden=true;
+        if(btnL) btnL.classList.add('active');
+        if(btnH) btnH.classList.remove('active');
+    }
+}
+window.switchFriseView=switchFriseView;
+
+var _friseHBuilt=false;
+function buildFriseH(){
+    if(_friseHBuilt) return;
+    _friseHBuilt=true;
+    var dataEl=document.getElementById('friseHData');
+    if(!dataEl) return;
+    var events;
+    try{ events=JSON.parse(dataEl.textContent); }catch(e){ return; }
+    if(!events||!events.length) return;
+    // Stocké globalement pour enrichissement panneau
+    window._friseEvents=events;
+
+    // Parse timestamps — format MM/DD/YYYY HH:MM:SS
+    function parseTs(s){
+        if(!s) return null;
+        var m=s.match(/(\d+)\/(\d+)\/(\d+)\s+(\d+):(\d+):(\d+)/);
+        if(!m) return null;
+        return new Date(+m[3],+m[1]-1,+m[2],+m[4],+m[5],+m[6]);
+    }
+    function fmtTime(d){ return ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2); }
+    function fmtDate(d){ return ('0'+d.getDate()).slice(-2)+'/'+('0'+(d.getMonth()+1)).slice(-2)+'/'+d.getFullYear(); }
+
+    var parsed=events.map(function(e,i){ return {d:parseTs(e.ts),ev:e,i:i}; }).filter(function(x){return x.d;});
+    if(!parsed.length) return;
+    parsed.sort(function(a,b){return a.d-b.d;});
+
+    var tMin=parsed[0].d.getTime();
+    var tMax=parsed[parsed.length-1].d.getTime();
+    var tRange=tMax-tMin||1;
+
+    // Stage width: at least 900px, max 3000px, ~80px per event min spacing
+    var stageW=Math.max(900,Math.min(4000,parsed.length*90));
+    var stage=document.getElementById('friseHStage');
+    if(stage) stage.style.minWidth=stageW+'px';
+
+    // Build axis labels (time ticks)
+    var axisEl=document.getElementById('friseHAxis');
+    if(axisEl){
+        var tickCount=Math.min(10,parsed.length);
+        var ticksHtml='';
+        for(var ti=0;ti<=tickCount;ti++){
+            var tTick=new Date(tMin+(tRange/tickCount)*ti);
+            ticksHtml+='<span>'+fmtDate(tTick)+'<br>'+fmtTime(tTick)+'</span>';
+        }
+        axisEl.innerHTML=ticksHtml;
+    }
+
+    // Build dots — read actual track height from DOM
+    var dotsEl=document.getElementById('friseHDots');
+    if(!dotsEl) return;
+    var html='';
+    var trackEl=document.querySelector('.frise-h-track');
+    var trackH=trackEl?trackEl.offsetHeight:140;
+    if(trackH<80) trackH=140; // fallback si pas encore rendu
+    var midY=Math.round(trackH/2);
+    // Minimum horizontal spacing to avoid overlap (as % of stage width)
+    var minGapPct=1.5;
+    var positions=[];
+    parsed.forEach(function(item,idx){
+        var rawPct=((item.d.getTime()-tMin)/tRange)*100;
+        // Clamp with padding
+        var pct=Math.max(1,Math.min(99,rawPct));
+        // Enforce minimum gap
+        if(idx>0){
+            var prev=positions[idx-1];
+            if(pct-prev<minGapPct) pct=prev+minGapPct;
+        }
+        positions.push(pct);
+        item.pct=pct;
+    });
+
+    // Compact layout constants (relative to midY)
+    var GAP=6; // px between dot edge and connector/label
+    parsed.forEach(function(item,idx){
+        var ev=item.ev;
+        var pct=item.pct;
+        var isTop=(idx%2===0); // alternate above/below
+        var sz=ev.crit>=5?18:ev.crit>=4?13:10; // dot diameter
+        var halfSz=Math.round(sz/2);
+        var labelCat=(ev.cat||'').length>18?(ev.cat||'').substring(0,17)+'…':ev.cat||'';
+        var timeStr=fmtTime(item.d);
+        var critText=ev.crit>=5?'CRITIQUE':ev.crit>=4?'ÉLEVÉ':'MOYEN';
+
+        var safeProv=(ev.prov||'').replace(/"/g,'&quot;');
+        var safeMsg=(ev.msg||'').replace(/"/g,'&quot;');
+        var safeTs=(ev.ts||'').replace(/"/g,'&quot;');
+        var safeEid=(ev.eid||'').replace(/"/g,'&quot;');
+        var safeCat=(ev.cat||'').replace(/"/g,'&quot;');
+        var safeLvl=(ev.level||'').replace(/"/g,'&quot;');
+        var safeChan=(ev.chan||'').replace(/"/g,'&quot;');
+
+        // Absolute Y positions (all relative to track top)
+        var dotTop=midY-halfSz;
+        var dotBottom=midY+halfSz;
+
+        // Label and time placement
+        var labelH=20, timeH=16;
+        var connLen=GAP+4;
+        var labelTop, timeTop, connTop, connHeight;
+        if(isTop){
+            // above: time → label → connector → dot
+            labelTop=dotTop-GAP-connLen-labelH;
+            timeTop=labelTop-timeH-2;
+            connTop=dotTop-GAP-connLen;
+            connHeight=connLen;
+        } else {
+            // below: dot → connector → label → time
+            connTop=dotBottom+GAP;
+            connHeight=connLen;
+            labelTop=connTop+connHeight;
+            timeTop=labelTop+labelH+2;
+        }
+
+        // Couleur du dot : WU status > criticité famille
+        var dotColor = ev.color;
+        var dotBorder = 'white';
+        var isWuDot = !!(ev.isWu || ev.wuStatus);
+        if(isWuDot && ev.wuDotColor){ dotColor=ev.wuDotColor; }
+        // Label affiché au-dessus/dessous : WU prioritaire sur famille
+        var dispLabel = isWuDot ? ((ev.wuKb?ev.wuKb+' ':'')+ev.wuLabel) : labelCat;
+        var dispLabelBg = isWuDot ? (ev.wuLabelColor||'#1d4ed8') : 'var(--panel)';
+        var dispLabelColor = isWuDot ? '#fff' : 'var(--text)';
+        var dispLabelBorder = isWuDot ? 'none' : '1px solid var(--line)';
+        // Badge statut WU sur le dot
+        var wuStatusMark = isWuDot ? (ev.wuTone==='success'?'✅':ev.wuTone==='danger'?'❌':ev.wuTone==='warn'?'🔄':'ℹ️') : '';
+
+        html+='<div class="frise-h-dot-wrap" style="position:absolute;left:'+pct+'%;top:0;height:100%;" '+
+              'data-ts="'+safeTs+'" data-prov="'+safeProv+'" data-msg="'+safeMsg+'" '+
+              'data-evid="'+safeEid+'" data-cat="'+safeCat+'" data-level="'+safeLvl+'" '+
+              'data-crit="'+ev.crit+'" data-chan="'+safeChan+'" '+
+              'data-wu-status="'+(ev.wuStatus||'')+'" data-wu-kb="'+(ev.wuKb||'')+'" '+
+              'onclick="showFriseDetail(this)" title="'+safeTs+' — '+safeProv+(isWuDot?' [WU:'+ev.wuStatus+']':'')+' ['+critText+']">'+
+              // Dot principal
+              '<div class="frise-h-dot" style="width:'+sz+'px;height:'+sz+'px;background:'+dotColor+';border-color:'+dotBorder+';position:absolute;top:'+dotTop+'px;left:50%;transform:translateX(-50%);'+(isWuDot?'box-shadow:0 0 0 2px rgba(0,0,0,0.15),0 0 8px 2px '+dotColor+'44;':'')+'">'+(isWuDot&&sz>=14?'<span style="font-size:'+(sz<=14?'8':'10')+'px;line-height:1;display:block;text-align:center;margin-top:'+(sz<=14?'1':'2')+'px;">WU</span>':'')+
+              '</div>'+
+              // Connector
+              '<div style="position:absolute;left:50%;top:'+connTop+'px;width:1px;height:'+connHeight+'px;background:rgba(100,116,139,0.4);transform:translateX(-50%);pointer-events:none;"></div>'+
+              // Label (KB+type pour WU, famille sinon)
+              '<div style="position:absolute;left:50%;top:'+labelTop+'px;transform:translateX(-50%);font-size:10px;font-weight:700;white-space:nowrap;color:'+dispLabelColor+';background:'+dispLabelBg+';border:'+dispLabelBorder+';border-radius:4px;padding:1px 5px;pointer-events:none;max-width:130px;overflow:hidden;text-overflow:ellipsis;">'+dispLabel+'</div>'+
+              // Statut WU icon ou heure
+              '<div style="position:absolute;left:50%;top:'+timeTop+'px;transform:translateX(-50%);font-size:'+(isWuDot?'12':'9')+'px;color:var(--muted);white-space:nowrap;pointer-events:none;">'+(isWuDot&&wuStatusMark ? wuStatusMark : timeStr)+'</div>'+
+              '</div>';
+    });
+    dotsEl.innerHTML=html;
+
+    // Info bar
+    var infoEl=document.getElementById('friseHInfo');
+    if(infoEl){
+        var d0=parsed[0].d,d1=parsed[parsed.length-1].d;
+        infoEl.textContent=parsed.length+' événements · '+fmtDate(d0)+' '+fmtTime(d0)+' → '+fmtDate(d1)+' '+fmtTime(d1);
+    }
+
+    // Drag-to-scroll on the frise
+    var scroll=document.getElementById('friseHScroll');
+    if(scroll){
+        var isDragging=false,startX=0,scrollLeft=0;
+        scroll.addEventListener('mousedown',function(e){isDragging=true;startX=e.pageX-scroll.offsetLeft;scrollLeft=scroll.scrollLeft;});
+        scroll.addEventListener('mouseleave',function(){isDragging=false;});
+        scroll.addEventListener('mouseup',function(){isDragging=false;});
+        scroll.addEventListener('mousemove',function(e){if(!isDragging) return;e.preventDefault();var x=e.pageX-scroll.offsetLeft;scroll.scrollLeft=scrollLeft-(x-startX);});
+    }
+}
+
+// ==================== FRISE CARD CLICK ====================
+// Frise card click → même panneau fixe
+function showFriseDetail(elem){
+    _initPatPanel();
+    if(!_patPanel||!_patBody) return;
+    var ts=elem.getAttribute('data-ts')||'';
+    var prov=elem.getAttribute('data-prov')||'';
+    var msg=elem.getAttribute('data-msg')||'';
+    var eid=elem.getAttribute('data-evid')||'';
+    var cat=elem.getAttribute('data-cat')||'';
+    var level=elem.getAttribute('data-level')||'';
+    var crit=elem.getAttribute('data-crit')||'';
+    var chan=elem.getAttribute('data-chan')||'';
+    _patLastMsg=msg;
+    var critText=crit==='5'?'CRITIQUE':crit==='4'?'ÉLEVÉ':crit==='3'?'MOYEN':'Score '+crit;
+    var critClass=crit==='5'?'frise-badge-danger':crit==='4'?'frise-badge-warn':'frise-badge-neutral';
+    var head=_patPanel.querySelector('h3');
+    if(head) head.innerHTML='<span class="frise-badge '+critClass+'" style="font-size:12px;margin-right:8px;">'+escHtml(critText)+'</span>'+escHtml(prov||'Événement critique');
+    var html='';
+    if(ts) html+='<div class="pat-detail-field"><span class="pat-detail-label">Horodatage</span><div class="pat-detail-value">'+escHtml(ts)+'</div></div>';
+    if(eid) html+='<div class="pat-detail-field"><span class="pat-detail-label">ID Événement</span><div class="pat-detail-value">'+escHtml(eid)+'</div></div>';
+    if(cat) html+='<div class="pat-detail-field"><span class="pat-detail-label">Famille / Catégorie</span><div class="pat-detail-value">'+escHtml(cat)+'</div></div>';
+    if(level) html+='<div class="pat-detail-field"><span class="pat-detail-label">Niveau</span><div class="pat-detail-value">'+escHtml(level)+'</div></div>';
+    if(prov) html+='<div class="pat-detail-field"><span class="pat-detail-label">Fournisseur / Source</span><div class="pat-detail-value">'+escHtml(prov)+'</div></div>';
+    if(chan) html+='<div class="pat-detail-field"><span class="pat-detail-label">Canal</span><div class="pat-detail-value">'+escHtml(chan)+'</div></div>';
+    html+='<div class="pat-detail-field"><span class="pat-detail-label">Message complet</span><div class="pat-detail-value" style="max-height:200px;overflow-y:auto;">'+escHtml(msg)+'</div></div>';
+
+    // --- Enrichissement contextuel ---
+    // 1. KB mentionnés dans le message
+    var kbMatches=msg.match(/KB\d{6,}/g)||[];
+    var kbUniq=[]; kbMatches.forEach(function(k){if(kbUniq.indexOf(k)<0)kbUniq.push(k);});
+    if(kbUniq.length>0){
+        html+='<div class="pat-detail-field"><span class="pat-detail-label">&#128273; Mises à jour KB mentionnées</span><div class="pat-detail-ctx-chips">'+kbUniq.map(function(k){return '<span class="pat-detail-chip pat-detail-chip-kb">'+escHtml(k)+'</span>';}).join('')+'</div></div>';
+    }
+
+    // 2. Événements proches (±5 min dans la frise)
+    if(window._friseEvents&&ts){
+        function parseDetailTs(s){var m=s.match(/(\d+)\/(\d+)\/(\d+)\s+(\d+):(\d+)/);if(!m)return null;return new Date(+m[3],+m[1]-1,+m[2],+m[4],+m[5]).getTime();}
+        var tRef=parseDetailTs(ts);
+        if(tRef){
+            var WIN=5*60*1000; // ±5 min
+            var nearby=window._friseEvents.filter(function(e){
+                var t2=parseDetailTs(e.ts||'');
+                return t2&&Math.abs(t2-tRef)<=WIN&&(e.prov!==prov||e.ts!==ts);
+            });
+            if(nearby.length>0){
+                var nearHtml=nearby.slice(0,5).map(function(e){
+                    var critLabel=e.crit>=5?'CRITIQUE':e.crit>=4?'ÉLEVÉ':'MOYEN';
+                    var critCls=e.crit>=5?'danger':e.crit>=4?'warn':'neutral';
+                    var timeShort=(e.ts||'').replace(/\d{4} /,'').replace(':00$','');
+                    return '<div class="pat-detail-nearby-row">'+
+                        '<span class="pat-detail-chip pat-detail-chip-'+critCls+'">'+critLabel+'</span>'+
+                        '<span class="pat-detail-nearby-time">'+escHtml(timeShort)+'</span>'+
+                        '<span class="pat-detail-nearby-prov">'+escHtml((e.prov||'').length>28?(e.prov||'').substring(0,27)+'…':e.prov||'')+'</span>'+
+                        '<span class="pat-detail-nearby-cat">'+escHtml((e.cat||'').length>22?(e.cat||'').substring(0,21)+'…':e.cat||'')+'</span>'+
+                        '</div>';
+                }).join('');
+                html+='<div class="pat-detail-field"><span class="pat-detail-label">&#8987; Événements contemporains (±5 min)</span><div class="pat-detail-nearby">'+nearHtml+'</div></div>';
+            }
+        }
+    }
+
+    // 3. Cause racine système
+    var metaEl=document.getElementById('friseHMeta');
+    if(metaEl){
+        try{
+            var meta=JSON.parse(metaEl.textContent||'{}');
+            if(meta.primaryCause){
+                var matches=(cat&&meta.primaryCause.toLowerCase().indexOf(cat.toLowerCase().split('/')[0].trim())>=0)||false;
+                html+='<div class="pat-detail-field"><span class="pat-detail-label">&#128269; Diagnostic système global</span>'+
+                    '<div class="pat-detail-ctx-box">'+
+                    '<div><strong>Cause principale :</strong> '+escHtml(meta.primaryCause)+'</div>'+
+                    '<div style="margin-top:4px;font-size:11px;color:var(--muted);">'+escHtml(meta.primaryCauseFr||'')+'</div>'+
+                    (matches?'<div class="pat-detail-chip pat-detail-chip-warn" style="margin-top:6px;">&#9888; Cette famille est liée à la cause principale</div>':'')+
+                    '</div>'+
+                    '</div>';
+            }
+        }catch(e){}
+    }
+
+    // Collect nearby text for fullText (built before innerHTML)
+    var nearbyLines=[];
+    if(window._friseEvents&&ts){
+        function parseDTs(s){var m=s.match(/(\d+)\/(\d+)\/(\d+)\s+(\d+):(\d+)/);if(!m)return null;return new Date(+m[3],+m[1]-1,+m[2],+m[4],+m[5]).getTime();}
+        var tRef2=parseDTs(ts);
+        if(tRef2){
+            var WIN2=5*60*1000;
+            window._friseEvents.filter(function(e){var t2=parseDTs(e.ts||'');return t2&&Math.abs(t2-tRef2)<=WIN2&&(e.prov!==prov||e.ts!==ts);})
+            .slice(0,5).forEach(function(e){
+                var cl=e.crit>=5?'CRITIQUE':e.crit>=4?'ÉLEVÉ':'MOYEN';
+                var timeShort=(e.ts||'').replace(/\d{4} /,'').replace(':00$','');
+                nearbyLines.push(cl+' '+timeShort+' · '+(e.prov||'')+' · '+(e.cat||''));
+            });
+        }
+    }
+    var metaObj=null;
+    try{ var metaEl2=document.getElementById('friseHMeta'); if(metaEl2) metaObj=JSON.parse(metaEl2.textContent||'{}'); }catch(e){}
+    var fullText=buildFullEventText({ts:ts,eid:eid,cat:cat,level:level,prov:prov,chan:chan,crit:critText,msg:msg,nearby:nearbyLines,meta:metaObj});
+
+    _patBody.innerHTML=html;
+    wireDetailFooter(fullText);
+    document.querySelectorAll('.frise-card.selected,.pat-ev-item.selected,.pat-evidence-table tbody tr.selected').forEach(function(e){e.classList.remove('selected');});
+    elem.classList.add('selected');
+    if(_patPanel.hidden){
+        _patPanel.hidden=false;
+        _patPanel.style.animation='none';
+        void _patPanel.offsetWidth;
+        _patPanel.style.animation='';
+    }
+}
+window.showFriseDetail=showFriseDetail;
+
+// ==================== TEXTE COMPLET PANNEAU ====================
+function buildFullEventText(fields){
+    // fields: {ts,eid,cat,level,prov,chan,crit,msg,nearby,meta}
+    var lines=[];
+    lines.push('=== ÉVÉNEMENT WINDOWS ===');
+    if(fields.ts)    lines.push('Date/Heure    : '+fields.ts);
+    if(fields.eid)   lines.push('ID Événement  : '+fields.eid);
+    if(fields.cat)   lines.push('Famille       : '+fields.cat);
+    if(fields.level) lines.push('Niveau        : '+fields.level);
+    if(fields.prov)  lines.push('Fournisseur   : '+fields.prov);
+    if(fields.chan)  lines.push('Canal         : '+fields.chan);
+    if(fields.crit)  lines.push('Criticité     : '+fields.crit);
+    lines.push('');
+    lines.push('Message complet :');
+    lines.push(fields.msg||'(aucun message)');
+    if(fields.nearby&&fields.nearby.length){
+        lines.push('');
+        lines.push('=== ÉVÉNEMENTS CONTEMPORAINS (±5 min) ===');
+        fields.nearby.forEach(function(n){ lines.push('• '+n); });
+    }
+    if(fields.meta&&fields.meta.primaryCause){
+        lines.push('');
+        lines.push('=== DIAGNOSTIC SYSTÈME ===');
+        lines.push('Cause principale  : '+fields.meta.primaryCause);
+        if(fields.meta.confidence) lines.push('Confiance         : '+fields.meta.confidence);
+        if(fields.meta.severity)   lines.push('Sévérité globale  : '+fields.meta.severity);
+        if(fields.meta.primaryCauseFr) lines.push('Message client    : '+fields.meta.primaryCauseFr);
+    }
+    lines.push('');
+    lines.push('=========================');
+    return lines.join('\n');
+}
+function buildAiPrompt(fullText){
+    return 'Tu es un expert en diagnostic Windows. Analyse cet événement Windows et donne une réponse structurée en français :\n\n'+
+           '1. Ce que signifie cet événement\n'+
+           '2. La cause probable (en lien avec le contexte système si fourni)\n'+
+           '3. L\'impact potentiel sur le système\n'+
+           '4. Les actions correctives recommandées (commandes WinPE si applicable)\n'+
+           '5. KB ou correctifs Microsoft associés si connus\n\n'+
+           fullText;
+}
+function wireDetailFooter(fullText){
+    var cpBtn=document.getElementById('patCopyBtnGlobal');
+    var aiBtn=document.getElementById('patAiBtnGlobal');
+    // Clone pour supprimer les anciens listeners
+    if(cpBtn){ var cp2=cpBtn.cloneNode(true); cpBtn.parentNode.replaceChild(cp2,cpBtn); cp2.addEventListener('click',function(){copyPatMsg(fullText,cp2);}); }
+    if(aiBtn){ var ai2=aiBtn.cloneNode(true); aiBtn.parentNode.replaceChild(ai2,aiBtn); ai2.addEventListener('click',function(){copyPatMsg(buildAiPrompt(fullText),ai2);}); }
+}
+window.buildFullEventText=buildFullEventText;
+window.wireDetailFooter=wireDetailFooter;
+
+// Pattern detail panel — position:fixed overlay identical to evtx-detail-panel
+var _patPanel=null,_patBody=null,_patLastMsg='';
+function _initPatPanel(){
+    if(_patPanel) return;
+    _patPanel=document.getElementById('patDetailPanel');
+    _patBody=document.getElementById('patDetailBody');
+    var closeBtn=document.getElementById('patDetailClose');
+    if(closeBtn) closeBtn.addEventListener('click',function(){ if(_patPanel){_patPanel.hidden=true;} document.querySelectorAll('.pat-ev-item.selected,.pat-evidence-table tbody tr.selected').forEach(function(e){e.classList.remove('selected');});});
+}
+function showPatternDetail(elem){
+    _initPatPanel();
+    if(!_patPanel||!_patBody) return;
+    var ts=elem.getAttribute('data-ts')||'';
+    var prov=elem.getAttribute('data-prov')||'';
+    var msg=elem.getAttribute('data-msg')||'';
+    var eid=elem.getAttribute('data-evid')||'';
+    _patLastMsg=msg;
+    var head=_patPanel.querySelector('h3');
+    if(head) head.textContent=prov||'Détail événement';
+    var html='';
+    if(ts) html+='<div class="pat-detail-field"><span class="pat-detail-label">Horodatage</span><div class="pat-detail-value">'+escHtml(ts)+'</div></div>';
+    if(eid) html+='<div class="pat-detail-field"><span class="pat-detail-label">ID Événement</span><div class="pat-detail-value">'+escHtml(eid)+'</div></div>';
+    if(prov) html+='<div class="pat-detail-field"><span class="pat-detail-label">Fournisseur / Source</span><div class="pat-detail-value">'+escHtml(prov)+'</div></div>';
+    html+='<div class="pat-detail-field"><span class="pat-detail-label">Message complet</span><div class="pat-detail-value" style="max-height:320px;overflow-y:auto;">'+escHtml(msg)+'</div></div>';
+    var fullTextPat=buildFullEventText({ts:ts,eid:eid,prov:prov,msg:msg,nearby:[],meta:null});
+    _patBody.innerHTML=html;
+    wireDetailFooter(fullTextPat);
+    document.querySelectorAll('.pat-ev-item.selected,.pat-evidence-table tbody tr.selected').forEach(function(e){e.classList.remove('selected');});
+    elem.classList.add('selected');
+    if(_patPanel.hidden){
+        _patPanel.hidden=false;
+        // Force re-trigger animation
+        _patPanel.style.animation='none';
+        void _patPanel.offsetWidth;
+        _patPanel.style.animation='';
+    }
+}
+function copyPatMsg(text,btn){
+    var orig=btn?btn.textContent:'';
+    function mark(){if(btn){btn.textContent='✅ Copie!';setTimeout(function(){btn.textContent=orig;},2200);}}
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+        navigator.clipboard.writeText(text).then(mark,function(){legacyCopyPat(text,mark);});
+    } else { legacyCopyPat(text,mark); }
+}
+function legacyCopyPat(text,cb){
+    var ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';
+    document.body.appendChild(ta);ta.focus();ta.select();
+    try{document.execCommand('copy');}catch(e){}
+    document.body.removeChild(ta);if(cb)cb();
+}
+function escHtml(text){
+    return String(text).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+window.showPatternDetail=showPatternDetail;
+
+// Table sorting for pattern evidence table
+function initPatternTableSort(){
+    var table=document.getElementById('patEvidenceTable');
+    if(!table) return;
+    var headers=table.querySelectorAll('th[data-sort-trigger]');
+    headers.forEach(function(th){
+        th.addEventListener('click',function(){
+            var col=th.getAttribute('data-sort-trigger');
+            var isAsc=th.classList.contains('sort-asc');
+            headers.forEach(function(h){h.classList.remove('sort-asc','sort-desc');});
+            th.classList.add(isAsc?'sort-desc':'sort-asc');
+            var tbody=table.querySelector('tbody');
+            var rows=Array.from(tbody.querySelectorAll('tr'));
+            rows.sort(function(a,b){
+                var aVal=a.getAttribute('data-'+col)||'';
+                var bVal=b.getAttribute('data-'+col)||'';
+                var cmp=aVal.localeCompare(bVal);
+                return isAsc?-cmp:cmp;
+            });
+            rows.forEach(function(row){tbody.appendChild(row);});
+        });
+    });
+}
+
 // Family filter for event table
 document.addEventListener('DOMContentLoaded',function(){
     var filterBtns=document.querySelectorAll('[data-family-filter]');
@@ -1152,6 +2458,43 @@ document.addEventListener('DOMContentLoaded',function(){
             });
         });
     });
+    // Init pattern table sort
+    initPatternTableSort();
+    // Appliquer le filtre score par défaut (min=4, max=5) au chargement
+    applyFriseScoreFilter();
+
+    // Fix 5 — Barre de progression de lecture latérale
+    var progBar=document.createElement('div');
+    progBar.id='read-progress-bar';
+    progBar.style.cssText='position:fixed;left:0;top:0;width:3px;height:0%;background:var(--accent,#0f766e);z-index:9999;border-radius:0 2px 2px 0;transition:height 80ms linear;pointer-events:none;';
+    document.body.appendChild(progBar);
+    function updateProgress(){
+        var sc=window.scrollY||document.documentElement.scrollTop;
+        var h=document.documentElement.scrollHeight-document.documentElement.clientHeight;
+        var pct=h>0?Math.min(100,Math.round(sc/h*100)):0;
+        progBar.style.height=pct+'%';
+    }
+    window.addEventListener('scroll',updateProgress,{passive:true});
+    updateProgress();
+
+    // Fix 7 — Décaler le contenu quand le panneau détail est ouvert
+    function syncPanelMargin(){
+        var panel=document.getElementById('patDetailPanel');
+        var shell=document.querySelector('.report-shell');
+        if(!shell) return;
+        if(panel&&!panel.hidden){
+            var pw=panel.offsetWidth||400;
+            shell.style.paddingRight=(pw+20)+'px';
+            shell.style.transition='padding-right 220ms ease';
+        } else {
+            shell.style.paddingRight='';
+        }
+    }
+    // Observe le panneau pour détecter show/hide
+    var detObs=new MutationObserver(syncPanelMargin);
+    var detPanel=document.getElementById('patDetailPanel');
+    if(detPanel) detObs.observe(detPanel,{attributes:true,attributeFilter:['hidden']});
+    document.getElementById('patDetailClose')?.addEventListener('click',function(){setTimeout(syncPanelMargin,10);});
 });
 })();
 </script>
@@ -1168,11 +2511,12 @@ document.addEventListener('DOMContentLoaded',function(){
     # ---- Assemble sections ----
     $sections = @(
         (New-DanewReportSectionHtml -Title 'Resume executif' -Caption 'Cause racine la plus probable, criticite et message client. Aucune reparation ne doit etre lancee depuis cette phase.' -SearchText ('summary cause racine impact criticite ' + [string](Get-DanewCrashSafeProperty -Object $CrashAnalysis.root_cause_analysis.primary_cause -Name 'cause' -DefaultValue '')) -BodyHtml $summaryBody)
-        (New-DanewReportSectionHtml -Title 'Frise chronologique critique' -Caption ('Top ' + [string]([Math]::Min(40, $critTotalCount)) + ' evenements critiques (criticite >= 3) tries par timestamp. ' + $critTotalCount + ' evenements critiques detectes au total.') -SearchText 'frise chronologie critique timestamp famille provider event' -BodyHtml ($critNotice + (New-DanewReportTableHtml -Headers @('Horodatage', 'Famille', 'Fournisseur', 'ID Evt', 'Score', 'Message') -Rows $critTimelineRows -EmptyMessage 'Aucun evenement de criticite >= 3 detecte dans les journaux.')))
+        (New-DanewReportSectionHtml -Title 'Frise chronologique critique' -Caption ('Top ' + [string]([Math]::Min(40, $critTotalCount)) + ' evenements significatifs (criticite >= 4 : ELEVE ou CRITIQUE) tries par timestamp. ' + $critTotalCount + ' evenements detectes au total.') -SearchText 'frise chronologie critique timestamp famille provider event' -BodyHtml ($critNotice + $critFriseHtml))
         (New-DanewReportSectionHtml -Title 'Patterns de panne detectes' -Caption ([string]$patternCount + ' pattern(s) detecte(s). Chaque carte indique la sequence, les preuves et les actions SAV disponibles (copie seulement).') -SearchText 'patterns panne sequence preuves confidence cause impact' -BodyHtml $patternCardsHtml)
         (New-DanewReportSectionHtml -Title 'Causes principales et secondaires' -Caption 'Score et justification pour chaque hypothese de cause racine, triee par score decroissant.' -SearchText 'causes confidence score reason root cause analysis' -BodyHtml (New-DanewReportTableHtml -Headers @('Cause', 'Confiance', 'Score', 'Justification') -Rows $causeRows -EmptyMessage 'Aucune cause ne correspond.'))
         (New-DanewReportSectionHtml -Title 'Intelligence de chronologie' -Caption 'Motifs detectes dans la chronologie brute — complement de la section Patterns.' -SearchText 'timeline intelligence motifs confidence resume' -BodyHtml (New-DanewReportTableHtml -Headers @('Motif', 'Confiance', 'Resume') -Rows $timelineRows -EmptyMessage 'Aucun motif.') -Collapsed $true)
         (New-DanewReportSectionHtml -Title 'Tableau des evenements (top 50)' -Caption 'Tous les evenements classes — utilisez les filtres famille dans la barre d outils secondaire.' -SearchText 'event classification provider category message criticite' -BodyHtml (New-DanewReportTableHtml -Headers @('Horodatage', 'ID Evt', 'Fournisseur', 'Categorie', 'Score', 'Message') -Rows $eventRows -EmptyMessage 'Aucun evenement.') -Collapsed $true)
+        $(if ($wuSectionHtml) { $wuSectionHtml })
         $(if ($dismCbsSectionHtml) { $dismCbsSectionHtml })
         (New-DanewReportSectionHtml -Title 'Depannage SAV securise' -Caption 'Actions disponibles par famille de panne. Cliquer = copier la commande uniquement. Aucune execution automatique.' -SearchText 'depannage sav actions commandes copier chkdsk sfc dism driverquery' -BodyHtml $safeActionsBody)
         (New-DanewReportSectionHtml -Title 'Prochaines actions recommandees' -Caption 'Synthese des actions en lecture seule validees pour cette phase.' -SearchText ('recommendations next steps ' + (@($CrashAnalysis.recommendations) -join ' ')) -BodyHtml $recommendationBody)
