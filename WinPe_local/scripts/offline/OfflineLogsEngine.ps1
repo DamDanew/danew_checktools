@@ -175,7 +175,8 @@ function Test-DanewOfflineWindowsCandidate {
         [void]$rejectionReasons.Add([string]$err)
     }
 
-    $isValid = $hasWindows -and $hasSystemHive -and $hasSoftwareHive
+    # Strict OS signature: the target must contain registry hives, kernel and EVTX folder.
+    $isValid = $hasWindows -and $hasSystemHive -and $hasSoftwareHive -and $hasLogs -and $hasKernel
 
     $accessibilityState = 'accessible'
     if (-not $hasWindows -and @($probeErrors).Count -gt 0) {
@@ -238,6 +239,8 @@ function Find-DanewOfflineWindowsInstallations {
         $roots = @(Get-DanewOfflineCandidateRoots -InputPath $InputPath -RootPath $RootPath)
     }
 
+    $hasExplicitCandidatePaths = (@($explicitCandidatePaths).Count -gt 0)
+
     foreach ($candidateRoot in @($roots)) {
         $rootExists = $false
         if ([string]::IsNullOrWhiteSpace([string]$candidateRoot)) {
@@ -266,20 +269,23 @@ function Find-DanewOfflineWindowsInstallations {
             $candidateMap[$rootKey.ToLowerInvariant()] = $rootKey
         }
 
-        try {
-            foreach ($windowsDir in @(Get-ChildItem -Path $candidateRoot -Directory -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Name -ieq 'Windows' })) {
-                if ($null -eq $windowsDir -or $null -eq $windowsDir.Parent) {
-                    continue
-                }
+        # If candidate roots are already provided by ranking/exclusion logic, do not recurse.
+        if (-not $hasExplicitCandidatePaths) {
+            try {
+                foreach ($windowsDir in @(Get-ChildItem -Path $candidateRoot -Directory -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Name -ieq 'Windows' })) {
+                    if ($null -eq $windowsDir -or $null -eq $windowsDir.Parent) {
+                        continue
+                    }
 
-                $installRoot = [string]$windowsDir.Parent.FullName
-                if ($installRoot.Length -gt 3) {
-                    $installRoot = $installRoot.TrimEnd('\\')
+                    $installRoot = [string]$windowsDir.Parent.FullName
+                    if ($installRoot.Length -gt 3) {
+                        $installRoot = $installRoot.TrimEnd('\\')
+                    }
+                    $candidateMap[$installRoot.ToLowerInvariant()] = $installRoot
                 }
-                $candidateMap[$installRoot.ToLowerInvariant()] = $installRoot
             }
-        }
-        catch {
+            catch {
+            }
         }
     }
 
@@ -1745,11 +1751,14 @@ function Get-DanewEvtxEventRecords {
                             }
                         }
                         else {
+                            # MaxPerLog=0 means "no limit" — apply a hard safety cap to prevent OOM
+                            # on large logs (Security.evtx can contain millions of events).
+                            $hardCap = 10000
                             if ([string]::IsNullOrWhiteSpace($FilterXPath)) {
-                                $records = @(Get-WinEvent -Path $FilePath -Oldest -ErrorAction Stop)
+                                $records = @(Get-WinEvent -Path $FilePath -Oldest -MaxEvents $hardCap -ErrorAction Stop)
                             }
                             else {
-                                $records = @(Get-WinEvent -Path $FilePath -FilterXPath $FilterXPath -Oldest -ErrorAction SilentlyContinue)
+                                $records = @(Get-WinEvent -Path $FilePath -FilterXPath $FilterXPath -Oldest -MaxEvents $hardCap -ErrorAction SilentlyContinue)
                             }
                         }
 
@@ -1890,11 +1899,13 @@ function Get-DanewEvtxEventRecords {
                     }
                 }
                 else {
+                    # MaxEventsPerLog=0 means "no limit" — apply a hard safety cap to prevent OOM.
+                    $hardCap = 10000
                     if ([string]::IsNullOrWhiteSpace($filterXPath)) {
-                        $records = @(Get-WinEvent -Path $item.file_path -Oldest -ErrorAction Stop)
+                        $records = @(Get-WinEvent -Path $item.file_path -Oldest -MaxEvents $hardCap -ErrorAction Stop)
                     }
                     else {
-                        $records = @(Get-WinEvent -Path $item.file_path -FilterXPath $filterXPath -Oldest -ErrorAction SilentlyContinue)
+                        $records = @(Get-WinEvent -Path $item.file_path -FilterXPath $filterXPath -Oldest -MaxEvents $hardCap -ErrorAction SilentlyContinue)
                     }
                 }
 
@@ -1930,6 +1941,10 @@ function Get-DanewEvtxEventRecords {
             }
             $completedItems += 1
             & $emitParseHeartbeat 'serial' ([string]$item.file_path) $completedItems $totalItemsToParse 0 0 ([int]@($events).Count)
+            # Release EventLogRecord COM objects after each file to reduce peak memory pressure.
+            # Critical in WinPE where RAM is limited — avoids OOM when parsing many EVTX files.
+            $records = $null
+            [GC]::Collect()
         }
     }
 
@@ -5175,6 +5190,17 @@ function Invoke-DanewOfflineLogsAnalysis {
         $effectiveMaxEventsPerLog = 500
     }
 
+    # WinPE memory guard: auto-detect WinPE (SystemRoot=X:\) and apply strict limits.
+    # WinPE typically has 512MB–1 GB RAM. Parallel Start-Job processes + large event arrays = OOM.
+    # Force serial mode and cap events unless the user explicitly configured lower values.
+    $isLikelyWinPE = $false
+    try { $isLikelyWinPE = ([string]$env:SystemRoot -like 'X:\*') } catch {}
+    if ($isLikelyWinPE) {
+        if ($effectiveMaxEventsPerLog -gt 500) {
+            $effectiveMaxEventsPerLog = 500
+        }
+    }
+
     $levelFilterRaw = Get-DanewSafeProperty -Object $Config -Name 'offline_event_level_filter' -DefaultValue @()
     $levelFilter = @()
     foreach ($level in @($levelFilterRaw)) {
@@ -5188,10 +5214,16 @@ function Invoke-DanewOfflineLogsAnalysis {
 
     $parallelRaw = Get-DanewSafeProperty -Object $Config -Name 'offline_parallel_evtx' -DefaultValue $true
     $parallelEnabled = -not (($parallelRaw -eq $false) -or ([string]$parallelRaw -match '^(?i:false|0|no|off)$'))
+    # WinPE: disable parallel EVTX parsing — each Start-Job spawns an extra PowerShell
+    # process (~100 MB) which can exhaust WinPE RAM. Serial parsing is safer.
+    if ($isLikelyWinPE) {
+        $parallelEnabled = $false
+    }
 
     $parallelJobs = [int](Get-DanewSafeProperty -Object $Config -Name 'offline_evtx_parallel_jobs' -DefaultValue 2)
     if ($parallelJobs -lt 1) { $parallelJobs = 1 }
     if ($parallelJobs -gt 8) { $parallelJobs = 8 }
+    if ($isLikelyWinPE) { $parallelJobs = 1 }
 
     $incrementalCacheRaw = Get-DanewSafeProperty -Object $Config -Name 'offline_incremental_evtx_cache' -DefaultValue $true
     $incrementalCacheEnabled = -not (($incrementalCacheRaw -eq $false) -or ([string]$incrementalCacheRaw -match '^(?i:false|0|no|off)$'))
