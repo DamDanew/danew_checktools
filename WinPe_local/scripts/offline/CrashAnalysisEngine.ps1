@@ -2618,11 +2618,23 @@ function Invoke-DanewCrashCauseAnalysis {
         $OfflineAnalysis = [pscustomobject]@{ artifacts = [pscustomobject]@{} }
     }
 
-    # ---- Mode differe : detecter WinPE ou config explicite ----
-    $isLikelyWinPE = $false
-    try { $isLikelyWinPE = ([string]$env:SystemRoot -like 'X:\*') } catch {}
-    $deferSavHtmlRaw = Get-DanewCrashSafeProperty -Object $Config -Name 'offline_defer_sav_html' -DefaultValue $isLikelyWinPE
-    $deferSavHtml = ($deferSavHtmlRaw -eq $true) -or ([string]$deferSavHtmlRaw -match '^(?i:true|1|yes|on)$')
+    # ---- Detection WinPE centralisee (fallback inline si engine appele directement) ----
+    $isWinPE = $false
+    try {
+        if (Get-Command -Name 'Test-DanewIsWinPE' -ErrorAction SilentlyContinue) {
+            $isWinPE = Test-DanewIsWinPE
+        }
+        else {
+            $isWinPE = ([string]$env:SystemRoot -like 'X:\*') -or ([string]$env:SystemDrive -eq 'X:')
+        }
+    }
+    catch {}
+
+    # En WinPE : skip HTML SAV (genere sur PC technicien via generate-html-reports).
+    # Hors WinPE : offline_defer_sav_html permet un defer explicite ; defaut = false.
+    $skipSavHtmlInWinPE = $isWinPE
+    $deferSavHtmlRaw = Get-DanewCrashSafeProperty -Object $Config -Name 'offline_defer_sav_html' -DefaultValue $false
+    $deferSavHtml = $skipSavHtmlInWinPE -or (($deferSavHtmlRaw -eq $true) -or ([string]$deferSavHtmlRaw -match '^(?i:true|1|yes|on)$'))
 
     $offlineArtifacts = Get-DanewCrashSafeProperty -Object $OfflineAnalysis -Name 'artifacts' -DefaultValue ([pscustomobject]@{})
     $eventsPath = [string](Get-DanewCrashSafeProperty -Object $offlineArtifacts -Name 'evtx_events_json' -DefaultValue (Join-Path $Config.reports_path 'evtx-events.json'))
@@ -2770,8 +2782,8 @@ function Invoke-DanewCrashCauseAnalysis {
     $severity | ConvertTo-Json -Depth 18 | Set-Content -Path $severityPath -Encoding UTF8
     $crash | ConvertTo-Json -Depth 25 | Set-Content -Path $savJsonPath -Encoding UTF8
     if ($deferSavHtml) {
-        # Mode differe : HTML genere a l'ouverture depuis sav-diagnostic-report.json
-        Write-Host '[SAV] HTML SAV differe — sera genere a l ouverture du rapport'
+        $savSkipReason = if ($skipSavHtmlInWinPE) { 'mode WinPE — ouvrir sur PC technicien via generate-html-reports' } else { 'offline_defer_sav_html=true' }
+        Write-Host ('[SAV] sav-diagnostic-report.html non genere : ' + $savSkipReason)
     }
     else {
         Write-DanewSavDiagnosticReportHtml -Path $savHtmlPath -CrashAnalysis $crash

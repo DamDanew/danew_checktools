@@ -4,7 +4,7 @@ param(
     [string]$ConfigPath,
     [switch]$FallbackToCli,
     [switch]$ForceGuiInitFailure,
-    [ValidateSet('Interactive', 'scan-winpe', 'capability-analysis', 'generate-report', 'open-reports-folder', 'export-diagnostic-package', 'prepare-startnet', 'start-diagnostic', 'analyze-offline-logs', 'analyze-offline-logs-fast', 'analyze-offline-logs-full', 'analyze-crash-causes', 'precheck-winpe', 'export-evtx-targeted', 'export-evtx-zip', 'check-browser', 'create-usb-media', 'real-winpe-validation', 'refresh-status', 'show-status', 'view-last-report', 'open-sav-report', 'open-reports-index', 'open-text-reports-list', 'generate-timeline-html', 'exit')]
+    [ValidateSet('Interactive', 'scan-winpe', 'capability-analysis', 'generate-report', 'open-reports-folder', 'export-diagnostic-package', 'prepare-startnet', 'start-diagnostic', 'analyze-offline-logs', 'analyze-offline-logs-fast', 'analyze-offline-logs-full', 'analyze-crash-causes', 'precheck-winpe', 'export-evtx-targeted', 'export-evtx-zip', 'check-browser', 'create-usb-media', 'real-winpe-validation', 'refresh-status', 'show-status', 'view-last-report', 'open-sav-report', 'open-reports-index', 'open-text-reports-list', 'generate-timeline-html', 'generate-html-reports', 'exit')]
     [Alias('Action')]
     [string]$CliFallbackCommand = 'Interactive'
 )
@@ -40,6 +40,10 @@ catch {
 . (Join-Path $scriptDirectory 'report\ReportEngine.ps1')
 . (Join-Path $scriptDirectory 'security\SecurityService.ps1')
 . (Join-Path $scriptDirectory 'launcher\LauncherCore.ps1')
+
+# Detection WinPE centralisee — utilisee partout dans le launcher.
+# Test-DanewIsWinPE est definie dans LauncherCore.ps1 (deja charge ci-dessus).
+$script:IsWinPE = Test-DanewIsWinPE
 
 $config = Get-DanewLauncherConfig -RootPath $RootPath -ConfigPath $ConfigPath
 if ($CliFallbackCommand -notin @('open-sav-report', 'open-reports-index')) {
@@ -513,7 +517,8 @@ function Get-DanewActionDisplayText {
         'create-usb-media' { return 'Preparer outil USB' }
         'refresh-status' { return 'Actualiser le statut' }
         'start-diagnostic' { return 'Diagnostic complet' }
-        'generate-timeline-html' { return 'Generer la chronologie HTML' }
+        'generate-timeline-html'  { return 'Generer la chronologie HTML' }
+        'generate-html-reports'   { return 'Generer tous les rapports HTML' }
         default { return $Action }
     }
 }
@@ -2794,39 +2799,42 @@ function Update-DanewReportAvailability {
     $pendingCount = @($availabilityChecks | Where-Object { -not $_ }).Count
     if ($quickActionsGroup) {
         $suffix = ' - ' + [string]$availableCount + ' disponibles, ' + [string]$pendingCount + ' a generer'
-        if (-not $browserOperational) {
+        # En WinPE, le navigateur est absent par conception — ne pas afficher de warning.
+        if ((-not $browserOperational) -and (-not $script:IsWinPE)) {
             $suffix += ' - navigateur HTML indisponible'
         }
         $quickActionsGroup.Text = Convert-DanewUiText -Text ('Actions rapides' + $suffix)
     }
 
-    if ($openTimelineReportButton) {
+    # En WinPE : boutons HTML caches — les rapports s'ouvrent sur PC technicien.
+    # Les blocs ci-dessous ne s'executent qu'hors WinPE.
+    if ((-not $script:IsWinPE) -and $openTimelineReportButton) {
         $timelineLabel = '1. LOGS COMPLETS'
         if ($openTimelineReportButton.Tag -and $openTimelineReportButton.Tag.PSObject.Properties['base_text']) {
             $openTimelineReportButton.Tag.base_text = $timelineLabel
         }
         $openTimelineReportButton.Text = Convert-DanewUiText -Text $timelineLabel
-        $timelineUnavailableHint = if (-not $browserOperational) { 'Rapport present mais navigateur non operationnel dans cet environnement. Verifiez Chromium portable.' } else { 'Rapport complet indisponible pour cette session. Lancez ANALYSE COMPLETE.' }
+        $timelineUnavailableHint = if (-not $browserOperational) { 'Rapport present mais navigateur non operationnel. Verifiez Chromium portable.' } else { 'Rapport complet indisponible. Lancez ANALYSE COMPLETE.' }
         Set-DanewButtonAvailability -Button $openTimelineReportButton -Available $hasTimeline -ToolTip $toolTip -AvailableHint 'Ouvre la vue complete des journaux Windows recuperes.' -UnavailableHint $timelineUnavailableHint
     }
 
-    if ($openTimelineFastReportButton) {
+    if ((-not $script:IsWinPE) -and $openTimelineFastReportButton) {
         $timelineFastLabel = '2. LOGS RAPIDES'
         if ($openTimelineFastReportButton.Tag -and $openTimelineFastReportButton.Tag.PSObject.Properties['base_text']) {
             $openTimelineFastReportButton.Tag.base_text = $timelineFastLabel
         }
         $openTimelineFastReportButton.Text = Convert-DanewUiText -Text $timelineFastLabel
-        $timelineFastUnavailableHint = if (-not $browserOperational) { 'Rapport present mais navigateur non operationnel dans cet environnement. Verifiez Chromium portable.' } else { 'Rapport rapide indisponible pour cette session. Lancez ANALYSE RAPIDE ou ANALYSE COMPLETE.' }
+        $timelineFastUnavailableHint = if (-not $browserOperational) { 'Rapport present mais navigateur non operationnel. Verifiez Chromium portable.' } else { 'Rapport rapide indisponible. Lancez ANALYSE RAPIDE ou ANALYSE COMPLETE.' }
         Set-DanewButtonAvailability -Button $openTimelineFastReportButton -Available $hasTimelineFast -ToolTip $toolTip -AvailableHint 'Ouvre la vue rapide des evenements critiques, erreurs et avertissements.' -UnavailableHint $timelineFastUnavailableHint
     }
 
-    if ($openSavReportButton) {
+    if ((-not $script:IsWinPE) -and $openSavReportButton) {
         $savLabel = '3. RAPPORT SAV'
         if ($openSavReportButton.Tag -and $openSavReportButton.Tag.PSObject.Properties['base_text']) {
             $openSavReportButton.Tag.base_text = $savLabel
         }
         $openSavReportButton.Text = Convert-DanewUiText -Text $savLabel
-        $savUnavailableHint = if (-not $browserOperational) { 'Rapport present mais navigateur non operationnel dans cet environnement. Verifiez Chromium portable.' } else { 'Rapport SAV indisponible pour cette session. Lancez ANALYSER CAUSES DE CRASH ou une analyse des journaux.' }
+        $savUnavailableHint = if (-not $browserOperational) { 'Rapport present mais navigateur non operationnel. Verifiez Chromium portable.' } else { 'Rapport SAV indisponible. Lancez ANALYSER CAUSES DE CRASH.' }
         Set-DanewButtonAvailability -Button $openSavReportButton -Available $hasSav -ToolTip $toolTip -AvailableHint 'Ouvre le rapport SAV principal.' -UnavailableHint $savUnavailableHint
     }
 
@@ -3446,6 +3454,84 @@ function Invoke-GuiAction {
             }
             catch {
                 Set-DanewSummaryVisual -Status 'FAIL' -Text ('Echec generation HTML: ' + $_.Exception.Message)
+            }
+            return
+        }
+
+        if ($Action -eq 'generate-html-reports') {
+            # Commande PC technicien : generer tous les rapports HTML depuis les artefacts JSON/CSV.
+            # Utilisable aussi en mode GUI ou CLI.
+            if ($script:IsWinPE) {
+                Set-DanewSummaryVisual -Status 'WARNING' -Text 'generate-html-reports non disponible en WinPE — retirer la cle USB et lancer sur PC technicien.'
+                return
+            }
+            $reportsPath = [string]$config.reports_path
+            if (-not (Test-Path $reportsPath)) {
+                Set-DanewSummaryVisual -Status 'WARNING' -Text 'Dossier reports introuvable — verifiez le chemin de configuration.'
+                return
+            }
+
+            Set-DanewSummaryVisual -Status 'RUNNING' -Text 'Generation des rapports HTML en cours...'
+            Add-DiagnosticProgressLine -Line '[HTML] Demarrage generate-html-reports depuis artefacts JSON...'
+            [System.Windows.Forms.Application]::DoEvents()
+
+            $generatedCount = 0
+            $errorCount = 0
+
+            # 1. sav-diagnostic-report.html
+            $savHtml  = Join-Path $reportsPath 'sav-diagnostic-report.html'
+            $savJson  = Join-Path $reportsPath 'sav-diagnostic-report.json'
+            if ((-not (Test-Path $savHtml)) -and (Test-Path $savJson)) {
+                try {
+                    Add-DiagnosticProgressLine -Line '[HTML] Generation sav-diagnostic-report.html...'
+                    [void](Write-DanewSavDiagnosticReportHtmlFromJson -ReportsPath $reportsPath)
+                    $generatedCount++
+                }
+                catch { $errorCount++; Add-DiagnosticProgressLine -Line ('[HTML] Echec SAV: ' + $_.Exception.Message) }
+            }
+
+            # 2. timeline-raw.html + evtx-events.html (meme source)
+            $tlHtml = Join-Path $reportsPath 'timeline-raw.html'
+            $tlJson = Join-Path $reportsPath 'timeline-raw.json'
+            if ((-not (Test-Path $tlHtml)) -and (Test-Path $tlJson)) {
+                try {
+                    Add-DiagnosticProgressLine -Line '[HTML] Generation timeline-raw.html + evtx-events.html...'
+                    [void](Ensure-DanewReportHtml -Path $tlHtml)
+                    $generatedCount++
+                }
+                catch { $errorCount++; Add-DiagnosticProgressLine -Line ('[HTML] Echec timeline: ' + $_.Exception.Message) }
+            }
+
+            # 3. evtx-by-file.html
+            $byFileHtml = Join-Path $reportsPath 'evtx-by-file.html'
+            if ((-not (Test-Path $byFileHtml)) -and (Test-Path $tlJson)) {
+                try {
+                    Add-DiagnosticProgressLine -Line '[HTML] Generation evtx-by-file.html...'
+                    [void](Ensure-DanewReportHtml -Path $byFileHtml)
+                    $generatedCount++
+                }
+                catch { $errorCount++; Add-DiagnosticProgressLine -Line ('[HTML] Echec evtx-by-file: ' + $_.Exception.Message) }
+            }
+
+            # 4. REPORTS_INDEX.html
+            try {
+                Add-DiagnosticProgressLine -Line '[HTML] Mise a jour REPORTS_INDEX.html...'
+                [void](Update-DanewInteractiveReportsIndex -ReportsPath $reportsPath)
+                $generatedCount++
+            }
+            catch { $errorCount++; Add-DiagnosticProgressLine -Line ('[HTML] Echec index: ' + $_.Exception.Message) }
+
+            # 5. Rafraichir disponibilite + ouvrir rapport principal si navigateur OK
+            [void](Update-DanewReportAvailability)
+            $statusText = 'generate-html-reports : ' + $generatedCount + ' generes'
+            if ($errorCount -gt 0) { $statusText += ', ' + $errorCount + ' erreur(s)' }
+            Set-DanewSummaryVisual -Status (if ($errorCount -eq 0) { 'PASS' } else { 'WARNING' }) -Text $statusText
+            Add-DiagnosticProgressLine -Line ('[HTML] Termine — ' + $statusText)
+
+            # Ouvrir REPORTS_INDEX.html si navigateur disponible
+            $indexHtml = Join-Path $reportsPath 'REPORTS_INDEX.html'
+            if (Test-Path $indexHtml) {
+                try { [void](Open-DanewSpecificReport -Kind 'reports-index') } catch {}
             }
             return
         }
@@ -4850,9 +4936,32 @@ $openTextReportsButton.Add_Click({
 $openTimelineReportButton = New-DanewActionButton -Text '1. COMPLET TOUS LES LOGS' -Action 'open-timeline-report' -ToolTip $toolTip -Hint 'Ouvre la vue complete des journaux Windows recuperes. Permet de filtrer, trier et rechercher tous les evenements EVTX.' -Tone 'primary'
 $openTimelineFastReportButton = New-DanewActionButton -Text '2. RAPIDE CRIT/ERR/AVERT.' -Action 'open-timeline-fast-report' -ToolTip $toolTip -Hint 'Ouvre la vue rapide des journaux Windows limitee aux evenements critiques, erreurs et avertissements, regroupes par fichier EVTX.' -Tone 'primary'
 $openSavReportButton = New-DanewActionButton -Text '3. OUVRIR LE RAPPORT SAV' -Action 'open-sav-report' -ToolTip $toolTip -Hint 'Ouvre le rapport SAV principal. A utiliser apres analyse des journaux ou analyse des causes de crash. Si absent, ouvre l index des rapports.' -Tone 'primary'
-$openTimelineReportButton.Visible = $false
-$openTimelineFastReportButton.Visible = $false
-$openSavReportButton.Visible = $false
+if ($script:IsWinPE) {
+    # WinPE : les rapports HTML s'ouvrent sur le PC technicien — cacher definitivement
+    # les boutons HTML et les exclure des ActionButtons.
+    $openTimelineReportButton.Visible = $false
+    $openTimelineFastReportButton.Visible = $false
+    $openSavReportButton.Visible = $false
+
+    # Label informatif dans simplePanel a la place des boutons HTML
+    $winpeTechPcLabel = New-Object System.Windows.Forms.Label
+    $winpeTechPcLabel.Text = Convert-DanewUiText -Text 'Rapports HTML disponibles sur PC technicien. Branchez la cle USB et lancez : generate-html-reports'
+    $winpeTechPcLabel.AutoSize = $false
+    $winpeTechPcLabel.Width = 800
+    $winpeTechPcLabel.Height = 36
+    $winpeTechPcLabel.Left = 0
+    $winpeTechPcLabel.Top = 0
+    $winpeTechPcLabel.Font = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Italic)
+    $winpeTechPcLabel.ForeColor = [System.Drawing.Color]::FromArgb(71, 85, 105)
+    $winpeTechPcLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+    [void]$simplePanel.Controls.Add($winpeTechPcLabel)
+}
+else {
+    # PC normal : caches initialement, rendus visibles par Update-DanewReportAvailability
+    $openTimelineReportButton.Visible = $false
+    $openTimelineFastReportButton.Visible = $false
+    $openSavReportButton.Visible = $false
+}
 [void]$simplePanel.Controls.Add($openReportsButton)
 [void](Set-DanewReportsSectionLayout)
 

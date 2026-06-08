@@ -5264,12 +5264,21 @@ function Invoke-DanewOfflineLogsAnalysis {
         $effectiveMaxEventsPerLog = 500
     }
 
-    # WinPE memory guard: auto-detect WinPE (SystemRoot=X:\) and apply strict limits.
-    # WinPE typically has 512MB–1 GB RAM. Parallel Start-Job processes + large event arrays = OOM.
-    # Force serial mode and cap events unless the user explicitly configured lower values.
-    $isLikelyWinPE = $false
-    try { $isLikelyWinPE = ([string]$env:SystemRoot -like 'X:\*') } catch {}
-    if ($isLikelyWinPE) {
+    # WinPE detection centralisee (Test-DanewIsWinPE dans LauncherCore.ps1).
+    # Fallback inline si le launcher n'est pas charge (appel direct engine).
+    $isWinPE = $false
+    try {
+        if (Get-Command -Name 'Test-DanewIsWinPE' -ErrorAction SilentlyContinue) {
+            $isWinPE = Test-DanewIsWinPE
+        }
+        else {
+            $isWinPE = ([string]$env:SystemRoot -like 'X:\*') -or ([string]$env:SystemDrive -eq 'X:')
+        }
+    }
+    catch {}
+
+    # WinPE memory guard : serie forcee + cap 500 evenements pour eviter OOM.
+    if ($isWinPE) {
         if ($effectiveMaxEventsPerLog -gt 500) {
             $effectiveMaxEventsPerLog = 500
         }
@@ -5288,27 +5297,24 @@ function Invoke-DanewOfflineLogsAnalysis {
 
     $parallelRaw = Get-DanewSafeProperty -Object $Config -Name 'offline_parallel_evtx' -DefaultValue $true
     $parallelEnabled = -not (($parallelRaw -eq $false) -or ([string]$parallelRaw -match '^(?i:false|0|no|off)$'))
-    # WinPE: disable parallel EVTX parsing — each Start-Job spawns an extra PowerShell
-    # process (~100 MB) which can exhaust WinPE RAM. Serial parsing is safer.
-    if ($isLikelyWinPE) {
-        $parallelEnabled = $false
-    }
+    # WinPE : desactiver le parsing parallele — chaque Start-Job consomme ~100 MB RAM.
+    if ($isWinPE) { $parallelEnabled = $false }
 
     $parallelJobs = [int](Get-DanewSafeProperty -Object $Config -Name 'offline_evtx_parallel_jobs' -DefaultValue 2)
     if ($parallelJobs -lt 1) { $parallelJobs = 1 }
     if ($parallelJobs -gt 8) { $parallelJobs = 8 }
-    if ($isLikelyWinPE) { $parallelJobs = 1 }
+    if ($isWinPE) { $parallelJobs = 1 }
 
     $incrementalCacheRaw = Get-DanewSafeProperty -Object $Config -Name 'offline_incremental_evtx_cache' -DefaultValue $true
     $incrementalCacheEnabled = -not (($incrementalCacheRaw -eq $false) -or ([string]$incrementalCacheRaw -match '^(?i:false|0|no|off)$'))
     $autoTargetedExportsRaw = Get-DanewSafeProperty -Object $Config -Name 'offline_auto_targeted_exports' -DefaultValue $false
     $autoTargetedExportsEnabled = ($autoTargetedExportsRaw -eq $true) -or ([string]$autoTargetedExportsRaw -match '^(?i:true|1|yes|on)$')
 
-    # Deferred HTML: skip timeline-raw.html during analysis; generate on-demand at report open.
-    # Default: true in WinPE (saves ~4 MB RAM + ~10 s generation time per run).
-    # Override with offline_defer_timeline_html=false in config to always generate eagerly.
-    $deferTimelineHtmlRaw = Get-DanewSafeProperty -Object $Config -Name 'offline_defer_timeline_html' -DefaultValue $isLikelyWinPE
-    $deferTimelineHtml = ($deferTimelineHtmlRaw -eq $true) -or ([string]$deferTimelineHtmlRaw -match '^(?i:true|1|yes|on)$')
+    # HTML mode : en WinPE les HTML lourds sont toujours skipped (generes sur PC technicien).
+    # Hors WinPE : configurable via offline_defer_timeline_html ; defaut = false (eager).
+    $skipHtmlInWinPE = $isWinPE
+    $deferTimelineHtmlRaw = Get-DanewSafeProperty -Object $Config -Name 'offline_defer_timeline_html' -DefaultValue $false
+    $deferTimelineHtml = $skipHtmlInWinPE -or (($deferTimelineHtmlRaw -eq $true) -or ([string]$deferTimelineHtmlRaw -match '^(?i:true|1|yes|on)$'))
 
     Write-DanewOfflineAnalysisProgress -ProgressCallback $ProgressCallback -StartedAt $analysisStartedAt -Step 1 -TotalSteps $totalProgressSteps -Message 'Initialize offline analysis'
 
@@ -5855,7 +5861,8 @@ function Invoke-DanewOfflineLogsAnalysis {
     }
 
     if ($deferTimelineHtml) {
-        Write-DanewOfflineAnalysisProgress -ProgressCallback $ProgressCallback -StartedAt $analysisStartedAt -Step 11 -TotalSteps $totalProgressSteps -Message 'HTML timeline differe — sera genere a l ouverture du rapport (offline_defer_timeline_html=true)'
+        $htmlSkipReason = if ($skipHtmlInWinPE) { 'mode WinPE — ouvrir sur PC technicien via generate-html-reports' } else { 'offline_defer_timeline_html=true — genere a l ouverture' }
+        Write-DanewOfflineAnalysisProgress -ProgressCallback $ProgressCallback -StartedAt $analysisStartedAt -Step 11 -TotalSteps $totalProgressSteps -Message ('HTML timeline non genere : ' + $htmlSkipReason)
     }
     else {
         Write-DanewOfflineAnalysisProgress -ProgressCallback $ProgressCallback -StartedAt $analysisStartedAt -Step 11 -TotalSteps $totalProgressSteps -Message 'Write timeline HTML and failure report'
@@ -5869,7 +5876,8 @@ function Invoke-DanewOfflineLogsAnalysis {
         }
     }
     if ($deferTimelineHtml) {
-        Write-DanewOfflineAnalysisProgress -ProgressCallback $ProgressCallback -StartedAt $analysisStartedAt -Step 11 -TotalSteps $totalProgressSteps -Message 'HTML evtx-by-file differe — sera genere a l ouverture (offline_defer_timeline_html=true)'
+        $byFileSkipReason = if ($skipHtmlInWinPE) { 'mode WinPE' } else { 'differe' }
+        Write-DanewOfflineAnalysisProgress -ProgressCallback $ProgressCallback -StartedAt $analysisStartedAt -Step 11 -TotalSteps $totalProgressSteps -Message ('HTML evtx-by-file non genere : ' + $byFileSkipReason)
         $evtxByFileHtmlPath = ''
     }
     else {

@@ -21,6 +21,48 @@ if (Test-Path -Path $crashEnginePath) {
     . $crashEnginePath
 }
 
+# ---------------------------------------------------------------------------
+# Test-DanewIsWinPE — detection environnement WinPE centralisee.
+# Retourne $true si l'outil tourne dans un environnement WinPE.
+#
+# Criteres (par ordre de fiabilite) :
+#   1. Cle registre HKLM:\SYSTEM\CurrentControlSet\Control\MiniNT (present
+#      uniquement en WinPE, cree par winpeshl.exe au demarrage)
+#   2. SystemRoot = X:\ (lecteur RAM WinPE par convention)
+#   3. SystemDrive = X: (meme heuristique)
+#   4. wpeinit.exe present dans System32
+# ---------------------------------------------------------------------------
+function Test-DanewIsWinPE {
+    # Critere 1 : cle registre MiniNT (marqueur officiel WinPE)
+    try {
+        if (Test-Path -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\MiniNT' -ErrorAction SilentlyContinue) {
+            return $true
+        }
+    }
+    catch {}
+
+    # Critere 2 : SystemRoot sur X:
+    try {
+        if ([string]$env:SystemRoot -like 'X:\*') { return $true }
+    }
+    catch {}
+
+    # Critere 3 : SystemDrive = X:
+    try {
+        if ([string]$env:SystemDrive -eq 'X:') { return $true }
+    }
+    catch {}
+
+    # Critere 4 : wpeinit.exe present (uniquement deploye en WinPE)
+    try {
+        $wpeinitPath = Join-Path ([string]$env:SystemRoot) 'System32\wpeinit.exe'
+        if (Test-Path -Path $wpeinitPath -ErrorAction SilentlyContinue) { return $true }
+    }
+    catch {}
+
+    return $false
+}
+
 function Resolve-DanewLauncherPath {
     param(
         [Parameter(Mandatory = $true)]
