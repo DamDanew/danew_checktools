@@ -4,7 +4,7 @@ param(
     [string]$ConfigPath,
     [switch]$FallbackToCli,
     [switch]$ForceGuiInitFailure,
-    [ValidateSet('Interactive', 'scan-winpe', 'capability-analysis', 'generate-report', 'open-reports-folder', 'export-diagnostic-package', 'prepare-startnet', 'start-diagnostic', 'analyze-offline-logs', 'analyze-offline-logs-fast', 'analyze-offline-logs-full', 'analyze-crash-causes', 'precheck-winpe', 'export-evtx-targeted', 'export-evtx-zip', 'check-browser', 'create-usb-media', 'real-winpe-validation', 'refresh-status', 'show-status', 'view-last-report', 'open-sav-report', 'open-reports-index', 'open-text-reports-list', 'exit')]
+    [ValidateSet('Interactive', 'scan-winpe', 'capability-analysis', 'generate-report', 'open-reports-folder', 'export-diagnostic-package', 'prepare-startnet', 'start-diagnostic', 'analyze-offline-logs', 'analyze-offline-logs-fast', 'analyze-offline-logs-full', 'analyze-crash-causes', 'precheck-winpe', 'export-evtx-targeted', 'export-evtx-zip', 'check-browser', 'create-usb-media', 'real-winpe-validation', 'refresh-status', 'show-status', 'view-last-report', 'open-sav-report', 'open-reports-index', 'open-text-reports-list', 'generate-timeline-html', 'exit')]
     [Alias('Action')]
     [string]$CliFallbackCommand = 'Interactive'
 )
@@ -513,6 +513,7 @@ function Get-DanewActionDisplayText {
         'create-usb-media' { return 'Preparer outil USB' }
         'refresh-status' { return 'Actualiser le statut' }
         'start-diagnostic' { return 'Diagnostic complet' }
+        'generate-timeline-html' { return 'Generer la chronologie HTML' }
         default { return $Action }
     }
 }
@@ -2593,47 +2594,65 @@ function Ensure-DanewFullTimelineReport {
     }
 
     $leaf = Split-Path -Leaf $Path
+    $dir  = Split-Path -Parent $Path
+
+    # Helper: load JSON and build timeline HTML at $htmlDest from timeline-raw.json + evtx-summary.json.
+    $generateFromJson = {
+        param([string]$htmlDest)
+        $timeline = Get-DanewReportJson -Name 'timeline-raw.json'
+        if ($null -eq $timeline) { return $false }
+        $summary = Get-DanewReportJson -Name 'evtx-summary.json'
+        if ($null -eq $summary) {
+            $summary = [pscustomobject]@{
+                total_events = @($timeline.events).Count
+                missing_required_logs = 0
+                parse_issue_count = @($timeline.issues).Count
+            }
+        }
+        try {
+            Add-DiagnosticProgressLine -Line '[TIMELINE] Generation HTML on-demand depuis timeline-raw.json...'
+            Write-DanewTimelineHtml -Path $htmlDest -Events @($timeline.events) -Summary $summary
+            # evtx-events.html is a copy of timeline-raw.html — sync it too.
+            $evtxEventsPath = Join-Path (Split-Path -Parent $htmlDest) 'evtx-events.html'
+            try { Copy-Item -Path $htmlDest -Destination $evtxEventsPath -Force -ErrorAction SilentlyContinue } catch {}
+            Add-DiagnosticProgressLine -Line ('[TIMELINE] timeline-raw.html + evtx-events.html generees (' + [math]::Round((Get-Item $htmlDest -ErrorAction SilentlyContinue).Length/1KB, 0) + ' KB)')
+            return $true
+        }
+        catch {
+            Add-DiagnosticProgressLine -Line ('[TIMELINE] Echec generation HTML: ' + $_.Exception.Message)
+            return $false
+        }
+    }
+
+    # Case 1: path points to timeline-raw.json (deferred mode — HTML was never generated).
+    # Generate HTML next to the JSON, then return the HTML path.
+    if ([string]::Equals($leaf, 'timeline-raw.json', [System.StringComparison]::OrdinalIgnoreCase)) {
+        $htmlDest = Join-Path $dir 'timeline-raw.html'
+        [void](& $generateFromJson $htmlDest)
+        return $htmlDest
+    }
+
+    # Only handle timeline-raw.html from here on.
     if (-not [string]::Equals($leaf, 'timeline-raw.html', [System.StringComparison]::OrdinalIgnoreCase)) {
         return $Path
     }
 
+    # Case 2: HTML absent (deferred or never generated) but JSON exists → generate.
     if (-not (Test-Path -Path $Path)) {
-        return $Path
-    }
-
-    $currentHtml = ''
-    try {
-        $currentHtml = Get-Content -Path $Path -Raw -Encoding UTF8
-    }
-    catch {
-        return $Path
-    }
-
-    if ($currentHtml -notmatch 'Mode rapide optimise') {
-        return $Path
-    }
-
-    $timeline = Get-DanewReportJson -Name 'timeline-raw.json'
-    if ($null -eq $timeline) {
-        return $Path
-    }
-
-    $summary = Get-DanewReportJson -Name 'evtx-summary.json'
-    if ($null -eq $summary) {
-        $summary = [pscustomobject]@{
-            total_events = @($timeline.events).Count
-            missing_required_logs = 0
-            parse_issue_count = @($timeline.issues).Count
+        $jsonPath = Join-Path $dir 'timeline-raw.json'
+        if (Test-Path -Path $jsonPath) {
+            [void](& $generateFromJson $Path)
         }
+        return $Path
     }
 
-    try {
-        Write-DanewTimelineHtml -Path $Path -Events @($timeline.events) -Summary $summary
-        return $Path
-    }
-    catch {
-        return $Path
-    }
+    # Case 3: HTML exists but is fast-mode stub → regenerate full version.
+    $currentHtml = ''
+    try { $currentHtml = Get-Content -Path $Path -Raw -Encoding UTF8 } catch { return $Path }
+    if ($currentHtml -notmatch 'Mode rapide optimise') { return $Path }
+
+    [void](& $generateFromJson $Path)
+    return $Path
 }
 
 function Update-DanewReportAvailability {
@@ -3257,6 +3276,16 @@ function Invoke-GuiAction {
             return
         }
         elseif ($Action -eq 'open-timeline-report') {
+            # Detect upfront if HTML needs on-demand generation (deferred mode).
+            # If so, show a specific status + flush UI before the blocking call.
+            $reportsPath      = [string]$config.reports_path
+            $timelineHtmlPath = Join-Path $reportsPath 'timeline-raw.html'
+            $timelineJsonPath = Join-Path $reportsPath 'timeline-raw.json'
+            $needsGeneration  = (-not (Test-Path $timelineHtmlPath)) -and (Test-Path $timelineJsonPath)
+            if ($needsGeneration) {
+                Set-DanewSummaryVisual -Status 'RUNNING' -Text 'Generation HTML timeline en cours...'
+                Add-DiagnosticProgressLine -Line '[TIMELINE] HTML absent — generation on-demand depuis timeline-raw.json...'
+            }
             $opened = Open-DanewSpecificReport -Kind 'timeline'
             if ($opened) {
                 Set-DanewSummaryVisual -Status 'PASS' -Text 'Logs Windows classes ouverts'
@@ -3288,6 +3317,29 @@ function Invoke-GuiAction {
         }
         elseif ($Action -eq 'recommended-actions') {
             Show-DanewRecommendedActions
+            return
+        }
+        elseif ($Action -eq 'generate-timeline-html') {
+            $reportsPath = [string]$config.reports_path
+            $jsonPath    = Join-Path $reportsPath 'timeline-raw.json'
+            $htmlPath    = Join-Path $reportsPath 'timeline-raw.html'
+            if (-not (Test-Path $jsonPath)) {
+                Set-DanewSummaryVisual -Status 'WARNING' -Text 'timeline-raw.json absent — lancez d abord une analyse EVTX'
+                return
+            }
+            Set-DanewSummaryVisual -Status 'RUNNING' -Text 'Generation de timeline-raw.html...'
+            Add-DiagnosticProgressLine -Line '[TIMELINE] Demarrage generation HTML on-demand...'
+            try {
+                $tl = Get-DanewReportJson -Name 'timeline-raw.json'
+                $sm = Get-DanewReportJson -Name 'evtx-summary.json'
+                if ($null -eq $sm) { $sm = [pscustomobject]@{ total_events = @($tl.events).Count; missing_required_logs = 0; parse_issue_count = @($tl.issues).Count } }
+                Write-DanewTimelineHtml -Path $htmlPath -Events @($tl.events) -Summary $sm
+                [void](Update-DanewReportAvailability)
+                Set-DanewSummaryVisual -Status 'PASS' -Text ('timeline-raw.html generee — ' + [math]::Round((Get-Item $htmlPath).Length/1KB, 0) + ' KB')
+            }
+            catch {
+                Set-DanewSummaryVisual -Status 'FAIL' -Text ('Echec generation HTML: ' + $_.Exception.Message)
+            }
             return
         }
 

@@ -1583,7 +1583,7 @@ function Save-DanewEvtxIncrementalCache {
         entries = @($entries)
     }
 
-    $payload | ConvertTo-Json -Depth 40 | Set-Content -Path $Path -Encoding UTF8
+    $payload | ConvertTo-Json -Depth 10 | Set-Content -Path $Path -Encoding UTF8
 }
 
 function Get-DanewEvtxEventRecords {
@@ -1890,12 +1890,19 @@ function Get-DanewEvtxEventRecords {
         foreach ($item in @($readableItemsToParse)) {
             & $emitParseHeartbeat 'serial' ([string]$item.file_path) $completedItems $totalItemsToParse 1 0 ([int]@($events).Count)
             try {
-                if ($MaxEventsPerLog -gt 0) {
+                # Security.evtx: audit log, rarely relevant for crash analysis, can be huge.
+                # Cap at 150 events even when global cap is higher — latest events are most useful.
+                $effectiveMax = $MaxEventsPerLog
+                if ($item.file_path -match '(?i)Security\.evtx$' -and ($effectiveMax -eq 0 -or $effectiveMax -gt 150)) {
+                    $effectiveMax = 150
+                }
+
+                if ($effectiveMax -gt 0) {
                     if ([string]::IsNullOrWhiteSpace($filterXPath)) {
-                        $records = @(Get-WinEvent -Path $item.file_path -Oldest -MaxEvents $MaxEventsPerLog -ErrorAction Stop)
+                        $records = @(Get-WinEvent -Path $item.file_path -Oldest -MaxEvents $effectiveMax -ErrorAction Stop)
                     }
                     else {
-                        $records = @(Get-WinEvent -Path $item.file_path -FilterXPath $filterXPath -Oldest -MaxEvents $MaxEventsPerLog -ErrorAction SilentlyContinue)
+                        $records = @(Get-WinEvent -Path $item.file_path -FilterXPath $filterXPath -Oldest -MaxEvents $effectiveMax -ErrorAction SilentlyContinue)
                     }
                 }
                 else {
@@ -3181,7 +3188,7 @@ function Write-DanewTimelineHtml {
                 provider_id = $_.provider_id
                 payload = $_.data
             }
-        }) | ConvertTo-Json -Depth 30 -Compress
+        }) | ConvertTo-Json -Depth 10 -Compress
 
     $providerOptionsHtml = @('<option value="">Tous</option>')
     foreach ($p in @($providerList)) {
@@ -3258,6 +3265,13 @@ Action recommandee : sauvegarder les donnees, verifier le stockage, puis poursui
 "@.Trim()
 
     $additionalContentHtml = @"
+<div id="danew-loading-overlay" aria-live="polite" aria-label="Chargement en cours">
+  <div class="danew-loader-box">
+    <div class="danew-spinner"></div>
+    <p class="danew-loader-text">Chargement de la chronologie&hellip;</p>
+    <p class="danew-loader-sub" id="danew-loader-sub">Initialisation des evenements</p>
+  </div>
+</div>
 <aside class="evtx-detail-panel" data-evtx-detail hidden>
 <div class="detail-panel-head"><h2>Detail evenement</h2><button type="button" class="ghost-button" data-action="close-detail" title="Masquer ce panneau" style="font-size:12px;padding:4px 10px;margin-left:auto;">&#10005; Fermer</button></div>
 <div class="detail-grid">
@@ -3292,7 +3306,36 @@ Action recommandee : sauvegarder les donnees, verifier le stockage, puis poursui
 
     $additionalStyleHtml = @"
 <style>
-/* Severity badges — French level names */
+/* ── Loading overlay ── */
+#danew-loading-overlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(247,243,232,0.97);
+  display: flex; align-items: center; justify-content: center;
+  transition: opacity .25s ease;
+}
+#danew-loading-overlay.danew-loader-hidden {
+  opacity: 0; pointer-events: none;
+}
+.danew-loader-box {
+  text-align: center; padding: 40px 60px;
+  background: #fff; border-radius: 20px;
+  box-shadow: 0 18px 48px rgba(23,32,51,.14);
+}
+.danew-spinner {
+  width: 48px; height: 48px; margin: 0 auto 20px;
+  border: 5px solid #e2e8f0;
+  border-top-color: #0f766e;
+  border-radius: 50%;
+  animation: danew-spin .9s linear infinite;
+}
+@keyframes danew-spin { to { transform: rotate(360deg); } }
+.danew-loader-text {
+  font-size: 16px; font-weight: 700; color: #172033; margin: 0 0 6px;
+}
+.danew-loader-sub {
+  font-size: 12px; color: #596579; margin: 0;
+}
+/* ── Severity badges — French level names ── */
 .badge-level-critique    { background: #fee2e2; color: #991b1b; padding: 3px 9px; border-radius: 10px; font-weight: 700; font-size: 12px; }
 .badge-level-erreur      { background: #fecaca; color: #7f1d1d; padding: 3px 9px; border-radius: 10px; font-weight: 700; font-size: 12px; }
 .badge-level-avertissement { background: #ffedd5; color: #9a3412; padding: 3px 9px; border-radius: 10px; font-weight: 700; font-size: 12px; }
@@ -3383,11 +3426,22 @@ Action recommandee : sauvegarder les donnees, verifier le stockage, puis poursui
     $additionalScriptHtml = @"
 <script>
 (function () {
+    // Update loader step: JSON indexing
+    (function () {
+        var sub = document.getElementById('danew-loader-sub');
+        if (sub) { sub.textContent = 'Indexation des evenements (' + ($eventsJson.Length) + ' octets)...'; }
+    }());
     var eventDb = $eventsJson;
     var mapByRef = {};
     for (var i = 0; i < eventDb.length; i++) {
         mapByRef[eventDb[i].provider_id + '::' + eventDb[i].payload.timestamp] = eventDb[i].payload;
     }
+
+    // Update loader step: wiring rows
+    (function () {
+        var sub = document.getElementById('danew-loader-sub');
+        if (sub) { sub.textContent = 'Connexion des lignes du tableau...'; }
+    }());
 
     var root = document.querySelector('[data-report-shell="danew"]');
     if (!root) { return; }
@@ -3749,6 +3803,18 @@ Action recommandee : sauvegarder les donnees, verifier le stockage, puis poursui
     applyAllFilters();
     // Ne pas auto-selectionner la premiere ligne — le panneau de detail
     // s'ouvre uniquement sur clic volontaire du technicien
+
+    // Hide loading overlay — JS init complete, page is interactive.
+    (function hideLoader() {
+        var overlay = document.getElementById('danew-loading-overlay');
+        if (!overlay) { return; }
+        var sub = document.getElementById('danew-loader-sub');
+        if (sub) { sub.textContent = 'Pret'; }
+        overlay.classList.add('danew-loader-hidden');
+        setTimeout(function () {
+            if (overlay.parentNode) { overlay.parentNode.removeChild(overlay); }
+        }, 300);
+    }());
 }());
 </script>
 "@
@@ -5238,6 +5304,12 @@ function Invoke-DanewOfflineLogsAnalysis {
     $autoTargetedExportsRaw = Get-DanewSafeProperty -Object $Config -Name 'offline_auto_targeted_exports' -DefaultValue $false
     $autoTargetedExportsEnabled = ($autoTargetedExportsRaw -eq $true) -or ([string]$autoTargetedExportsRaw -match '^(?i:true|1|yes|on)$')
 
+    # Deferred HTML: skip timeline-raw.html during analysis; generate on-demand at report open.
+    # Default: true in WinPE (saves ~4 MB RAM + ~10 s generation time per run).
+    # Override with offline_defer_timeline_html=false in config to always generate eagerly.
+    $deferTimelineHtmlRaw = Get-DanewSafeProperty -Object $Config -Name 'offline_defer_timeline_html' -DefaultValue $isLikelyWinPE
+    $deferTimelineHtml = ($deferTimelineHtmlRaw -eq $true) -or ([string]$deferTimelineHtmlRaw -match '^(?i:true|1|yes|on)$')
+
     Write-DanewOfflineAnalysisProgress -ProgressCallback $ProgressCallback -StartedAt $analysisStartedAt -Step 1 -TotalSteps $totalProgressSteps -Message 'Initialize offline analysis'
 
     if (-not (Test-Path -Path $Config.reports_path)) {
@@ -5711,40 +5783,40 @@ function Invoke-DanewOfflineLogsAnalysis {
 
     Write-DanewOfflineAnalysisProgress -ProgressCallback $ProgressCallback -StartedAt $analysisStartedAt -Step 10 -TotalSteps $totalProgressSteps -Message 'Write JSON and CSV artifacts'
     Invoke-DanewTimedArtifactWrite -Name 'storage-analysis.json' -Action {
-        $storageAnalysisReport | ConvertTo-Json -Depth 40 | Set-Content -Path $storageAnalysisPath -Encoding UTF8
+        $storageAnalysisReport | ConvertTo-Json -Depth 12 | Set-Content -Path $storageAnalysisPath -Encoding UTF8
     }
     Invoke-DanewTimedArtifactWrite -Name 'primary-disk-analysis.json' -Action {
-        $primaryDiskAnalysis | ConvertTo-Json -Depth 40 | Set-Content -Path $primaryDiskAnalysisPath -Encoding UTF8
+        $primaryDiskAnalysis | ConvertTo-Json -Depth 12 | Set-Content -Path $primaryDiskAnalysisPath -Encoding UTF8
     }
     Invoke-DanewTimedArtifactWrite -Name 'temporary-mount-analysis.json' -Action {
-        $temporaryMountAnalysis | ConvertTo-Json -Depth 40 | Set-Content -Path $temporaryMountAnalysisPath -Encoding UTF8
+        $temporaryMountAnalysis | ConvertTo-Json -Depth 12 | Set-Content -Path $temporaryMountAnalysisPath -Encoding UTF8
     }
     Invoke-DanewTimedArtifactWrite -Name 'windows-volume-ranking.json' -Action {
-        $windowsVolumeRanking | ConvertTo-Json -Depth 40 | Set-Content -Path $windowsVolumeRankingPath -Encoding UTF8
+        $windowsVolumeRanking | ConvertTo-Json -Depth 12 | Set-Content -Path $windowsVolumeRankingPath -Encoding UTF8
     }
     Invoke-DanewTimedArtifactWrite -Name 'storage-visibility-diagnosis.json' -Action {
-        $storageVisibilityDiagnosis | ConvertTo-Json -Depth 40 | Set-Content -Path $storageVisibilityDiagnosisPath -Encoding UTF8
+        $storageVisibilityDiagnosis | ConvertTo-Json -Depth 12 | Set-Content -Path $storageVisibilityDiagnosisPath -Encoding UTF8
     }
     Invoke-DanewTimedArtifactWrite -Name 'offline-discovery-exclusions.json' -Action {
-        $discoveryExclusions | ConvertTo-Json -Depth 40 | Set-Content -Path $offlineDiscoveryExclusionsPath -Encoding UTF8
+        $discoveryExclusions | ConvertTo-Json -Depth 12 | Set-Content -Path $offlineDiscoveryExclusionsPath -Encoding UTF8
     }
     Invoke-DanewTimedArtifactWrite -Name 'storage-diagnostics.json' -Action {
-        $storageDiagnostics | ConvertTo-Json -Depth 40 | Set-Content -Path $storageDiagnosticsPath -Encoding UTF8
+        $storageDiagnostics | ConvertTo-Json -Depth 12 | Set-Content -Path $storageDiagnosticsPath -Encoding UTF8
     }
     Invoke-DanewTimedArtifactWrite -Name 'partition-role-analysis.json' -Action {
-        $partitionRoleAnalysis | ConvertTo-Json -Depth 40 | Set-Content -Path $partitionRolePath -Encoding UTF8
+        $partitionRoleAnalysis | ConvertTo-Json -Depth 12 | Set-Content -Path $partitionRolePath -Encoding UTF8
     }
     Invoke-DanewTimedArtifactWrite -Name 'bitlocker-analysis.json' -Action {
-        $bitLockerAnalysis | ConvertTo-Json -Depth 40 | Set-Content -Path $bitLockerPath -Encoding UTF8
+        $bitLockerAnalysis | ConvertTo-Json -Depth 12 | Set-Content -Path $bitLockerPath -Encoding UTF8
     }
     Invoke-DanewTimedArtifactWrite -Name 'offline-windows-analysis.json' -Action {
-        $analysis | ConvertTo-Json -Depth 40 | Set-Content -Path $analysisPath -Encoding UTF8
+        $analysis | ConvertTo-Json -Depth 12 | Set-Content -Path $analysisPath -Encoding UTF8
     }
     Invoke-DanewTimedArtifactWrite -Name 'evtx-discovery.json' -Action {
-        @($discoveryItems) | ConvertTo-Json -Depth 30 | Set-Content -Path $discoveryPath -Encoding UTF8
+        @($discoveryItems) | ConvertTo-Json -Depth 10 | Set-Content -Path $discoveryPath -Encoding UTF8
     }
     Invoke-DanewTimedArtifactWrite -Name 'evtx-events.json' -Action {
-        @($events) | ConvertTo-Json -Depth 30 | Set-Content -Path $eventsPath -Encoding UTF8
+        @($events) | ConvertTo-Json -Depth 8 | Set-Content -Path $eventsPath -Encoding UTF8
     }
 
     $csvRows = @($events | Select-Object timestamp, level, provider, event_id, channel, computer, task_category, opcode, keywords, source_file, installation_root, message)
@@ -5761,7 +5833,9 @@ function Invoke-DanewOfflineLogsAnalysis {
         $summary | ConvertTo-Json -Depth 20 | Set-Content -Path $summaryPath -Encoding UTF8
     }
     Invoke-DanewTimedArtifactWrite -Name 'timeline-raw.json' -Action {
-        $timeline | ConvertTo-Json -Depth 40 | Set-Content -Path $timelineJsonPath -Encoding UTF8
+        # Depth 8: event records are flat objects (timestamp, level, provider, message...).
+        # Depth 40 was catastrophically slow in PS5.x with 6000+ events.
+        $timeline | ConvertTo-Json -Depth 8 | Set-Content -Path $timelineJsonPath -Encoding UTF8
     }
 
     $targetedExports = [pscustomobject]@{
@@ -5780,28 +5854,39 @@ function Invoke-DanewOfflineLogsAnalysis {
         }
     }
 
-    Write-DanewOfflineAnalysisProgress -ProgressCallback $ProgressCallback -StartedAt $analysisStartedAt -Step 11 -TotalSteps $totalProgressSteps -Message 'Write timeline HTML and failure report'
-    Invoke-DanewTimedArtifactWrite -Name 'timeline-raw.html' -Action {
-        if ($fastModeEnabled) {
-            Write-DanewFastTimelineHtml -Path $timelineHtmlPath -Events $events -Summary $summary -ByFileHtmlPath $evtxByFileHtmlPath -TimelineJsonPath $timelineJsonPath
-        }
-        else {
-            Write-DanewTimelineHtml -Path $timelineHtmlPath -Events $events -Summary $summary
+    if ($deferTimelineHtml) {
+        Write-DanewOfflineAnalysisProgress -ProgressCallback $ProgressCallback -StartedAt $analysisStartedAt -Step 11 -TotalSteps $totalProgressSteps -Message 'HTML timeline differe — sera genere a l ouverture du rapport (offline_defer_timeline_html=true)'
+    }
+    else {
+        Write-DanewOfflineAnalysisProgress -ProgressCallback $ProgressCallback -StartedAt $analysisStartedAt -Step 11 -TotalSteps $totalProgressSteps -Message 'Write timeline HTML and failure report'
+        Invoke-DanewTimedArtifactWrite -Name 'timeline-raw.html' -Action {
+            if ($fastModeEnabled) {
+                Write-DanewFastTimelineHtml -Path $timelineHtmlPath -Events $events -Summary $summary -ByFileHtmlPath $evtxByFileHtmlPath -TimelineJsonPath $timelineJsonPath
+            }
+            else {
+                Write-DanewTimelineHtml -Path $timelineHtmlPath -Events $events -Summary $summary
+            }
         }
     }
-    try {
-        Invoke-DanewTimedArtifactWrite -Name 'evtx-by-file.html' -Action {
-            Write-DanewEvtxByFileHtml -Path $evtxByFileHtmlPath -Events $events -Summary $summary
-        }
-    }
-    catch {
-        [void]$warnings.Add('EVTX by-file HTML generation failed: ' + $_.Exception.Message)
+    if ($deferTimelineHtml) {
+        Write-DanewOfflineAnalysisProgress -ProgressCallback $ProgressCallback -StartedAt $analysisStartedAt -Step 11 -TotalSteps $totalProgressSteps -Message 'HTML evtx-by-file differe — sera genere a l ouverture (offline_defer_timeline_html=true)'
         $evtxByFileHtmlPath = ''
+    }
+    else {
+        try {
+            Invoke-DanewTimedArtifactWrite -Name 'evtx-by-file.html' -Action {
+                Write-DanewEvtxByFileHtml -Path $evtxByFileHtmlPath -Events $events -Summary $summary
+            }
+        }
+        catch {
+            [void]$warnings.Add('EVTX by-file HTML generation failed: ' + $_.Exception.Message)
+            $evtxByFileHtmlPath = ''
+        }
     }
 
     if ($failureNeeded) {
         Invoke-DanewTimedArtifactWrite -Name 'offline-windows-failure-report.json' -Action {
-            $failureReport | ConvertTo-Json -Depth 40 | Set-Content -Path $failureJsonPath -Encoding UTF8
+            $failureReport | ConvertTo-Json -Depth 10 | Set-Content -Path $failureJsonPath -Encoding UTF8
         }
         Invoke-DanewTimedArtifactWrite -Name 'offline-windows-failure-report.html' -Action {
             Write-DanewOfflineFailureReportHtml -Path $failureHtmlPath -FailureReport $failureReport
@@ -5879,3 +5964,4 @@ function Invoke-DanewOfflineLogsAnalysis {
         failure_report = $failureReport
     }
 }
+
