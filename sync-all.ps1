@@ -1,6 +1,10 @@
 $src = 'H:\Danew_CheckTool\WinPe_local'
 $files = @(
     'scripts\launcher.ps1',
+    'scripts\DanewCheckTool.CLI.ps1',
+    'scripts\launcher\LauncherCore.ps1',
+    'scripts\Run-TechPcReportViewerTests.ps1',
+    'scripts\Run-WinPECollectorModeTests.ps1',
     'scripts\report\HtmlReportShell.ps1',
     'reports\timeline-raw.html',
     'reports\sav-diagnostic-report.html',
