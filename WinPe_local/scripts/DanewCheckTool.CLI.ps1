@@ -3,6 +3,7 @@ param(
     [string]$RootPath = (Split-Path -Parent $PSScriptRoot),
     [string]$ConfigPath,
     [switch]$Json,
+    [switch]$Open,
     [string]$RuntimeSystemDrive,
     [ValidateSet('Interactive', 'scan-winpe', 'capability-analysis', 'generate-report', 'open-reports-folder', 'export-diagnostic-package', 'prepare-startnet', 'start-diagnostic', 'analyze-offline-logs', 'analyze-offline-logs-fast', 'analyze-offline-logs-full', 'analyze-crash-causes', 'precheck-winpe', 'export-evtx-targeted', 'export-evtx-zip', 'check-browser', 'create-usb-media', 'real-winpe-validation', 'pre-real-boot-check', 'refresh-status', 'show-status', 'view-last-report', 'generate-html-reports', 'exit')]
     [string]$Command = 'Interactive'
@@ -391,6 +392,16 @@ function Invoke-DanewCliGenerateHtmlReportsCommand {
     }
     if ($payload.index_exists) {
         Write-Host ('REPORTS_INDEX.html: ' + [string]$payload.index_html)
+        if ($Open) {
+            try {
+                Write-Host 'Ouverture de REPORTS_INDEX.html...'
+                Start-Process -FilePath ([string]$payload.index_html) -ErrorAction Stop
+            }
+            catch {
+                Write-Host ('Impossible d ouvrir le navigateur : ' + $_.Exception.Message)
+                Write-Host ('Ouvrir manuellement : ' + [string]$payload.index_html)
+            }
+        }
     }
 }
 

@@ -1,5 +1,6 @@
 $src = 'H:\Danew_CheckTool\WinPe_local'
 $files = @(
+    'RAPPORTS_TECHPC.bat',
     'scripts\launcher.ps1',
     'scripts\DanewCheckTool.CLI.ps1',
     'scripts\launcher\LauncherCore.ps1',
