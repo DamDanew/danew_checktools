@@ -256,6 +256,35 @@ catch {
 }
 
 # ---------------------------------------------------------------------------
+# TEST 7 : generate-html-reports dans le ValidateSet de DanewCheckTool.CLI.ps1
+# ---------------------------------------------------------------------------
+try {
+    $cliPath = Join-Path $PSScriptRoot 'DanewCheckTool.CLI.ps1'
+    if (Test-Path $cliPath) {
+        $cliSrc = Get-Content $cliPath -Raw -Encoding UTF8
+        $inValidateSet = $cliSrc -match "ValidateSet\([^)]*'generate-html-reports'[^)]*\)"
+        $hasHandler    = $cliSrc -match "Command.*-eq.*'generate-html-reports'"
+        $hasFunction   = $cliSrc -match 'Invoke-DanewCliGenerateHtmlReportsCommand'
+        if ($inValidateSet -and $hasHandler -and $hasFunction) {
+            Add-TestResult -Name 'generate-html-reports dans ValidateSet CLI' -Status 'PASS' -Detail 'ValidateSet + handler + fonction presents dans DanewCheckTool.CLI.ps1'
+        }
+        else {
+            $missing = @()
+            if (-not $inValidateSet) { $missing += 'ValidateSet' }
+            if (-not $hasHandler)    { $missing += 'handler if-block' }
+            if (-not $hasFunction)   { $missing += 'Invoke-DanewCliGenerateHtmlReportsCommand' }
+            Add-TestResult -Name 'generate-html-reports dans ValidateSet CLI' -Status 'FAIL' -Detail ('Manquants dans DanewCheckTool.CLI.ps1 : ' + ($missing -join ', '))
+        }
+    }
+    else {
+        Add-TestResult -Name 'generate-html-reports dans ValidateSet CLI' -Status 'SKIP' -Detail "Introuvable : $cliPath"
+    }
+}
+catch {
+    Add-TestResult -Name 'generate-html-reports dans ValidateSet CLI' -Status 'FAIL' -Detail $_.Exception.Message
+}
+
+# ---------------------------------------------------------------------------
 # Rapport final
 # ---------------------------------------------------------------------------
 $elapsed = [math]::Round(((Get-Date) - $scriptStart).TotalSeconds, 1)

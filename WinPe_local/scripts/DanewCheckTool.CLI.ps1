@@ -4,7 +4,7 @@ param(
     [string]$ConfigPath,
     [switch]$Json,
     [string]$RuntimeSystemDrive,
-    [ValidateSet('Interactive', 'scan-winpe', 'capability-analysis', 'generate-report', 'open-reports-folder', 'export-diagnostic-package', 'prepare-startnet', 'start-diagnostic', 'analyze-offline-logs', 'analyze-offline-logs-fast', 'analyze-offline-logs-full', 'analyze-crash-causes', 'precheck-winpe', 'export-evtx-targeted', 'export-evtx-zip', 'check-browser', 'create-usb-media', 'real-winpe-validation', 'pre-real-boot-check', 'refresh-status', 'show-status', 'view-last-report', 'exit')]
+    [ValidateSet('Interactive', 'scan-winpe', 'capability-analysis', 'generate-report', 'open-reports-folder', 'export-diagnostic-package', 'prepare-startnet', 'start-diagnostic', 'analyze-offline-logs', 'analyze-offline-logs-fast', 'analyze-offline-logs-full', 'analyze-crash-causes', 'precheck-winpe', 'export-evtx-targeted', 'export-evtx-zip', 'check-browser', 'create-usb-media', 'real-winpe-validation', 'pre-real-boot-check', 'refresh-status', 'show-status', 'view-last-report', 'generate-html-reports', 'exit')]
     [string]$Command = 'Interactive'
 )
 
@@ -358,6 +358,42 @@ function Invoke-DanewCliEvtxZipExportCommand {
     Write-Host ('ZIP path: ' + [string]$payload.zip)
 }
 
+function Invoke-DanewCliGenerateHtmlReportsCommand {
+    $progress = {
+        param([string]$Message)
+        if (-not $Json) {
+            Write-Host $Message
+        }
+    }
+
+    $result = Invoke-DanewLauncherAction -Action 'generate-html-reports' -RootPath $RootPath -Config $config -ProgressCallback $progress
+
+    if ($Json) {
+        $result.output | ConvertTo-Json -Depth 10
+        return
+    }
+
+    $payload = $result.output
+    Write-Host ''
+    Write-Host 'Generate HTML Reports Summary'
+    Write-Host ('Status: ' + [string]$payload.status)
+    Write-Host ('Reports path: ' + [string]$payload.reports_path)
+    Write-Host ('Generated: ' + [string]$payload.generated_count + ' file(s)')
+    Write-Host ('Skipped (already exist): ' + [string]$payload.skipped_count)
+    Write-Host ('Errors: ' + [string]$payload.error_count)
+    if (@($payload.generated).Count -gt 0) {
+        Write-Host 'Generated files:'
+        foreach ($f in @($payload.generated)) { Write-Host ('  - ' + $f) }
+    }
+    if (@($payload.errors).Count -gt 0) {
+        Write-Host 'Errors:'
+        foreach ($e in @($payload.errors)) { Write-Host ('  ! ' + $e) }
+    }
+    if ($payload.index_exists) {
+        Write-Host ('REPORTS_INDEX.html: ' + [string]$payload.index_html)
+    }
+}
+
 function Invoke-DanewCliBrowserCheckCommand {
     $result = Invoke-DanewLauncherAction -Action 'check-browser' -RootPath $RootPath -Config $config
 
@@ -440,6 +476,12 @@ if ($Command -ne 'Interactive') {
     if ($Command -eq 'check-browser') {
         Invoke-DanewCliBrowserCheckCommand
         Write-DanewLauncherActionLog -Config $config -Action 'cli-launcher' -Status 'ok' -Message 'CLI command completed: check-browser'
+        exit 0
+    }
+
+    if ($Command -eq 'generate-html-reports') {
+        Invoke-DanewCliGenerateHtmlReportsCommand
+        Write-DanewLauncherActionLog -Config $config -Action 'cli-launcher' -Status 'ok' -Message 'CLI command completed: generate-html-reports'
         exit 0
     }
 

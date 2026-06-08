@@ -1600,6 +1600,104 @@ function Invoke-DanewLauncherAction {
                 $usbReport = Invoke-DanewCreateUsbMedia -RootPath $RootPath -Config $Config
                 $result = [pscustomobject]@{ action = $Action; output = $usbReport }
             }
+            'generate-html-reports' {
+                # PC technicien : genere tous les rapports HTML depuis les artefacts JSON collectes en WinPE.
+                # Ne necessite pas le GUI (launcher.ps1) — appelle directement les moteurs charges par LauncherCore.
+                $reportsPath = [string]$Config.reports_path
+                if (-not (Test-Path -Path $reportsPath)) {
+                    throw "Dossier reports introuvable : $reportsPath — verifiez RootPath et la configuration."
+                }
+
+                $generated  = [System.Collections.Generic.List[string]]::new()
+                $skipped    = [System.Collections.Generic.List[string]]::new()
+                $errors     = [System.Collections.Generic.List[string]]::new()
+
+                # 1. sav-diagnostic-report.html depuis sav-diagnostic-report.json
+                $savHtml = Join-Path $reportsPath 'sav-diagnostic-report.html'
+                $savJson = Join-Path $reportsPath 'sav-diagnostic-report.json'
+                if (-not (Test-Path $savHtml) -and (Test-Path $savJson)) {
+                    try {
+                        Write-DanewDiagnosticProgress -ProgressCallback $ProgressCallback -Message '[HTML] Generation sav-diagnostic-report.html...'
+                        [void](Write-DanewSavDiagnosticReportHtmlFromJson -ReportsPath $reportsPath)
+                        $generated.Add('sav-diagnostic-report.html')
+                    }
+                    catch { $errors.Add('sav-diagnostic-report.html : ' + $_.Exception.Message) }
+                }
+                elseif (Test-Path $savHtml) { $skipped.Add('sav-diagnostic-report.html') }
+
+                # 2. timeline-raw.html + evtx-events.html depuis timeline-raw.json
+                $tlHtml = Join-Path $reportsPath 'timeline-raw.html'
+                $tlJson = Join-Path $reportsPath 'timeline-raw.json'
+                if (-not (Test-Path $tlHtml) -and (Test-Path $tlJson)) {
+                    try {
+                        Write-DanewDiagnosticProgress -ProgressCallback $ProgressCallback -Message '[HTML] Generation timeline-raw.html...'
+                        $tlData = Get-Content -Path $tlJson -Raw -Encoding UTF8 | ConvertFrom-Json
+                        $summaryJson = Join-Path $reportsPath 'evtx-summary.json'
+                        if (Test-Path $summaryJson) {
+                            $sm = Get-Content -Path $summaryJson -Raw -Encoding UTF8 | ConvertFrom-Json
+                        }
+                        else {
+                            $sm = [pscustomobject]@{
+                                total_events          = @($tlData.events).Count
+                                missing_required_logs = 0
+                                parse_issue_count     = @($tlData.issues).Count
+                            }
+                        }
+                        Write-DanewTimelineHtml -Path $tlHtml -Events @($tlData.events) -Summary $sm
+                        $generated.Add('timeline-raw.html')
+                        # evtx-events.html = copie de timeline-raw.html
+                        $evtxEventsHtml = Join-Path $reportsPath 'evtx-events.html'
+                        try { Copy-Item -Path $tlHtml -Destination $evtxEventsHtml -Force -ErrorAction SilentlyContinue; $generated.Add('evtx-events.html') } catch {}
+                    }
+                    catch { $errors.Add('timeline-raw.html : ' + $_.Exception.Message) }
+                }
+                elseif (Test-Path $tlHtml) { $skipped.Add('timeline-raw.html') }
+
+                # 3. evtx-by-file.html depuis timeline-raw.json
+                $byFileHtml = Join-Path $reportsPath 'evtx-by-file.html'
+                if (-not (Test-Path $byFileHtml) -and (Test-Path $tlJson)) {
+                    try {
+                        Write-DanewDiagnosticProgress -ProgressCallback $ProgressCallback -Message '[HTML] Generation evtx-by-file.html...'
+                        $tlData2 = Get-Content -Path $tlJson -Raw -Encoding UTF8 | ConvertFrom-Json
+                        $summaryJson2 = Join-Path $reportsPath 'evtx-summary.json'
+                        if (Test-Path $summaryJson2) {
+                            $sm2 = Get-Content -Path $summaryJson2 -Raw -Encoding UTF8 | ConvertFrom-Json
+                        }
+                        else {
+                            $sm2 = [pscustomobject]@{ total_events = @($tlData2.events).Count; missing_required_logs = 0; parse_issue_count = 0 }
+                        }
+                        Write-DanewEvtxByFileHtml -Path $byFileHtml -Events @($tlData2.events) -Summary $sm2
+                        $generated.Add('evtx-by-file.html')
+                    }
+                    catch { $errors.Add('evtx-by-file.html : ' + $_.Exception.Message) }
+                }
+                elseif (Test-Path $byFileHtml) { $skipped.Add('evtx-by-file.html') }
+
+                # 4. REPORTS_INDEX.html
+                try {
+                    Write-DanewDiagnosticProgress -ProgressCallback $ProgressCallback -Message '[HTML] Mise a jour REPORTS_INDEX.html...'
+                    [void](Update-DanewInteractiveReportsIndex -ReportsPath $reportsPath)
+                    $generated.Add('REPORTS_INDEX.html')
+                }
+                catch { $errors.Add('REPORTS_INDEX.html : ' + $_.Exception.Message) }
+
+                $indexHtml = Join-Path $reportsPath 'REPORTS_INDEX.html'
+                $result = [pscustomobject]@{
+                    action = $Action
+                    output = [pscustomobject]@{
+                        status          = if ($errors.Count -eq 0) { 'ok' } else { 'partial' }
+                        reports_path    = $reportsPath
+                        generated_count = $generated.Count
+                        skipped_count   = $skipped.Count
+                        error_count     = $errors.Count
+                        generated       = $generated.ToArray()
+                        skipped         = $skipped.ToArray()
+                        errors          = $errors.ToArray()
+                        index_html      = $indexHtml
+                        index_exists    = (Test-Path $indexHtml)
+                    }
+                }
+            }
             'exit' {
                 $result = [pscustomobject]@{ action = $Action; output = 'exit' }
             }
