@@ -2899,9 +2899,9 @@ function Update-DanewReportAvailability {
             $hasJsonForTech = (Test-Path (Join-Path ([string]$config.reports_path) 'timeline-raw.json')) -or (Test-Path (Join-Path ([string]$config.reports_path) 'sav-diagnostic-report.json'))
             Set-DanewButtonAvailability -Button $exportBtn1 -Available $hasJsonForTech -ToolTip $toolTip -AvailableHint 'Consolide JSON/CSV/TXT pour transfert PC technicien.' -UnavailableHint 'Lancer une analyse d abord pour generer les artefacts JSON/CSV/TXT.'
         }
-        # Btn2 : EXPORT ZIP SAV — disponible quand EVTX analyses
+        # Btn2 : EXPORT ZIP SAV (export-diagnostic-package) — disponible si au moins un rapport present
         if ($exportBtn2) {
-            Set-DanewButtonAvailability -Button $exportBtn2 -Available $hasEvtx -ToolTip $toolTip -AvailableHint 'Cree un ZIP des EVTX lisibles avec nom machine + horodate.' -UnavailableHint 'Lancez d abord ANALYSE RAPIDE ou ANALYSE COMPLETE.'
+            Set-DanewButtonAvailability -Button $exportBtn2 -Available $hasAnyReport -ToolTip $toolTip -AvailableHint 'Cree un ZIP SAV complet : JSON/CSV/TXT/logs et artefacts EVTX.' -UnavailableHint 'Aucun artefact a zipper. Lancez une analyse WinPE d abord.'
         }
         # Btn3 : EXPORT EVTX CIBLE — disponible quand EVTX analyses
         if ($exportBtn3) {
@@ -3591,27 +3591,40 @@ function Invoke-GuiAction {
         }
 
         if ($Action -eq 'prepare-reports-for-tech') {
-            # WinPE : verifier/consolider artefacts JSON/CSV/TXT pour le PC technicien.
-            # Ne genere aucun HTML — ceux-ci sont produits sur le PC technicien via generate-html-reports.
+            # WinPE : verifier artefacts essentiels pour le PC technicien.
+            # Ne genere AUCUN HTML — ceux-ci sont produits sur PC technicien via generate-html-reports.
             $reportsPath = [string]$config.reports_path
             if (-not (Test-Path $reportsPath)) {
                 Set-DanewSummaryVisual -Status 'WARNING' -Text 'Dossier reports introuvable.'
                 return
             }
-            Set-DanewSummaryVisual -Status 'RUNNING' -Text 'Verification des artefacts pour PC technicien...'
+            Set-DanewSummaryVisual -Status 'RUNNING' -Text 'Verification des artefacts essentiels...'
             [System.Windows.Forms.Application]::DoEvents()
-            $jsonFiles = @(Get-ChildItem -Path $reportsPath -Filter '*.json' -ErrorAction SilentlyContinue)
-            $csvFiles  = @(Get-ChildItem -Path $reportsPath -Filter '*.csv'  -ErrorAction SilentlyContinue)
-            $txtFiles  = @(Get-ChildItem -Path $reportsPath -Filter '*.txt'  -ErrorAction SilentlyContinue)
-            $total = $jsonFiles.Count + $csvFiles.Count + $txtFiles.Count
-            if ($total -gt 0) {
-                $msg = 'Artefacts prets — JSON:' + $jsonFiles.Count + ' CSV:' + $csvFiles.Count + ' TXT:' + $txtFiles.Count + '. Branchez la cle sur PC technicien et lancez generate-html-reports.'
+
+            # Artefacts essentiels : presence = OK, absence = manquant
+            $checks = [ordered]@{
+                'evtx-summary.json'    = Test-Path (Join-Path $reportsPath 'evtx-summary.json')
+                'evtx-events.json'     = (Test-Path (Join-Path $reportsPath 'evtx-events.json')) -or (Test-Path (Join-Path $reportsPath 'timeline-raw.json'))
+                'evtx-sav-summary.txt' = Test-Path (Join-Path $reportsPath 'evtx-sav-summary.txt')
+                'CSV EVTX'             = ((Test-Path (Join-Path $reportsPath 'evtx-events.csv')) -or (Test-Path (Join-Path $reportsPath 'evtx-filtered-events.csv')) -or (Test-Path (Join-Path $reportsPath 'evtx-critical-events.csv')))
+                'REPORTS_README.txt'   = Test-Path (Join-Path $reportsPath 'REPORTS_README.txt')
+            }
+
+            $missing = @($checks.GetEnumerator() | Where-Object { -not $_.Value } | ForEach-Object { $_.Key })
+            $presentCount = ($checks.Values | Where-Object { $_ }).Count
+            $totalChecks = $checks.Count
+
+            if ($missing.Count -eq 0) {
+                $msg = 'PRET — ' + $presentCount + '/' + $totalChecks + ' artefacts OK. Branchez la cle sur PC technicien et lancez generate-html-reports.'
                 Set-DanewSummaryVisual -Status 'PASS' -Text $msg
                 Add-DiagnosticProgressLine -Line ('[PREP] ' + $msg)
             }
             else {
-                Set-DanewSummaryVisual -Status 'WARNING' -Text 'Aucun artefact JSON/CSV/TXT. Lancez une analyse WinPE d abord.'
-                Add-DiagnosticProgressLine -Line '[PREP] Aucun artefact detecte dans reports.'
+                $missingStr = ($missing -join ', ')
+                $msg = 'INCOMPLET — ' + $presentCount + '/' + $totalChecks + ' OK. Manquants : ' + $missingStr
+                Set-DanewSummaryVisual -Status 'WARNING' -Text $msg
+                Add-DiagnosticProgressLine -Line ('[PREP] ' + $msg)
+                Add-DiagnosticProgressLine -Line '[PREP] Lancez ANALYSE RAPIDE ou ANALYSE COMPLETE pour generer les artefacts manquants.'
             }
             [void](Update-DanewReportAvailability)
             return
@@ -3619,20 +3632,37 @@ function Invoke-GuiAction {
 
         if ($Action -eq 'copy-sav-resume') {
             # Copie le contenu de evtx-sav-summary.txt dans le presse-papiers.
+            # Fallback si presse-papiers indisponible (WinPE sans clipboard service).
             $reportsPath = [string]$config.reports_path
             $savSummaryPath = Join-Path $reportsPath 'evtx-sav-summary.txt'
             if (-not (Test-Path $savSummaryPath)) {
-                Set-DanewSummaryVisual -Status 'WARNING' -Text 'evtx-sav-summary.txt absent. Lancez EXPORT EVTX CIBLE d abord.'
+                Set-DanewSummaryVisual -Status 'WARNING' -Text 'evtx-sav-summary.txt absent. Lancez EXPORT EVTX d abord.'
+                Add-DiagnosticProgressLine -Line '[COPY] evtx-sav-summary.txt absent — lancez export EVTX cible.'
                 return
             }
             try {
                 $content = Get-Content -Path $savSummaryPath -Raw -Encoding UTF8 -ErrorAction Stop
-                [System.Windows.Forms.Clipboard]::SetText($content)
-                Set-DanewSummaryVisual -Status 'PASS' -Text 'Resume SAV copie dans le presse-papiers.'
-                Add-DiagnosticProgressLine -Line '[COPY] evtx-sav-summary.txt copie dans le presse-papiers.'
+                try {
+                    [System.Windows.Forms.Clipboard]::SetText($content)
+                    Set-DanewSummaryVisual -Status 'PASS' -Text 'Resume SAV copie dans le presse-papiers.'
+                    Add-DiagnosticProgressLine -Line '[COPY] evtx-sav-summary.txt copie dans le presse-papiers.'
+                }
+                catch {
+                    # Presse-papiers indisponible (WinPE typique) — afficher le chemin
+                    $fallbackMsg = 'Presse-papiers indisponible. Resume disponible dans : ' + $savSummaryPath
+                    Set-DanewSummaryVisual -Status 'WARNING' -Text $fallbackMsg
+                    Add-DiagnosticProgressLine -Line ('[COPY] Fallback : ' + $fallbackMsg)
+                    # Essai via PowerShell clip.exe si disponible
+                    try {
+                        $content | & clip.exe 2>$null
+                        Add-DiagnosticProgressLine -Line '[COPY] clip.exe fallback utilise.'
+                    }
+                    catch {}
+                }
             }
             catch {
-                Set-DanewSummaryVisual -Status 'WARNING' -Text 'Echec copie presse-papiers: ' + $_.Exception.Message
+                Set-DanewSummaryVisual -Status 'WARNING' -Text ('Lecture evtx-sav-summary.txt impossible : ' + $_.Exception.Message)
+                Add-DiagnosticProgressLine -Line ('[COPY] Echec lecture : ' + $_.Exception.Message)
             }
             return
         }
@@ -4954,10 +4984,10 @@ $exportsPanel.Padding = New-Object System.Windows.Forms.Padding(0, 2, 0, 2)
 
 # 4 boutons contextuels — WinPE : collecte/export ; PC tech : HTML/navigation
 if ($script:IsWinPE) {
-    $exportBtn1 = New-DanewActionButton -Text 'PREPARER RAPPORTS PC TECH' -Action 'prepare-reports-for-tech' -ToolTip $toolTip -Hint 'Verifie et consolide JSON/CSV/TXT dans reports. Les HTML seront generes sur le PC technicien.' -Tone 'primary'
-    $exportBtn2 = New-DanewActionButton -Text 'EXPORT ZIP SAV' -Action 'export-evtx-zip' -ToolTip $toolTip -Hint 'Cree un ZIP des fichiers EVTX lisibles avec nom machine + horodate.' -Tone 'neutral'
-    $exportBtn3 = New-DanewActionButton -Text 'EXPORT EVTX CIBLE' -Action 'export-evtx-targeted' -ToolTip $toolTip -Hint 'Genere les exports EVTX physiques : evenements filtres, critiques, fenetre crash et resume SAV TXT.' -Tone 'neutral'
-    $exportBtn4 = New-DanewActionButton -Text 'COPIER RESUME SAV' -Action 'copy-sav-resume' -ToolTip $toolTip -Hint 'Copie le contenu de evtx-sav-summary.txt dans le presse-papiers.' -Tone 'neutral'
+    $exportBtn1 = New-DanewActionButton -Text 'PREPARER PC TECH' -Action 'prepare-reports-for-tech' -ToolTip $toolTip -Hint 'Verifie les artefacts essentiels (JSON/CSV/TXT) pour le PC technicien. Affiche pret ou incomplet avec liste des fichiers manquants.' -Tone 'primary'
+    $exportBtn2 = New-DanewActionButton -Text 'EXPORT ZIP SAV' -Action 'export-diagnostic-package' -ToolTip $toolTip -Hint 'Cree un ZIP SAV complet : JSON, CSV, TXT, logs et artefacts EVTX. Pret pour transfert ou archivage SAV.' -Tone 'neutral'
+    $exportBtn3 = New-DanewActionButton -Text 'EXPORT EVTX' -Action 'export-evtx-targeted' -ToolTip $toolTip -Hint 'Genere les exports EVTX physiques : evenements filtres, critiques, fenetre crash et resume SAV TXT.' -Tone 'neutral'
+    $exportBtn4 = New-DanewActionButton -Text 'COPIER RESUME' -Action 'copy-sav-resume' -ToolTip $toolTip -Hint 'Copie le contenu de evtx-sav-summary.txt dans le presse-papiers. Si indisponible, affiche le chemin du fichier.' -Tone 'neutral'
 }
 else {
     $exportBtn1 = New-DanewActionButton -Text 'GENERER RAPPORTS HTML' -Action 'generate-html-reports' -ToolTip $toolTip -Hint 'Genere les rapports HTML depuis les JSON collectes en WinPE : timeline, SAV, REPORTS_INDEX.' -Tone 'primary'
