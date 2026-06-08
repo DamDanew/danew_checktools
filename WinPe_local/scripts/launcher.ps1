@@ -2561,7 +2561,8 @@ function Open-DanewSpecificReport {
             $title = 'RAPPORTS DANEW'
         }
         'sav' {
-            $path = Get-DanewAvailableReportPath -Names @('REPORTS_INDEX.html', 'reports-index.html', 'sav-diagnostic-report.html', 'one-click-diagnostic-report.html', 'offline-windows-failure-report.html') -MinLastWriteTime $cutoff
+            $path = Get-DanewAvailableReportPath -Names @('sav-diagnostic-report.html', 'REPORTS_INDEX.html', 'reports-index.html', 'sav-diagnostic-report.json', 'one-click-diagnostic-report.html', 'offline-windows-failure-report.html') -MinLastWriteTime $cutoff
+            $path = Ensure-DanewReportHtml -Path $path
             $title = 'OUVRIR LE RAPPORT SAV'
         }
         'timeline' {
@@ -2607,31 +2608,39 @@ function Ensure-DanewReportHtml {
 
     # ---- Identifier le type de rapport a partir du nom de fichier ----
     $reportType = switch -Exact ($lowerLeaf) {
-        'timeline-raw.json'  { 'timeline';     break }
-        'timeline-raw.html'  { 'timeline';     break }
-        'evtx-events.html'   { 'evtx-events';  break }
-        'evtx-by-file.html'  { 'evtx-by-file'; break }
-        default              { 'unknown';      break }
+        'timeline-raw.json'           { 'timeline';     break }
+        'timeline-raw.html'           { 'timeline';     break }
+        'evtx-events.html'            { 'evtx-events';  break }
+        'evtx-by-file.html'           { 'evtx-by-file'; break }
+        'sav-diagnostic-report.json'  { 'sav';          break }
+        'sav-diagnostic-report.html'  { 'sav';          break }
+        default                       { 'unknown';      break }
     }
 
     if ($reportType -eq 'unknown') { return $Path }
 
     # ---- Chemin HTML cible ----
-    $htmlDest = if ($lowerLeaf -eq 'timeline-raw.json') {
-        Join-Path $dir 'timeline-raw.html'
-    } else {
-        $Path
+    $htmlDest = switch ($lowerLeaf) {
+        'timeline-raw.json'          { Join-Path $dir 'timeline-raw.html' }
+        'sav-diagnostic-report.json' { Join-Path $dir 'sav-diagnostic-report.html' }
+        default                      { $Path }
+    }
+
+    # ---- Nom du JSON source selon le type ----
+    $sourceJsonName = switch ($reportType) {
+        'sav'     { 'sav-diagnostic-report.json' }
+        default   { 'timeline-raw.json' }
     }
 
     # ---- Detecter si une (re)generation est necessaire ----
     $needsGeneration = $false
-    if ($lowerLeaf -eq 'timeline-raw.json') {
+    if ($lowerLeaf -in @('timeline-raw.json', 'sav-diagnostic-report.json')) {
         # Cas differe pur : le JSON seul etait disponible, HTML absent
         $needsGeneration = $true
     }
     elseif (-not (Test-Path -Path $htmlDest)) {
         # HTML absent — generer si le JSON source est present
-        $needsGeneration = (Test-Path -Path (Join-Path $dir 'timeline-raw.json'))
+        $needsGeneration = (Test-Path -Path (Join-Path $dir $sourceJsonName))
     }
     elseif ($reportType -eq 'timeline') {
         # HTML present : verifier si c'est un stub mode-rapide a upgrader
@@ -2701,6 +2710,24 @@ function Ensure-DanewReportHtml {
             }
             catch {
                 Add-DiagnosticProgressLine -Line ('[HTML] Echec generation evtx-by-file.html: ' + $_.Exception.Message)
+            }
+        }
+
+        'sav' {
+            # Charger sav-diagnostic-report.json et appeler le generateur HTML SAV.
+            $savJsonPath = Join-Path $dir 'sav-diagnostic-report.json'
+            if (-not (Test-Path -Path $savJsonPath)) {
+                Add-DiagnosticProgressLine -Line '[HTML] sav-diagnostic-report.json absent — generation HTML SAV impossible.'
+                return $htmlDest
+            }
+            try {
+                Add-DiagnosticProgressLine -Line '[HTML] Generation sav-diagnostic-report.html on-demand depuis sav-diagnostic-report.json...'
+                $reportsPathForSav = Split-Path -Parent $htmlDest
+                [void](Write-DanewSavDiagnosticReportHtmlFromJson -ReportsPath $reportsPathForSav)
+                Add-DiagnosticProgressLine -Line ('[HTML] sav-diagnostic-report.html generee (' + [math]::Round((Get-Item $htmlDest -ErrorAction SilentlyContinue).Length/1KB, 0) + ' KB)')
+            }
+            catch {
+                Add-DiagnosticProgressLine -Line ('[HTML] Echec generation sav-diagnostic-report.html: ' + $_.Exception.Message)
             }
         }
     }
@@ -3326,6 +3353,16 @@ function Invoke-GuiAction {
             return
         }
         if ($Action -eq 'open-sav-report') {
+            # Detecter en avance si sav-diagnostic-report.html doit etre genere on-demand.
+            $reportsPath   = [string]$config.reports_path
+            $savHtmlPath   = Join-Path $reportsPath 'sav-diagnostic-report.html'
+            $savJsonPath   = Join-Path $reportsPath 'sav-diagnostic-report.json'
+            $needsSavGen   = (-not (Test-Path $savHtmlPath)) -and (Test-Path $savJsonPath)
+            if ($needsSavGen) {
+                Set-DanewSummaryVisual -Status 'RUNNING' -Text 'Generation HTML rapport SAV en cours...'
+                Add-DiagnosticProgressLine -Line '[HTML] sav-diagnostic-report.html absent — generation on-demand depuis sav-diagnostic-report.json...'
+                [System.Windows.Forms.Application]::DoEvents()
+            }
             $opened = Open-DanewSpecificReport -Kind 'sav'
             if ($opened) {
                 Set-DanewSummaryVisual -Status 'PASS' -Text 'Rapport SAV ouvert'

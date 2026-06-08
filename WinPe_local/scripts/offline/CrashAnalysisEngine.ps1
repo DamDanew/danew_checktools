@@ -2618,6 +2618,12 @@ function Invoke-DanewCrashCauseAnalysis {
         $OfflineAnalysis = [pscustomobject]@{ artifacts = [pscustomobject]@{} }
     }
 
+    # ---- Mode differe : detecter WinPE ou config explicite ----
+    $isLikelyWinPE = $false
+    try { $isLikelyWinPE = ([string]$env:SystemRoot -like 'X:\*') } catch {}
+    $deferSavHtmlRaw = Get-DanewCrashSafeProperty -Object $Config -Name 'offline_defer_sav_html' -DefaultValue $isLikelyWinPE
+    $deferSavHtml = ($deferSavHtmlRaw -eq $true) -or ([string]$deferSavHtmlRaw -match '^(?i:true|1|yes|on)$')
+
     $offlineArtifacts = Get-DanewCrashSafeProperty -Object $OfflineAnalysis -Name 'artifacts' -DefaultValue ([pscustomobject]@{})
     $eventsPath = [string](Get-DanewCrashSafeProperty -Object $offlineArtifacts -Name 'evtx_events_json' -DefaultValue (Join-Path $Config.reports_path 'evtx-events.json'))
     $analysisPath = [string](Get-DanewCrashSafeProperty -Object $offlineArtifacts -Name 'offline_windows_analysis' -DefaultValue (Join-Path $Config.reports_path 'offline-windows-analysis.json'))
@@ -2763,8 +2769,44 @@ function Invoke-DanewCrashCauseAnalysis {
     $crash.multi_cause_analysis | ConvertTo-Json -Depth 18 | Set-Content -Path $multiCausePath -Encoding UTF8
     $severity | ConvertTo-Json -Depth 18 | Set-Content -Path $severityPath -Encoding UTF8
     $crash | ConvertTo-Json -Depth 25 | Set-Content -Path $savJsonPath -Encoding UTF8
-    Write-DanewSavDiagnosticReportHtml -Path $savHtmlPath -CrashAnalysis $crash
+    if ($deferSavHtml) {
+        # Mode differe : HTML genere a l'ouverture depuis sav-diagnostic-report.json
+        Write-Host '[SAV] HTML SAV differe — sera genere a l ouverture du rapport'
+    }
+    else {
+        Write-DanewSavDiagnosticReportHtml -Path $savHtmlPath -CrashAnalysis $crash
+    }
     Write-DanewSavDiagnosticFallbackReports -ReportsPath ([string]$Config.reports_path) -CrashAnalysis $crash
 
     return $crash
+}
+
+# ---------------------------------------------------------------------------
+# Write-DanewSavDiagnosticReportHtmlFromJson
+# Charge sav-diagnostic-report.json et (re)genere sav-diagnostic-report.html.
+# Utilise pour la generation on-demand depuis le launcher (mode differe WinPE).
+# ---------------------------------------------------------------------------
+function Write-DanewSavDiagnosticReportHtmlFromJson {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ReportsPath
+    )
+
+    $savJsonPath = Join-Path $ReportsPath 'sav-diagnostic-report.json'
+    $savHtmlPath = Join-Path $ReportsPath 'sav-diagnostic-report.html'
+
+    if (-not (Test-Path -Path $savJsonPath)) {
+        Write-Warning '[SAV] sav-diagnostic-report.json absent — impossible de generer le HTML.'
+        return $false
+    }
+
+    try {
+        $crash = Get-Content -Path $savJsonPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        Write-DanewSavDiagnosticReportHtml -Path $savHtmlPath -CrashAnalysis $crash
+        return $true
+    }
+    catch {
+        Write-Warning ('[SAV] Echec generation sav-diagnostic-report.html : ' + $_.Exception.Message)
+        return $false
+    }
 }
