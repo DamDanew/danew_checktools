@@ -4,7 +4,7 @@ param(
     [string]$ConfigPath,
     [switch]$FallbackToCli,
     [switch]$ForceGuiInitFailure,
-    [ValidateSet('Interactive', 'scan-winpe', 'capability-analysis', 'generate-report', 'open-reports-folder', 'export-diagnostic-package', 'prepare-startnet', 'start-diagnostic', 'analyze-offline-logs', 'analyze-offline-logs-fast', 'analyze-offline-logs-full', 'analyze-crash-causes', 'precheck-winpe', 'export-evtx-targeted', 'export-evtx-zip', 'check-browser', 'create-usb-media', 'real-winpe-validation', 'refresh-status', 'show-status', 'view-last-report', 'open-sav-report', 'open-reports-index', 'open-text-reports-list', 'generate-timeline-html', 'generate-html-reports', 'exit')]
+    [ValidateSet('Interactive', 'scan-winpe', 'capability-analysis', 'generate-report', 'open-reports-folder', 'export-diagnostic-package', 'prepare-startnet', 'start-diagnostic', 'analyze-offline-logs', 'analyze-offline-logs-fast', 'analyze-offline-logs-full', 'analyze-crash-causes', 'precheck-winpe', 'export-evtx-targeted', 'export-evtx-zip', 'check-browser', 'create-usb-media', 'real-winpe-validation', 'refresh-status', 'show-status', 'view-last-report', 'open-sav-report', 'open-reports-index', 'open-text-reports-list', 'generate-timeline-html', 'generate-html-reports', 'prepare-reports-for-tech', 'copy-sav-resume', 'exit')]
     [Alias('Action')]
     [string]$CliFallbackCommand = 'Interactive'
 )
@@ -75,6 +75,10 @@ $openTimelineFastReportButton = $null
 $openReportsButton = $null
 $openTextReportsButton = $null
 $exportEvtxZipButton = $null
+$exportBtn1 = $null
+$exportBtn2 = $null
+$exportBtn3 = $null
+$exportBtn4 = $null
 $toolTip = $null
 $offlineProgressBar = $null
 $offlineSubProgressBar = $null
@@ -638,7 +642,13 @@ function Set-DanewTechnicalDetailsDockLayout {
 }
 
 function Set-DanewReportsSectionLayout {
-    if (-not $simpleActionsGroup -or -not $simplePanel -or -not $openReportsButton) {
+    # Deprecated — remplace par exportsPanel FlowLayoutPanel ; garde pour compatibilite form Resize.
+    if (-not $simpleActionsGroup -or -not $exportsPanel) {
+        return
+    }
+    $exportsPanel.Width = [Math]::Max(400, ([int]$simpleActionsGroup.ClientSize.Width - 20))
+    return
+    if (-not $simplePanel -or -not $openReportsButton) {
         return
     }
 
@@ -767,7 +777,7 @@ function Set-DanewSavSummaryDetailsVisible {
     $statusBottom = if ($statusGroup) { [int]$statusGroup.Top + [int]$statusGroup.Height } else { 302 }
     $simpleDesiredTop = $statusBottom + 8
     $quickDesiredTop = $simpleDesiredTop + $(if ($simpleActionsGroup) { [int]$simpleActionsGroup.Height } else { 74 }) + 8
-    $toggleDesiredTop = $quickDesiredTop + $(if ($quickActionsGroup) { [int]$quickActionsGroup.Height } else { 104 }) + 8
+    $toggleDesiredTop = $quickDesiredTop + $(if ($quickActionsGroup) { [int]$quickActionsGroup.Height } else { 70 }) + 8
     $buttonDesiredTop = $toggleDesiredTop + $(if ($togglePanel) { [int]$togglePanel.Height } else { 40 }) + 8
 
     if ($simpleActionsGroup) {
@@ -2881,6 +2891,50 @@ function Update-DanewReportAvailability {
         $exportSavPackageButton.Text = Convert-DanewUiText -Text $savPackageLabel
         Set-DanewButtonAvailability -Button $exportSavPackageButton -Available $hasAnyReport -ToolTip $toolTip -AvailableHint 'Cree un package SAV avec les rapports disponibles.' -UnavailableHint 'Package SAV indisponible pour cette session. Generez au moins un rapport avant export.'
     }
+
+    # Boutons contextuels Rapports / Exports — WinPE ou PC technicien
+    if ($script:IsWinPE) {
+        # Btn1 : PREPARER RAPPORTS PC TECH — disponible quand analyse faite (JSON present)
+        if ($exportBtn1) {
+            $hasJsonForTech = (Test-Path (Join-Path ([string]$config.reports_path) 'timeline-raw.json')) -or (Test-Path (Join-Path ([string]$config.reports_path) 'sav-diagnostic-report.json'))
+            Set-DanewButtonAvailability -Button $exportBtn1 -Available $hasJsonForTech -ToolTip $toolTip -AvailableHint 'Consolide JSON/CSV/TXT pour transfert PC technicien.' -UnavailableHint 'Lancer une analyse d abord pour generer les artefacts JSON/CSV/TXT.'
+        }
+        # Btn2 : EXPORT ZIP SAV — disponible quand EVTX analyses
+        if ($exportBtn2) {
+            Set-DanewButtonAvailability -Button $exportBtn2 -Available $hasEvtx -ToolTip $toolTip -AvailableHint 'Cree un ZIP des EVTX lisibles avec nom machine + horodate.' -UnavailableHint 'Lancez d abord ANALYSE RAPIDE ou ANALYSE COMPLETE.'
+        }
+        # Btn3 : EXPORT EVTX CIBLE — disponible quand EVTX analyses
+        if ($exportBtn3) {
+            Set-DanewButtonAvailability -Button $exportBtn3 -Available $hasEvtx -ToolTip $toolTip -AvailableHint 'Genere les exports EVTX physiques dans reports.' -UnavailableHint 'Lancez d abord ANALYSE RAPIDE ou ANALYSE COMPLETE.'
+        }
+        # Btn4 : COPIER RESUME SAV — disponible quand evtx-sav-summary.txt present
+        if ($exportBtn4) {
+            $savSummaryPath = Join-Path ([string]$config.reports_path) 'evtx-sav-summary.txt'
+            $hasSavSummary = Test-Path $savSummaryPath
+            Set-DanewButtonAvailability -Button $exportBtn4 -Available $hasSavSummary -ToolTip $toolTip -AvailableHint 'Copie evtx-sav-summary.txt dans le presse-papiers.' -UnavailableHint 'evtx-sav-summary.txt absent. Lancez EXPORT EVTX CIBLE d abord.'
+        }
+    }
+    else {
+        # Btn1 : GENERER RAPPORTS HTML — toujours disponible sur PC technicien si JSON present
+        if ($exportBtn1) {
+            $hasJsonSource = (Test-Path (Join-Path ([string]$config.reports_path) 'timeline-raw.json')) -or (Test-Path (Join-Path ([string]$config.reports_path) 'sav-diagnostic-report.json'))
+            Set-DanewButtonAvailability -Button $exportBtn1 -Available $hasJsonSource -ToolTip $toolTip -AvailableHint 'Genere les rapports HTML depuis les JSON collectes en WinPE.' -UnavailableHint 'Aucun JSON source detecte. Branchez la cle USB avec les artefacts WinPE.'
+        }
+        # Btn2 : OUVRIR RAPPORTS — disponible quand REPORTS_INDEX present
+        if ($exportBtn2) {
+            Set-DanewButtonAvailability -Button $exportBtn2 -Available $hasReportsIndex -ToolTip $toolTip -AvailableHint 'Ouvre le hub REPORTS_INDEX avec navigation croisee.' -UnavailableHint 'REPORTS_INDEX.html absent. Lancez GENERER RAPPORTS HTML.'
+        }
+        # Btn3 : OUVRIR DOSSIER — toujours disponible si le dossier reports existe
+        if ($exportBtn3) {
+            $reportsFolderExists = Test-Path ([string]$config.reports_path)
+            Set-DanewButtonAvailability -Button $exportBtn3 -Available $reportsFolderExists -ToolTip $toolTip -AvailableHint 'Ouvre le dossier reports dans l explorateur.' -UnavailableHint 'Dossier reports introuvable.'
+        }
+        # Btn4 : ACTUALISER — toujours disponible
+        if ($exportBtn4) {
+            $exportBtn4.Enabled = $true
+            if ($toolTip) { [void]$toolTip.SetToolTip($exportBtn4, 'Actualise la disponibilite des rapports et l etat du systeme.') }
+        }
+    }
 }
 
 function Set-DanewValueLabel {
@@ -3536,6 +3590,53 @@ function Invoke-GuiAction {
             return
         }
 
+        if ($Action -eq 'prepare-reports-for-tech') {
+            # WinPE : verifier/consolider artefacts JSON/CSV/TXT pour le PC technicien.
+            # Ne genere aucun HTML — ceux-ci sont produits sur le PC technicien via generate-html-reports.
+            $reportsPath = [string]$config.reports_path
+            if (-not (Test-Path $reportsPath)) {
+                Set-DanewSummaryVisual -Status 'WARNING' -Text 'Dossier reports introuvable.'
+                return
+            }
+            Set-DanewSummaryVisual -Status 'RUNNING' -Text 'Verification des artefacts pour PC technicien...'
+            [System.Windows.Forms.Application]::DoEvents()
+            $jsonFiles = @(Get-ChildItem -Path $reportsPath -Filter '*.json' -ErrorAction SilentlyContinue)
+            $csvFiles  = @(Get-ChildItem -Path $reportsPath -Filter '*.csv'  -ErrorAction SilentlyContinue)
+            $txtFiles  = @(Get-ChildItem -Path $reportsPath -Filter '*.txt'  -ErrorAction SilentlyContinue)
+            $total = $jsonFiles.Count + $csvFiles.Count + $txtFiles.Count
+            if ($total -gt 0) {
+                $msg = 'Artefacts prets — JSON:' + $jsonFiles.Count + ' CSV:' + $csvFiles.Count + ' TXT:' + $txtFiles.Count + '. Branchez la cle sur PC technicien et lancez generate-html-reports.'
+                Set-DanewSummaryVisual -Status 'PASS' -Text $msg
+                Add-DiagnosticProgressLine -Line ('[PREP] ' + $msg)
+            }
+            else {
+                Set-DanewSummaryVisual -Status 'WARNING' -Text 'Aucun artefact JSON/CSV/TXT. Lancez une analyse WinPE d abord.'
+                Add-DiagnosticProgressLine -Line '[PREP] Aucun artefact detecte dans reports.'
+            }
+            [void](Update-DanewReportAvailability)
+            return
+        }
+
+        if ($Action -eq 'copy-sav-resume') {
+            # Copie le contenu de evtx-sav-summary.txt dans le presse-papiers.
+            $reportsPath = [string]$config.reports_path
+            $savSummaryPath = Join-Path $reportsPath 'evtx-sav-summary.txt'
+            if (-not (Test-Path $savSummaryPath)) {
+                Set-DanewSummaryVisual -Status 'WARNING' -Text 'evtx-sav-summary.txt absent. Lancez EXPORT EVTX CIBLE d abord.'
+                return
+            }
+            try {
+                $content = Get-Content -Path $savSummaryPath -Raw -Encoding UTF8 -ErrorAction Stop
+                [System.Windows.Forms.Clipboard]::SetText($content)
+                Set-DanewSummaryVisual -Status 'PASS' -Text 'Resume SAV copie dans le presse-papiers.'
+                Add-DiagnosticProgressLine -Line '[COPY] evtx-sav-summary.txt copie dans le presse-papiers.'
+            }
+            catch {
+                Set-DanewSummaryVisual -Status 'WARNING' -Text 'Echec copie presse-papiers: ' + $_.Exception.Message
+            }
+            return
+        }
+
         if ($Action -eq 'create-usb-media') {
             $usbDetails = 'Cette operation prepare l outil USB SAV et peut effacer le disque cible selectionne.' + [Environment]::NewLine + [Environment]::NewLine +
                 'Disque USB actuellement selectionne : ' + [string](Get-DanewLauncherSelectedUsbDisk -Config $config) + [Environment]::NewLine +
@@ -4181,6 +4282,27 @@ $subtitleLabel.ForeColor = [System.Drawing.Color]::FromArgb(219, 234, 254)
 $subtitleLabel.Font = New-Object System.Drawing.Font('Segoe UI', 9)
 $subtitleLabel.Text = 'Assistant de diagnostic hors ligne: crash, demarrage et stockage'
 
+# Badge mode dans le header — WINPE COLLECTE ou PC TECHNICIEN (en haut a droite)
+$modeBadgeLabel = New-Object System.Windows.Forms.Label
+$modeBadgeLabel.Width  = 200
+$modeBadgeLabel.Height = 22
+$modeBadgeLabel.Top    = 14
+$modeBadgeLabel.Left   = [int]$headerPanel.Width - 212
+$modeBadgeLabel.Anchor = 'Top,Right'
+$modeBadgeLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
+$modeBadgeLabel.Font = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)
+if ($script:IsWinPE) {
+    $modeBadgeLabel.Text      = 'MODE : WINPE COLLECTE'
+    $modeBadgeLabel.BackColor = [System.Drawing.Color]::FromArgb(220, 38, 38)
+    $modeBadgeLabel.ForeColor = [System.Drawing.Color]::White
+}
+else {
+    $modeBadgeLabel.Text      = 'MODE : PC TECHNICIEN'
+    $modeBadgeLabel.BackColor = [System.Drawing.Color]::FromArgb(5, 150, 105)
+    $modeBadgeLabel.ForeColor = [System.Drawing.Color]::White
+}
+[void]$headerPanel.Controls.Add($modeBadgeLabel)
+
 $analysisCompletionLabel = New-Object System.Windows.Forms.Label
 $analysisCompletionLabel.Left = 72
 $analysisCompletionLabel.Top = 58
@@ -4200,7 +4322,7 @@ $statusGroup.Text = 'Resume SAV'
 $statusGroup.Left = 14
 $statusGroup.Top = 302
 $statusGroup.Width = 872
-$statusGroup.Height = 276
+$statusGroup.Height = 244
 $statusGroup.Anchor = 'Top,Left,Right'
 $statusGroup.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
 $statusGroup.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
@@ -4260,18 +4382,18 @@ foreach ($row in $statusRows) {
 
 $resultTitleLabel = New-Object System.Windows.Forms.Label
 $resultTitleLabel.Left = 16
-$resultTitleLabel.Top = 24
+$resultTitleLabel.Top = 20
 $resultTitleLabel.Width = 380
-$resultTitleLabel.Height = 28
+$resultTitleLabel.Height = 26
 $resultTitleLabel.Text = 'Resume du diagnostic'
 $resultTitleLabel.ForeColor = [System.Drawing.Color]::FromArgb(15, 23, 42)
 $resultTitleLabel.Font = New-Object System.Drawing.Font('Segoe UI', 13, [System.Drawing.FontStyle]::Bold)
 
 $overallBadgeLabel = New-Object System.Windows.Forms.Label
 $overallBadgeLabel.Left = 720
-$overallBadgeLabel.Top = 24
+$overallBadgeLabel.Top = 20
 $overallBadgeLabel.Width = 110
-$overallBadgeLabel.Height = 26
+$overallBadgeLabel.Height = 24
 $overallBadgeLabel.Text = 'En attente'
 $overallBadgeLabel.TextAlign = 'MiddleCenter'
 $overallBadgeLabel.BackColor = [System.Drawing.Color]::FromArgb(226, 232, 240)
@@ -4280,9 +4402,9 @@ $overallBadgeLabel.Font = New-Object System.Drawing.Font('Segoe UI', 9.5, [Syste
 
 $summaryLabel = New-Object System.Windows.Forms.Label
 $summaryLabel.Left = 16
-$summaryLabel.Top = 56
+$summaryLabel.Top = 50
 $summaryLabel.Width = 832
-$summaryLabel.Height = 24
+$summaryLabel.Height = 22
 $summaryLabel.Text = 'Statut : En attente d analyse'
 $summaryLabel.ForeColor = [System.Drawing.Color]::FromArgb(30, 64, 175)
 $summaryLabel.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
@@ -4531,40 +4653,40 @@ function Normalize-DanewStorageStatusDisplay {
 [void]$statusGroup.Controls.Add($overallBadgeLabel)
 [void]$statusGroup.Controls.Add($summaryLabel)
 
-$probableCauseCaptionLabel = New-DanewSummaryFieldLabel -Caption 'Cause probable' -Left 16 -Top 102 -Width 400
+$probableCauseCaptionLabel = New-DanewSummaryFieldLabel -Caption 'Cause probable' -Left 16 -Top 100 -Width 400
 [void]$statusGroup.Controls.Add($probableCauseCaptionLabel)
-$probableCauseValueLabel = New-DanewSummaryValueLabel -Text 'Lancer l analyse pour identifier la cause probable.' -Left 16 -Top 120 -Width 530 -Height 38
+$probableCauseValueLabel = New-DanewSummaryValueLabel -Text 'Lancer l analyse pour identifier la cause probable.' -Left 16 -Top 116 -Width 530 -Height 28
 [void]$statusGroup.Controls.Add($probableCauseValueLabel)
 
-$confidenceCaptionLabel = New-DanewSummaryFieldLabel -Caption 'Confiance' -Left 566 -Top 102 -Width 130
+$confidenceCaptionLabel = New-DanewSummaryFieldLabel -Caption 'Confiance' -Left 566 -Top 100 -Width 130
 [void]$statusGroup.Controls.Add($confidenceCaptionLabel)
-$confidenceValueLabel = New-DanewSummaryValueLabel -Text 'INCONNUE' -Left 566 -Top 120 -Width 130 -Height 38
+$confidenceValueLabel = New-DanewSummaryValueLabel -Text 'INCONNUE' -Left 566 -Top 116 -Width 130 -Height 28
 [void]$statusGroup.Controls.Add($confidenceValueLabel)
 
-$severityCaptionLabel = New-DanewSummaryFieldLabel -Caption 'Severite' -Left 712 -Top 102 -Width 136
+$severityCaptionLabel = New-DanewSummaryFieldLabel -Caption 'Severite' -Left 712 -Top 100 -Width 136
 [void]$statusGroup.Controls.Add($severityCaptionLabel)
-$severityValueLabel = New-DanewSummaryValueLabel -Text 'INFO' -Left 712 -Top 120 -Width 136 -Height 38
+$severityValueLabel = New-DanewSummaryValueLabel -Text 'INFO' -Left 712 -Top 116 -Width 136 -Height 28
 [void]$statusGroup.Controls.Add($severityValueLabel)
 
-$windowsStatusCaptionLabel = New-DanewSummaryFieldLabel -Caption 'Detection Windows' -Left 16 -Top 166 -Width 260
+$windowsStatusCaptionLabel = New-DanewSummaryFieldLabel -Caption 'Detection Windows' -Left 16 -Top 148 -Width 260
 [void]$statusGroup.Controls.Add($windowsStatusCaptionLabel)
-$windowsStatusValueLabel = New-DanewSummaryValueLabel -Text 'Inconnu' -Left 16 -Top 184 -Width 260 -Height 34
+$windowsStatusValueLabel = New-DanewSummaryValueLabel -Text 'Inconnu' -Left 16 -Top 164 -Width 260 -Height 26
 [void]$statusGroup.Controls.Add($windowsStatusValueLabel)
 
-$storageStatusCaptionLabel = New-DanewSummaryFieldLabel -Caption 'Visibilite du stockage' -Left 292 -Top 166 -Width 260
+$storageStatusCaptionLabel = New-DanewSummaryFieldLabel -Caption 'Visibilite du stockage' -Left 292 -Top 148 -Width 260
 [void]$statusGroup.Controls.Add($storageStatusCaptionLabel)
-$storageStatusValueLabel = New-DanewSummaryValueLabel -Text 'Inconnu' -Left 292 -Top 184 -Width 260 -Height 34
+$storageStatusValueLabel = New-DanewSummaryValueLabel -Text 'Inconnu' -Left 292 -Top 164 -Width 260 -Height 26
 [void]$statusGroup.Controls.Add($storageStatusValueLabel)
 
-$criticalEventsCaptionLabel = New-DanewSummaryFieldLabel -Caption 'Evenements critiques' -Left 568 -Top 166 -Width 260
+$criticalEventsCaptionLabel = New-DanewSummaryFieldLabel -Caption 'Evenements critiques' -Left 568 -Top 148 -Width 260
 [void]$statusGroup.Controls.Add($criticalEventsCaptionLabel)
-$criticalEventsValueLabel = New-DanewSummaryValueLabel -Text '0' -Left 568 -Top 184 -Width 260 -Height 34
+$criticalEventsValueLabel = New-DanewSummaryValueLabel -Text '0' -Left 568 -Top 164 -Width 260 -Height 26
 [void]$statusGroup.Controls.Add($criticalEventsValueLabel)
 
 $recommendedActionValueLabel = $null
-$recommendedActionCaptionLabel = New-DanewSummaryFieldLabel -Caption 'Prochaine action recommandee' -Left 16 -Top 222 -Width 832
+$recommendedActionCaptionLabel = New-DanewSummaryFieldLabel -Caption 'Prochaine action recommandee' -Left 16 -Top 194 -Width 832
 [void]$statusGroup.Controls.Add($recommendedActionCaptionLabel)
-$recommendedActionValueLabel = New-DanewSummaryValueLabel -Text 'Analyser d abord les journaux Windows.' -Left 16 -Top 240 -Width 832 -Height 36
+$recommendedActionValueLabel = New-DanewSummaryValueLabel -Text 'Analyser d abord les journaux Windows.' -Left 16 -Top 210 -Width 832 -Height 28
 $recommendedActionValueLabel.AutoSize = $false
 $recommendedActionValueLabel.TextAlign = 'TopLeft'
 $recommendedActionValueLabel.AutoEllipsis = $false
@@ -4587,10 +4709,10 @@ $script:SavSummaryDetailControls = @(
     $recommendedActionValueLabel
 )
 
-$runtimeChipLabel = New-DanewChipLabel -Text ('Execution : ' + $runtimeTitle) -Left 16 -Top 80 -Width 152
-$windowsChipLabel = New-DanewChipLabel -Text 'Windows : Inconnu' -Left 176 -Top 80 -Width 238
-$machineChipLabel = New-DanewChipLabel -Text 'Machine : Inconnu' -Left 422 -Top 80 -Width 170
-$usbChipLabel = New-DanewChipLabel -Text 'USB : Inconnu' -Left 600 -Top 80 -Width 150
+$runtimeChipLabel = New-DanewChipLabel -Text ('Execution : ' + $runtimeTitle) -Left 16 -Top 76 -Width 152
+$windowsChipLabel = New-DanewChipLabel -Text 'Windows : Inconnu' -Left 176 -Top 76 -Width 238
+$machineChipLabel = New-DanewChipLabel -Text 'Machine : Inconnu' -Left 422 -Top 76 -Width 170
+$usbChipLabel = New-DanewChipLabel -Text 'USB : Inconnu' -Left 600 -Top 76 -Width 150
 [void]$statusGroup.Controls.Add($runtimeChipLabel)
 [void]$statusGroup.Controls.Add($windowsChipLabel)
 [void]$statusGroup.Controls.Add($machineChipLabel)
@@ -4604,7 +4726,7 @@ $primaryGroup.Text = 'Actions principales de diagnostic (1 -> 3)'
 $primaryGroup.Left = 14
 $primaryGroup.Top = 96
 $primaryGroup.Width = 872
-$primaryGroup.Height = 202
+$primaryGroup.Height = 168
 $primaryGroup.Anchor = 'Top,Left,Right'
 $primaryGroup.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
 $primaryGroup.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
@@ -4630,22 +4752,23 @@ $offlineProgressBar.Style = 'Continuous'
 
 $offlineSubProgressBar = New-Object System.Windows.Forms.ProgressBar
 $offlineSubProgressBar.Left = 22
-$offlineSubProgressBar.Top = 168
+$offlineSubProgressBar.Top = 164
 $offlineSubProgressBar.Width = 828
-$offlineSubProgressBar.Height = 14
+$offlineSubProgressBar.Height = 10
 $offlineSubProgressBar.Minimum = 0
 $offlineSubProgressBar.Maximum = 100
 $offlineSubProgressBar.Value = 0
 $offlineSubProgressBar.Style = 'Continuous'
 
+# offlineTimingLabel : compact sur une seule ligne sous les barres de progression.
 $offlineTimingLabel = New-Object System.Windows.Forms.Label
 $offlineTimingLabel.Left = 22
-$offlineTimingLabel.Top = 184
+$offlineTimingLabel.Top = 176
 $offlineTimingLabel.Width = 844
-$offlineTimingLabel.Height = 18
-$offlineTimingLabel.Text = 'Progression : globale + sous-etape    Ecoule : 00:00    ETA : --:--'
-$offlineTimingLabel.ForeColor = [System.Drawing.Color]::FromArgb(71, 85, 105)
-$offlineTimingLabel.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+$offlineTimingLabel.Height = 16
+$offlineTimingLabel.Text = 'Ecoule : 00:00    ETA : --:--'
+$offlineTimingLabel.ForeColor = [System.Drawing.Color]::FromArgb(100, 116, 139)
+$offlineTimingLabel.Font = New-Object System.Drawing.Font('Segoe UI', 8)
 
 $progressBox = New-Object System.Windows.Forms.TextBox
 $progressBox.Left = 14
@@ -4809,22 +4932,51 @@ $summaryLabel = $savSummaryLabel
 $overallBadgeLabel = $savOverallBadgeLabel
 
 $simpleActionsGroup = New-Object System.Windows.Forms.GroupBox
-$simpleActionsGroup.Text = 'Rapports'
+$simpleActionsGroup.Text = 'Rapports / Exports'
 $simpleActionsGroup.Left = 14
 $simpleActionsGroup.Top = 586
 $simpleActionsGroup.Width = 872
-$simpleActionsGroup.Height = 64
+$simpleActionsGroup.Height = 74
 $simpleActionsGroup.Anchor = 'Top,Left,Right'
 $simpleActionsGroup.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
 $simpleActionsGroup.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
 
+$exportsPanel = New-Object System.Windows.Forms.FlowLayoutPanel
+$exportsPanel.Left = 10
+$exportsPanel.Top = 18
+$exportsPanel.Width = 844
+$exportsPanel.Height = 48
+$exportsPanel.Anchor = 'Top,Left,Right'
+$exportsPanel.FlowDirection = 'LeftToRight'
+$exportsPanel.WrapContents = $false
+$exportsPanel.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
+$exportsPanel.Padding = New-Object System.Windows.Forms.Padding(0, 2, 0, 2)
+
+# 4 boutons contextuels — WinPE : collecte/export ; PC tech : HTML/navigation
+if ($script:IsWinPE) {
+    $exportBtn1 = New-DanewActionButton -Text 'PREPARER RAPPORTS PC TECH' -Action 'prepare-reports-for-tech' -ToolTip $toolTip -Hint 'Verifie et consolide JSON/CSV/TXT dans reports. Les HTML seront generes sur le PC technicien.' -Tone 'primary'
+    $exportBtn2 = New-DanewActionButton -Text 'EXPORT ZIP SAV' -Action 'export-evtx-zip' -ToolTip $toolTip -Hint 'Cree un ZIP des fichiers EVTX lisibles avec nom machine + horodate.' -Tone 'neutral'
+    $exportBtn3 = New-DanewActionButton -Text 'EXPORT EVTX CIBLE' -Action 'export-evtx-targeted' -ToolTip $toolTip -Hint 'Genere les exports EVTX physiques : evenements filtres, critiques, fenetre crash et resume SAV TXT.' -Tone 'neutral'
+    $exportBtn4 = New-DanewActionButton -Text 'COPIER RESUME SAV' -Action 'copy-sav-resume' -ToolTip $toolTip -Hint 'Copie le contenu de evtx-sav-summary.txt dans le presse-papiers.' -Tone 'neutral'
+}
+else {
+    $exportBtn1 = New-DanewActionButton -Text 'GENERER RAPPORTS HTML' -Action 'generate-html-reports' -ToolTip $toolTip -Hint 'Genere les rapports HTML depuis les JSON collectes en WinPE : timeline, SAV, REPORTS_INDEX.' -Tone 'primary'
+    $exportBtn2 = New-DanewActionButton -Text 'OUVRIR RAPPORTS' -Action 'open-reports-index' -ToolTip $toolTip -Hint 'Ouvre le hub REPORTS_INDEX avec navigation croisee entre tous les rapports HTML.' -Tone 'neutral'
+    $exportBtn3 = New-DanewActionButton -Text 'OUVRIR DOSSIER' -Action 'open-reports-folder' -ToolTip $toolTip -Hint 'Ouvre le dossier reports dans l explorateur de fichiers.' -Tone 'neutral'
+    $exportBtn4 = New-DanewActionButton -Text 'ACTUALISER' -Action 'refresh-status' -ToolTip $toolTip -Hint 'Actualise la disponibilite des rapports et l etat du systeme.' -Tone 'neutral'
+}
+[void]$exportsPanel.Controls.Add($exportBtn1)
+[void]$exportsPanel.Controls.Add($exportBtn2)
+[void]$exportsPanel.Controls.Add($exportBtn3)
+[void]$exportsPanel.Controls.Add($exportBtn4)
+
+# Conserver simplePanel + openReportsButton pour compatibilite (hors WinPE uniquement)
 $simplePanel = New-Object System.Windows.Forms.Panel
-$simplePanel.Left = 10
-$simplePanel.Top = 16
-$simplePanel.Width = 844
-$simplePanel.Height = 38
-$simplePanel.Anchor = 'Top,Left,Right'
-$simplePanel.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
+$simplePanel.Left = 0
+$simplePanel.Top = 0
+$simplePanel.Width = 0
+$simplePanel.Height = 0
+$simplePanel.Visible = $false
 
 $openReportsButton = New-Object System.Windows.Forms.Button
 $openReportsButton.Name = 'openReportsButton'
@@ -4954,7 +5106,6 @@ if ($script:IsWinPE) {
     $winpeTechPcLabel.Font = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Italic)
     $winpeTechPcLabel.ForeColor = [System.Drawing.Color]::FromArgb(71, 85, 105)
     $winpeTechPcLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
-    [void]$simplePanel.Controls.Add($winpeTechPcLabel)
 }
 else {
     # PC normal : caches initialement, rendus visibles par Update-DanewReportAvailability
@@ -4962,15 +5113,13 @@ else {
     $openTimelineFastReportButton.Visible = $false
     $openSavReportButton.Visible = $false
 }
-[void]$simplePanel.Controls.Add($openReportsButton)
-[void](Set-DanewReportsSectionLayout)
 
 $quickActionsGroup = New-Object System.Windows.Forms.GroupBox
 $quickActionsGroup.Text = 'Actions rapides'
 $quickActionsGroup.Left = 14
 $quickActionsGroup.Top = 670
 $quickActionsGroup.Width = 872
-$quickActionsGroup.Height = 104
+$quickActionsGroup.Height = 70
 $quickActionsGroup.Anchor = 'Top,Left,Right'
 $quickActionsGroup.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
 $quickActionsGroup.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
@@ -4979,21 +5128,18 @@ $quickActionsPanel = New-Object System.Windows.Forms.FlowLayoutPanel
 $quickActionsPanel.Left = 10
 $quickActionsPanel.Top = 20
 $quickActionsPanel.Width = 844
-$quickActionsPanel.Height = 80
+$quickActionsPanel.Height = 46
 $quickActionsPanel.FlowDirection = 'LeftToRight'
-$quickActionsPanel.WrapContents = $true
+$quickActionsPanel.WrapContents = $false
 $quickActionsPanel.Padding = New-Object System.Windows.Forms.Padding(0, 2, 0, 0)
 
 $recommendedActionsButton = New-DanewActionButton -Text '4. ACTIONS RECOMMANDEES' -Action 'recommended-actions' -ToolTip $toolTip -Hint 'Affiche les actions SAV conseillees selon le diagnostic. Les actions sont informatives et non destructives.' -Tone 'neutral'
 [void]$quickActionsPanel.Controls.Add($recommendedActionsButton)
 $openTextReportsQuickButton = New-DanewActionButton -Text 'TXT/CSV LISTE' -Action 'open-text-reports-list' -ToolTip $toolTip -Hint 'Affiche la liste des rapports TXT, CSV et JSON disponibles.' -Tone 'neutral'
 [void]$quickActionsPanel.Controls.Add($openTextReportsQuickButton)
-$exportEvtxTargetedButton = New-DanewActionButton -Text '5. EXPORT EVTX CIBLE' -Action 'export-evtx-targeted' -ToolTip $toolTip -Hint 'Genere les exports EVTX physiques dans reports: evenements filtres, evenements critiques, fenetre crash et resume SAV TXT. Ne depend pas du navigateur HTML.' -Tone 'neutral'
-[void]$quickActionsPanel.Controls.Add($exportEvtxTargetedButton)
-$exportEvtxZipButton = New-DanewActionButton -Text '6. EXPORT ZIP EVTX' -Action 'export-evtx-zip' -ToolTip $toolTip -Hint 'Cree un ZIP des fichiers EVTX lisibles avec nom machine + horodate, et ajoute les artefacts EVTX utiles.' -Tone 'neutral'
-[void]$quickActionsPanel.Controls.Add($exportEvtxZipButton)
-$exportSavPackageButton = New-DanewActionButton -Text '7. EXPORTER LE DOSSIER SAV' -Action 'export-diagnostic-package' -ToolTip $toolTip -Hint 'Cree un package SAV avec les rapports, journaux et exports disponibles. Utile pour archivage, envoi SAV ou analyse hors ligne.' -Tone 'neutral'
-[void]$quickActionsPanel.Controls.Add($exportSavPackageButton)
+$exportEvtxTargetedButton = $null
+$exportEvtxZipButton = $null
+$exportSavPackageButton = $null
 
 $advancedToggleButton = New-Object System.Windows.Forms.Button
 $advancedToggleButton.Text = 'AFFICHER LES OUTILS AVANCES'
@@ -5061,7 +5207,7 @@ $recentActivityBox.SelectionColor = [System.Drawing.Color]::FromArgb(15, 118, 11
 $recentActivityBox.SelectionStart = $recentActivityBox.Text.Length
 $recentActivityBox.SelectionLength = 0
 
-[void]$simpleActionsGroup.Controls.Add($simplePanel)
+[void]$simpleActionsGroup.Controls.Add($exportsPanel)
 [void]$quickActionsGroup.Controls.Add($quickActionsPanel)
 
 $togglePanel = New-Object System.Windows.Forms.FlowLayoutPanel
