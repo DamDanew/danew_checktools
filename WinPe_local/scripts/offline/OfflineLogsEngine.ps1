@@ -2993,13 +2993,16 @@ function Write-DanewTimelineHtml {
     foreach ($item in @($enrichedRows)) {
         $rowIndex++
         $eventKey = 'evt-' + [string]$rowIndex
-        $searchBlob = ConvertTo-DanewReportHtmlText ($item.timestamp, $item.level_fr, $item.importance, $item.family, $item.provider, $item.event_id, $item.channel, $item.message, $item.source_file -join ' ')
+        # data-search-row: structural fields only — excludes full message text to reduce HTML size.
+        # Full message is available in the detail panel (click row) via the JSON source.
+        $searchBlob = ConvertTo-DanewReportHtmlText ($item.timestamp, $item.level_fr, $item.family, $item.provider, $item.event_id, $item.channel -join ' ')
         $messagePreview = [string]$item.message
-        if ($messagePreview.Length -gt 180) {
-            $messagePreview = $messagePreview.Substring(0, 180) + ' ...'
+        if ($messagePreview.Length -gt 120) {
+            $messagePreview = $messagePreview.Substring(0, 120) + ' …'
         }
-
-        $messageCollapsed = '<div class="msg-preview">' + (ConvertTo-DanewReportHtmlText $messagePreview) + '</div><div class="msg-full" hidden>' + (ConvertTo-DanewReportHtmlText $item.message_full) + '</div><button type="button" class="link-button" data-toggle-message>Afficher plus</button>'
+        # msg-full hidden div removed: embedding the full message in every row (×4000 rows)
+        # inflated timeline-raw.html to ~15 MB. Full text is loaded on-demand via the detail panel.
+        $messageCollapsed = '<div class="msg-preview">' + (ConvertTo-DanewReportHtmlText $messagePreview) + '</div>'
 
         $levelToken = switch ($item.level_fr) { 'Critique' { 'critique' } 'Erreur' { 'erreur' } 'Avertissement' { 'avertissement' } default { 'information' } }
         $importanceScore = if ([int]$item.importance -ge 70) { 'high' } elseif ([int]$item.importance -ge 40) { 'medium' } else { 'low' }
@@ -3044,6 +3047,11 @@ function Write-DanewTimelineHtml {
             $relatedPayload = [System.Collections.Generic.List[object]]::new()
         }
 
+        # Truncate message_full in the inline JS payload to limit <script> block size.
+        # Full text is available in timeline-raw.json. 500 chars is sufficient for the detail panel.
+        $msgFullForJson = [string]$item.message_full
+        if ($msgFullForJson.Length -gt 500) { $msgFullForJson = $msgFullForJson.Substring(0, 500) + ' …' }
+
         $eventLinks.Add([pscustomobject]@{
             key = $eventKey
             provider_id = ($item.provider + '|' + $item.event_id)
@@ -3056,7 +3064,7 @@ function Write-DanewTimelineHtml {
                 event_id = $item.event_id
                 channel = $item.channel
                 source_file = $item.source_file
-                message_full = $item.message_full
+                message_full = $msgFullForJson
                 explanation = $item.explanation
                 cause_probable = $item.cause_probable
                 impact_possible = $item.impact_possible
@@ -3509,7 +3517,7 @@ Action recommandee : sauvegarder les donnees, verifier le stockage, puis poursui
                 row.getAttribute('data-provider') || '',
                 row.getAttribute('data-event-id') || '',
                 row.getAttribute('data-channel') || '',
-                (row.querySelector('.msg-full') ? row.querySelector('.msg-full').textContent : ''),
+                (row.querySelector('.msg-preview') ? row.querySelector('.msg-preview').textContent : ''),
                 row.getAttribute('data-source-file') || ''
             ].map(function (v) {
                 var safe = (v || '').toString().replace(/"/g, '""');
