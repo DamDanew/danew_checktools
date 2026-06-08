@@ -2566,11 +2566,12 @@ function Open-DanewSpecificReport {
         }
         'timeline' {
             $path = Get-DanewAvailableReportPath -Names @('timeline-raw.html', 'REPORTS_INDEX.html', 'reports-index.html', 'timeline-raw.json') -MinLastWriteTime $cutoff
-            $path = Ensure-DanewFullTimelineReport -Path $path
+            $path = Ensure-DanewReportHtml -Path $path
             $title = 'Lire les logs Windows (classes)'
         }
         'timeline-fast-by-file' {
             $path = Get-DanewAvailableReportPath -Names @('evtx-by-file.html', 'timeline-raw.html', 'evtx-events.html', 'REPORTS_INDEX.html', 'timeline-raw.json') -MinLastWriteTime $cutoff
+            $path = Ensure-DanewReportHtml -Path $path
             $title = 'Lire les logs Windows (rapide par fichier EVTX)'
         }
         'storage' {
@@ -2583,76 +2584,135 @@ function Open-DanewSpecificReport {
     return (Open-DanewReportFile -Path $path -Title $title)
 }
 
-function Ensure-DanewFullTimelineReport {
+# ---------------------------------------------------------------------------
+# Ensure-DanewReportHtml — dispatcher generique pour la generation HTML
+# on-demand de tous les rapports differables (timeline-raw, evtx-events,
+# evtx-by-file). Remplace l'ancienne Ensure-DanewFullTimelineReport.
+#
+# $Path : chemin retourne par Get-DanewAvailableReportPath — peut etre
+#         un .html (absent ou stub) ou un .json (mode differe pur).
+# Retourne toujours un chemin .html (genere ou pas).
+# ---------------------------------------------------------------------------
+function Ensure-DanewReportHtml {
     param(
         [AllowEmptyString()]
         [string]$Path
     )
 
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return $Path
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $Path }
+
+    $leaf      = Split-Path -Leaf $Path
+    $dir       = Split-Path -Parent $Path
+    $lowerLeaf = $leaf.ToLowerInvariant()
+
+    # ---- Identifier le type de rapport a partir du nom de fichier ----
+    $reportType = switch -Exact ($lowerLeaf) {
+        'timeline-raw.json'  { 'timeline';     break }
+        'timeline-raw.html'  { 'timeline';     break }
+        'evtx-events.html'   { 'evtx-events';  break }
+        'evtx-by-file.html'  { 'evtx-by-file'; break }
+        default              { 'unknown';      break }
     }
 
-    $leaf = Split-Path -Leaf $Path
-    $dir  = Split-Path -Parent $Path
+    if ($reportType -eq 'unknown') { return $Path }
 
-    # Helper: load JSON and build timeline HTML at $htmlDest from timeline-raw.json + evtx-summary.json.
-    $generateFromJson = {
-        param([string]$htmlDest)
-        $timeline = Get-DanewReportJson -Name 'timeline-raw.json'
-        if ($null -eq $timeline) { return $false }
-        $summary = Get-DanewReportJson -Name 'evtx-summary.json'
-        if ($null -eq $summary) {
-            $summary = [pscustomobject]@{
-                total_events = @($timeline.events).Count
+    # ---- Chemin HTML cible ----
+    $htmlDest = if ($lowerLeaf -eq 'timeline-raw.json') {
+        Join-Path $dir 'timeline-raw.html'
+    } else {
+        $Path
+    }
+
+    # ---- Detecter si une (re)generation est necessaire ----
+    $needsGeneration = $false
+    if ($lowerLeaf -eq 'timeline-raw.json') {
+        # Cas differe pur : le JSON seul etait disponible, HTML absent
+        $needsGeneration = $true
+    }
+    elseif (-not (Test-Path -Path $htmlDest)) {
+        # HTML absent — generer si le JSON source est present
+        $needsGeneration = (Test-Path -Path (Join-Path $dir 'timeline-raw.json'))
+    }
+    elseif ($reportType -eq 'timeline') {
+        # HTML present : verifier si c'est un stub mode-rapide a upgrader
+        try {
+            $stub = Get-Content -Path $htmlDest -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
+            if ($stub -match 'Mode rapide optimise') { $needsGeneration = $true }
+        }
+        catch {}
+    }
+
+    if (-not $needsGeneration) { return $htmlDest }
+
+    # ---- Charger les donnees communes (timeline JSON + summary) ----
+    $loadTimelineData = {
+        $tl = Get-DanewReportJson -Name 'timeline-raw.json'
+        if ($null -eq $tl) { return $null }
+        $sm = Get-DanewReportJson -Name 'evtx-summary.json'
+        if ($null -eq $sm) {
+            $sm = [pscustomobject]@{
+                total_events          = @($tl.events).Count
                 missing_required_logs = 0
-                parse_issue_count = @($timeline.issues).Count
+                parse_issue_count     = @($tl.issues).Count
             }
         }
-        try {
-            Add-DiagnosticProgressLine -Line '[TIMELINE] Generation HTML on-demand depuis timeline-raw.json...'
-            Write-DanewTimelineHtml -Path $htmlDest -Events @($timeline.events) -Summary $summary
-            # evtx-events.html is a copy of timeline-raw.html — sync it too.
-            $evtxEventsPath = Join-Path (Split-Path -Parent $htmlDest) 'evtx-events.html'
-            try { Copy-Item -Path $htmlDest -Destination $evtxEventsPath -Force -ErrorAction SilentlyContinue } catch {}
-            Add-DiagnosticProgressLine -Line ('[TIMELINE] timeline-raw.html + evtx-events.html generees (' + [math]::Round((Get-Item $htmlDest -ErrorAction SilentlyContinue).Length/1KB, 0) + ' KB)')
-            return $true
+        return [pscustomobject]@{ Timeline = $tl; Summary = $sm }
+    }
+
+    # ---- Generation selon le type ----
+    switch ($reportType) {
+
+        'timeline' {
+            $data = & $loadTimelineData
+            if ($null -eq $data) { return $htmlDest }
+            try {
+                Add-DiagnosticProgressLine -Line '[HTML] Generation timeline-raw.html on-demand depuis timeline-raw.json...'
+                Write-DanewTimelineHtml -Path $htmlDest -Events @($data.Timeline.events) -Summary $data.Summary
+                # evtx-events.html est toujours une copie de timeline-raw.html
+                $evtxEventsPath = Join-Path (Split-Path -Parent $htmlDest) 'evtx-events.html'
+                try { Copy-Item -Path $htmlDest -Destination $evtxEventsPath -Force -ErrorAction SilentlyContinue } catch {}
+                Add-DiagnosticProgressLine -Line ('[HTML] timeline-raw.html + evtx-events.html generees (' + [math]::Round((Get-Item $htmlDest -ErrorAction SilentlyContinue).Length/1KB, 0) + ' KB)')
+            }
+            catch {
+                Add-DiagnosticProgressLine -Line ('[HTML] Echec generation timeline-raw.html: ' + $_.Exception.Message)
+            }
         }
-        catch {
-            Add-DiagnosticProgressLine -Line ('[TIMELINE] Echec generation HTML: ' + $_.Exception.Message)
-            return $false
+
+        'evtx-events' {
+            # evtx-events.html = copie de timeline-raw.html ; on s'assure d'abord que la timeline est generee
+            $timelinePath = Join-Path $dir 'timeline-raw.html'
+            $resolvedTimeline = Ensure-DanewReportHtml -Path $timelinePath
+            if ((Test-Path $resolvedTimeline) -and ($resolvedTimeline -ne $htmlDest)) {
+                try {
+                    Copy-Item -Path $resolvedTimeline -Destination $htmlDest -Force -ErrorAction SilentlyContinue
+                    Add-DiagnosticProgressLine -Line '[HTML] evtx-events.html synchronisee depuis timeline-raw.html'
+                }
+                catch {}
+            }
+        }
+
+        'evtx-by-file' {
+            $data = & $loadTimelineData
+            if ($null -eq $data) { return $htmlDest }
+            try {
+                Add-DiagnosticProgressLine -Line '[HTML] Generation evtx-by-file.html on-demand depuis timeline-raw.json...'
+                Write-DanewEvtxByFileHtml -Path $htmlDest -Events @($data.Timeline.events) -Summary $data.Summary
+                Add-DiagnosticProgressLine -Line ('[HTML] evtx-by-file.html generee (' + [math]::Round((Get-Item $htmlDest -ErrorAction SilentlyContinue).Length/1KB, 0) + ' KB)')
+            }
+            catch {
+                Add-DiagnosticProgressLine -Line ('[HTML] Echec generation evtx-by-file.html: ' + $_.Exception.Message)
+            }
         }
     }
 
-    # Case 1: path points to timeline-raw.json (deferred mode — HTML was never generated).
-    # Generate HTML next to the JSON, then return the HTML path.
-    if ([string]::Equals($leaf, 'timeline-raw.json', [System.StringComparison]::OrdinalIgnoreCase)) {
-        $htmlDest = Join-Path $dir 'timeline-raw.html'
-        [void](& $generateFromJson $htmlDest)
-        return $htmlDest
-    }
+    return $htmlDest
+}
 
-    # Only handle timeline-raw.html from here on.
-    if (-not [string]::Equals($leaf, 'timeline-raw.html', [System.StringComparison]::OrdinalIgnoreCase)) {
-        return $Path
-    }
-
-    # Case 2: HTML absent (deferred or never generated) but JSON exists → generate.
-    if (-not (Test-Path -Path $Path)) {
-        $jsonPath = Join-Path $dir 'timeline-raw.json'
-        if (Test-Path -Path $jsonPath) {
-            [void](& $generateFromJson $Path)
-        }
-        return $Path
-    }
-
-    # Case 3: HTML exists but is fast-mode stub → regenerate full version.
-    $currentHtml = ''
-    try { $currentHtml = Get-Content -Path $Path -Raw -Encoding UTF8 } catch { return $Path }
-    if ($currentHtml -notmatch 'Mode rapide optimise') { return $Path }
-
-    [void](& $generateFromJson $Path)
-    return $Path
+# Alias de compatibilite — conserve pour les appels eventuellement deja
+# presents dans des scripts tiers ; delègue au nouveau dispatcher.
+function Ensure-DanewFullTimelineReport {
+    param([AllowEmptyString()][string]$Path)
+    return Ensure-DanewReportHtml -Path $Path
 }
 
 function Update-DanewReportAvailability {
@@ -3296,6 +3356,16 @@ function Invoke-GuiAction {
             return
         }
         elseif ($Action -eq 'open-timeline-fast-report') {
+            # Detecter en avance si evtx-by-file.html doit etre genere on-demand.
+            $reportsPath       = [string]$config.reports_path
+            $byFileHtmlPath    = Join-Path $reportsPath 'evtx-by-file.html'
+            $timelineJsonPath  = Join-Path $reportsPath 'timeline-raw.json'
+            $needsByFileGen    = (-not (Test-Path $byFileHtmlPath)) -and (Test-Path $timelineJsonPath)
+            if ($needsByFileGen) {
+                Set-DanewSummaryVisual -Status 'RUNNING' -Text 'Generation HTML evtx-by-file en cours...'
+                Add-DiagnosticProgressLine -Line '[HTML] evtx-by-file.html absent — generation on-demand depuis timeline-raw.json...'
+                [System.Windows.Forms.Application]::DoEvents()
+            }
             $opened = Open-DanewSpecificReport -Kind 'timeline-fast-by-file'
             if ($opened) {
                 Set-DanewSummaryVisual -Status 'PASS' -Text 'Logs Windows rapides par fichier ouverts'
