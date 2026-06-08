@@ -617,29 +617,17 @@ function Set-DanewTechnicalDetailsDockLayout {
     $technicalDetailsGroup.Height = [Math]::Max(560, ($form.ClientSize.Height - $topMargin - $bottomMargin))
     $technicalDetailsGroup.Anchor = 'Top,Bottom,Right'
 
-    if ($technicalDetailsSplitContainer) {
-        $technicalDetailsSplitContainer.Left = 12
-        $technicalDetailsSplitContainer.Top = 24
-        $technicalDetailsSplitContainer.Width = $dockWidth - 24
-        $technicalDetailsSplitContainer.Height = [Math]::Max(220, ($technicalDetailsGroup.Height - 36))
-        $technicalDetailsSplitContainer.Anchor = 'Top,Bottom,Left,Right'
-
-        $availableHeight = [Math]::Max(220, [int]$technicalDetailsSplitContainer.Height)
-        $maxTopHeight = [Math]::Max($technicalDetailsSplitContainer.Panel1MinSize, ($availableHeight - $technicalDetailsSplitContainer.Panel2MinSize - $technicalDetailsSplitContainer.SplitterWidth))
-        $desiredTopHeight = [Math]::Max($technicalDetailsSplitContainer.Panel1MinSize, [int]$script:TechnicalTopPanelHeight)
-        $technicalDetailsSplitContainer.SplitterDistance = [Math]::Min($desiredTopHeight, $maxTopHeight)
-    }
-
     if ($statusTable) {
         $statusTable.Visible = $false
     }
 
+    # progressBox fills the full height of the technical group (recentActivity panel removed).
     if ($progressBox) {
-        $progressBox.Dock = 'Fill'
-    }
-
-    if ($recentActivityBox) {
-        $recentActivityBox.Dock = 'Fill'
+        $progressBox.Left = 12
+        $progressBox.Top = 24
+        $progressBox.Width = $dockWidth - 24
+        $progressBox.Height = [Math]::Max(220, ($technicalDetailsGroup.Height - 36))
+        $progressBox.Anchor = 'Top,Bottom,Left,Right'
     }
 }
 
@@ -4937,14 +4925,14 @@ $technicalDetailsSplitContainer.Add_SplitterMoved({
 
 $statusTable.Visible = $false
 
-$progressBox.Dock = 'Fill'
-
-$recentActivityBox.Dock = 'Fill'
+# progressBox fills the entire technical group — recentActivityBox panel removed.
+$progressBox.Left = 12
+$progressBox.Top = 24
+$progressBox.Anchor = 'Top,Bottom,Left,Right'
+$progressBox.Dock = 'None'
 
 [void]$technicalDetailsGroup.Controls.Add($statusTable)
-[void]$technicalDetailsSplitContainer.Panel1.Controls.Add($progressBox)
-[void]$technicalDetailsSplitContainer.Panel2.Controls.Add($recentActivityBox)
-[void]$technicalDetailsGroup.Controls.Add($technicalDetailsSplitContainer)
+[void]$technicalDetailsGroup.Controls.Add($progressBox)
 
 [void]$form.Controls.Add($headerPanel)
 [void]$form.Controls.Add($statusGroup)
