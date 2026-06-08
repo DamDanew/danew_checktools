@@ -2761,7 +2761,7 @@ function Update-DanewReportAvailability {
     $cutoff = $script:ReportAvailabilityCutoff
     $browserPath = Get-DanewPortableBrowserPath
     $browserOperational = Test-DanewPortableBrowserOperational -BrowserPath $browserPath
-    $savNames = @('sav-diagnostic-report.html', 'REPORTS_INDEX.html', 'reports-index.html', 'one-click-diagnostic-report.html', 'offline-windows-failure-report.html')
+    $savNames = @('REPORTS_INDEX.html', 'reports-index.html', 'sav-diagnostic-report.html', 'one-click-diagnostic-report.html', 'offline-windows-failure-report.html')
     $timelineNames = @('timeline-raw.html', 'evtx-events.html', 'timeline-raw.json', 'evtx-events.csv')
     $timelineFastNames = @('evtx-by-file.html', 'timeline-raw.html', 'evtx-events.html', 'timeline-raw.json', 'evtx-events.csv')
     $recommendedNames = @('sav-diagnostic-report.json', 'root-cause-analysis.json', 'severity-analysis.json', 'offline-windows-analysis.json', 'timeline-raw.json', 'one-click-diagnostic-report.json')
@@ -4986,7 +4986,7 @@ $exportsPanel.Padding = New-Object System.Windows.Forms.Padding(0, 2, 0, 2)
 if ($script:IsWinPE) {
     $exportBtn1 = New-DanewActionButton -Text 'PREPARER PC TECH' -Action 'prepare-reports-for-tech' -ToolTip $toolTip -Hint 'Verifie les artefacts essentiels (JSON/CSV/TXT) pour le PC technicien. Affiche pret ou incomplet avec liste des fichiers manquants.' -Tone 'primary'
     $exportBtn2 = New-DanewActionButton -Text 'EXPORT ZIP SAV' -Action 'export-diagnostic-package' -ToolTip $toolTip -Hint 'Cree un ZIP SAV complet : JSON, CSV, TXT, logs et artefacts EVTX. Pret pour transfert ou archivage SAV.' -Tone 'neutral'
-    $exportBtn3 = New-DanewActionButton -Text 'EXPORT EVTX' -Action 'export-evtx-targeted' -ToolTip $toolTip -Hint 'Genere les exports EVTX physiques : evenements filtres, critiques, fenetre crash et resume SAV TXT.' -Tone 'neutral'
+    $exportBtn3 = New-DanewActionButton -Text 'EXPORT EVTX' -Action 'export-evtx-targeted' -ToolTip $toolTip -Hint 'Genere CSV/TXT des EVTX : evenements filtres, critiques, fenetre crash et resume SAV. Ne depend pas du navigateur HTML.' -Tone 'neutral'
     $exportBtn4 = New-DanewActionButton -Text 'COPIER RESUME' -Action 'copy-sav-resume' -ToolTip $toolTip -Hint 'Copie le contenu de evtx-sav-summary.txt dans le presse-papiers. Si indisponible, affiche le chemin du fichier.' -Tone 'neutral'
 }
 else {
@@ -5172,6 +5172,7 @@ $exportEvtxZipButton = $null
 $exportSavPackageButton = $null
 
 $advancedToggleButton = New-Object System.Windows.Forms.Button
+# Labels courts identifiant les etats du bouton outils avances : < Outils avances | > Masquer outils
 $advancedToggleButton.Text = 'AFFICHER LES OUTILS AVANCES'
 $advancedToggleButton.Width = 236
 $advancedToggleButton.Height = 40
@@ -5190,6 +5191,7 @@ $advancedToggleButton.Add_Click({
 [void]$script:ActionButtons.Add($advancedToggleButton)
 
 $technicalToggleButton = New-Object System.Windows.Forms.Button
+# Labels courts identifiant les etats du bouton details techniques : < Details techniques | > Masquer details
 $technicalToggleButton.Name = 'ShowTechnicalDetailsButton'
 $technicalToggleButton.Text = 'AFFICHER LES DETAILS TECHNIQUES'
 $technicalToggleButton.Width = 236

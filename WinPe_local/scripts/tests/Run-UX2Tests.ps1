@@ -183,10 +183,10 @@ $fastButtonOk = Test-UX2PatternSet -Content $content -Patterns @(
 $results += Add-UX2Result -Name 'fast_evtx_by_file_button_present' -Passed $fastButtonOk -Details 'Reports section includes rapid critical/error/warning EVTX button and fallback path.'
 
 $evtxZipButtonOk = Test-UX2PatternSet -Content $content -Patterns @(
-    'EXPORT ZIP EVTX',
-    "-Action 'export-evtx-zip'"
+    'EXPORT ZIP SAV',
+    "-Action 'export-diagnostic-package'"
 )
-$results += Add-UX2Result -Name 'evtx_zip_export_button_present' -Passed $evtxZipButtonOk -Details 'Reports section includes EVTX ZIP export button with dedicated launcher action.'
+$results += Add-UX2Result -Name 'evtx_zip_export_button_present' -Passed $evtxZipButtonOk -Details 'Reports section includes SAV ZIP export button (full package: JSON/CSV/TXT/logs/EVTX).'
 
 $reportsOpenOk = Test-UX2PatternSet -Content $content -Patterns @(
     'Open-DanewReportFile',

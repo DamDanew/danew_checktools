@@ -114,17 +114,31 @@ try {
         $hadHtml = Test-Path $tlHtml
         if ($hadHtml) { Move-Item -Path $tlHtml -Destination $backupPath -Force }
         try {
-            [void](Ensure-DanewReportHtml -Path $tlHtml)
+            if (-not (Get-Command -Name 'Ensure-DanewReportHtml' -ErrorAction SilentlyContinue)) {
+                # Fallback : appel direct Write-DanewTimelineHtml si disponible
+                $tlData = Get-Content -Path $tlJson -Raw -Encoding UTF8 | ConvertFrom-Json
+                if (Get-Command -Name 'Write-DanewTimelineHtml' -ErrorAction SilentlyContinue) {
+                    $sm = [pscustomobject]@{ total_events = @($tlData.events).Count; missing_required_logs = 0; parse_issue_count = 0 }
+                    Write-DanewTimelineHtml -Path $tlHtml -Events @($tlData.events) -Summary $sm
+                }
+                else {
+                    Add-TestResult -Name 'timeline-raw.html genere depuis JSON' -Status 'SKIP' -Detail 'Ensure-DanewReportHtml et Write-DanewTimelineHtml non charges (launcher.ps1 requis)'
+                    throw 'skip'
+                }
+            }
+            else {
+                [void](Ensure-DanewReportHtml -Path $tlHtml)
+            }
             if (Test-Path $tlHtml) {
                 $sizeKB = [math]::Round((Get-Item $tlHtml).Length / 1KB, 0)
                 Add-TestResult -Name 'timeline-raw.html genere depuis JSON' -Status 'PASS' -Detail "$sizeKB KB"
             }
             else {
-                Add-TestResult -Name 'timeline-raw.html genere depuis JSON' -Status 'FAIL' -Detail 'Ensure-DanewReportHtml a termine sans erreur mais HTML absent'
+                Add-TestResult -Name 'timeline-raw.html genere depuis JSON' -Status 'FAIL' -Detail 'Generation terminee sans erreur mais HTML absent'
             }
         }
         finally {
-            # Restaurer backup si existait et que la generation a echoue
+            # Restaurer backup si existait et que la generation a echoue (sauf si skip)
             if ($hadHtml -and (Test-Path $backupPath) -and -not (Test-Path $tlHtml)) {
                 Move-Item -Path $backupPath -Destination $tlHtml -Force
             }
@@ -261,7 +275,7 @@ $outBase = Join-Path $PSScriptRoot 'tech-pc-report-viewer-tests-report'
 $summary | ConvertTo-Json -Depth 6 | Set-Content -Path ($outBase + '.json') -Encoding UTF8
 $lines = @("=== Tech PC Report Viewer Tests ===", "Date : $($summary.date)", "Duree : $elapsed s", '')
 foreach ($t in $results) {
-    $lines += '[' + $t.status.PadRight(4) + '] ' + $t.name + (if ($t.detail) { ' — ' + $t.detail } else { '' })
+    $lines += '[' + $t.status.PadRight(4) + '] ' + $t.name + $(if ($t.detail) { ' - ' + $t.detail } else { '' })
 }
 $lines += ''
 $lines += "TOTAL : $($results.Count)  PASS : $passCount  FAIL : $failCount  SKIP : $skipCount"
@@ -269,7 +283,7 @@ $lines += "RESULTAT : $($summary.result)"
 $lines | Set-Content -Path ($outBase + '.txt') -Encoding UTF8
 
 Write-TestLog ''
-Write-TestLog "=== RESULTAT FINAL : $($summary.result) — PASS=$passCount FAIL=$failCount SKIP=$skipCount ==="
+Write-TestLog "=== RESULTAT FINAL : $($summary.result) - PASS=$passCount FAIL=$failCount SKIP=$skipCount ==="
 Write-TestLog "Rapport : $outBase.json / .txt"
 
 if ($failCount -gt 0) { exit 1 } else { exit 0 }

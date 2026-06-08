@@ -254,7 +254,7 @@ $outBase = Join-Path $PSScriptRoot 'winpe-collector-mode-tests-report'
 $summary | ConvertTo-Json -Depth 6 | Set-Content -Path ($outBase + '.json') -Encoding UTF8
 $lines = @("=== WinPE Collector Mode Tests ===", "Date : $($summary.date)", "Duree : $elapsed s", '')
 foreach ($t in $results) {
-    $lines += '[' + $t.status.PadRight(4) + '] ' + $t.name + (if ($t.detail) { ' — ' + $t.detail } else { '' })
+    $lines += '[' + $t.status.PadRight(4) + '] ' + $t.name + $(if ($t.detail) { ' - ' + $t.detail } else { '' })
 }
 $lines += ''
 $lines += "TOTAL : $($results.Count)  PASS : $passCount  FAIL : $failCount  SKIP : $skipCount"
@@ -262,7 +262,7 @@ $lines += "RESULTAT : $($summary.result)"
 $lines | Set-Content -Path ($outBase + '.txt') -Encoding UTF8
 
 Write-TestLog ''
-Write-TestLog "=== RESULTAT FINAL : $($summary.result) — PASS=$passCount FAIL=$failCount SKIP=$skipCount ==="
+Write-TestLog "=== RESULTAT FINAL : $($summary.result) - PASS=$passCount FAIL=$failCount SKIP=$skipCount ==="
 Write-TestLog "Rapport : $outBase.json / .txt"
 
 if ($failCount -gt 0) { exit 1 } else { exit 0 }

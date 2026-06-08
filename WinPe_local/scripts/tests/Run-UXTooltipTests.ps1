@@ -52,8 +52,8 @@ $requiredButtonHints = @(
     @{ text = 'OUVRIR LE RAPPORT SAV'; hint = 'Ouvre le rapport SAV principal.' },
     @{ text = 'COMPLET TOUS LES LOGS'; hint = 'Ouvre la vue complete des journaux Windows recuperes.' },
     @{ text = 'RAPIDE CRIT/ERR/AVERT.'; hint = 'Ouvre la vue rapide des journaux Windows limitee aux evenements critiques, erreurs et avertissements' },
-    @{ text = 'EXPORTER LE DOSSIER SAV'; hint = 'Cree un package SAV avec les rapports, journaux et exports disponibles.' },
-    @{ text = 'EXPORT EVTX CIBLE'; hint = 'Genere les exports EVTX physiques dans reports' },
+    @{ text = 'EXPORT ZIP SAV'; hint = 'Cree un ZIP SAV complet : JSON, CSV, TXT, logs et artefacts EVTX.' },
+    @{ text = 'EXPORT EVTX'; hint = 'Genere CSV/TXT des EVTX : evenements filtres' },
     @{ text = 'ACTIONS RECOMMANDEES'; hint = 'Affiche les actions SAV conseillees selon le diagnostic.' },
     @{ text = 'ACTUALISER LE RESUME'; hint = 'Recharge les derniers rapports disponibles et met a jour le resume SAV affiche dans l interface.' },
     @{ text = 'VERIFIER WINPE'; hint = 'Verifie que WinPE contient les composants necessaires: PowerShell, WinForms, EVTX' },
@@ -91,7 +91,7 @@ $results += Add-UXTooltipResult -Name 'tooltip_no_mojibake_markers' -Passed (@($
 $readOnlyHintOk = ($launcher -match "ANALYSE RAPIDE.*Action en lecture seule") -and ($launcher -match "ANALYSE COMPLETE.*Action en lecture seule") -and ($launcher -match "ANALYSER CAUSES.*Action en lecture seule")
 $results += Add-UXTooltipResult -Name 'read_only_mentions_present' -Passed $readOnlyHintOk -Details 'Read-only wording present where applicable.'
 
-$evtxHintOk = $launcher -match "(?s)EXPORT EVTX CIBLE'.*CSV/TXT"
+$evtxHintOk = ($launcher -match "(?s)EXPORT EVTX'.*CSV/TXT") -or ($launcher -match "Genere CSV/TXT des EVTX")
 $results += Add-UXTooltipResult -Name 'evtx_tooltip_mentions_csv_txt' -Passed $evtxHintOk -Details 'EVTX targeted export tooltip mentions CSV/TXT outputs.'
 
 $precheckHintOk = $launcher -match "VERIFIER WINPE'.*PowerShell.*WinForms.*EVTX"
