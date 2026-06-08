@@ -3137,31 +3137,20 @@ function Write-DanewTimelineHtml {
 
     $previewRowsHtml = @()
     foreach ($preview in @($enrichedRows | Select-Object -First 8)) {
-        $previewRowsHtml += @"
-<tr>
-<td>$([System.Security.SecurityElement]::Escape([string]$preview.timestamp))</td>
-<td>$([System.Security.SecurityElement]::Escape([string]$preview.level_fr))</td>
-<td>$([System.Security.SecurityElement]::Escape([string]$preview.family))</td>
-<td>$([System.Security.SecurityElement]::Escape([string]$preview.provider))</td>
-<td>$([System.Security.SecurityElement]::Escape([string]$preview.event_id))</td>
-<td>$([System.Security.SecurityElement]::Escape([string]$preview.channel))</td>
-<td>$([System.Security.SecurityElement]::Escape([string]$preview.message))</td>
-</tr>
-"@
+        $ts  = [System.Security.SecurityElement]::Escape([string]$preview.timestamp)
+        $lvl = [System.Security.SecurityElement]::Escape([string]$preview.level_fr)
+        $fam = [System.Security.SecurityElement]::Escape([string]$preview.family)
+        $prv = [System.Security.SecurityElement]::Escape([string]$preview.provider)
+        $eid = [System.Security.SecurityElement]::Escape([string]$preview.event_id)
+        $chn = [System.Security.SecurityElement]::Escape([string]$preview.channel)
+        $msg = [System.Security.SecurityElement]::Escape([string]$preview.message)
+        $rs  = ConvertTo-DanewReportHtmlText (($ts, $lvl, $fam, $prv, $eid, $msg) -join ' ')
+        $previewRowsHtml += "<tr data-search-row=`"$rs`"><td>$ts</td><td>$lvl</td><td>$fam</td><td>$prv</td><td>$eid</td><td>$chn</td><td>$msg</td></tr>"
     }
     if (@($previewRowsHtml).Count -eq 0) {
         $previewRowsHtml += '<tr><td colspan="7">Aucun evenement a previsualiser.</td></tr>'
     }
-    $previewTable = @"
-<div class="table-wrap" style="margin-top: 14px;">
-<table>
-<thead><tr><th>Date/heure</th><th>Niveau</th><th>Famille</th><th>Source</th><th>ID</th><th>Journal</th><th>Message</th></tr></thead>
-<tbody>
-$(($previewRowsHtml -join "`n"))
-</tbody>
-</table>
-</div>
-"@
+    $previewTable = New-DanewReportTableHtml -Headers @('Date/heure','Niveau','Famille','Source','ID','Journal','Message') -Rows $previewRowsHtml -EmptyMessage 'Aucun evenement a previsualiser.'
 
     $eventsJson = @($eventLinks | ForEach-Object {
             [pscustomobject]@{
@@ -3735,9 +3724,8 @@ Action recommandee : sauvegarder les donnees, verifier le stockage, puis poursui
     }
 
     applyAllFilters();
-    if (rows.length > 0) {
-        selectRow(rows[0]);
-    }
+    // Ne pas auto-selectionner la premiere ligne — le panneau de detail
+    // s'ouvre uniquement sur clic volontaire du technicien
 }());
 </script>
 "@

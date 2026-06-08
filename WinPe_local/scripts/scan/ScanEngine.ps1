@@ -428,6 +428,75 @@ function Get-DanewOfflineRegistryAnalysis {
     }
 }
 
+function ConvertFrom-DanewDismPackageOutput {
+    param(
+        [object[]]$Output
+    )
+
+    $packages = @()
+    $identity = ''
+
+    foreach ($lineObject in $Output) {
+        $line = [string]$lineObject
+        if ($line -match '^\s*Package Identity\s*:\s*(.+)\s*$') {
+            $identity = $Matches[1].Trim()
+            continue
+        }
+
+        if ($line -match '^\s*State\s*:\s*(.+)\s*$') {
+            if (-not [string]::IsNullOrWhiteSpace($identity)) {
+                $packages += [pscustomobject]@{
+                    identity = $identity
+                    state = $Matches[1].Trim()
+                }
+                $identity = ''
+            }
+        }
+    }
+
+    return @($packages)
+}
+
+function Get-DanewDismPackages {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ImagePath
+    )
+
+    $output = & dism.exe /English ("/Image:$ImagePath") /Get-Packages 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        return @()
+    }
+
+    return @(ConvertFrom-DanewDismPackageOutput -Output $output)
+}
+
+function Get-DanewDismWimPackages {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$BootWimPath,
+        [int]$ImageIndex = 1
+    )
+
+    $mountPath = Join-Path ([System.IO.Path]::GetTempPath()) ('danew-wim-pkg-dism-' + [guid]::NewGuid().ToString('N'))
+    New-Item -Path $mountPath -ItemType Directory -Force | Out-Null
+
+    try {
+        $mountOutput = & dism.exe /English /Mount-Image ("/ImageFile:$BootWimPath") ("/Index:$ImageIndex") ("/MountDir:$mountPath") /ReadOnly 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            return @()
+        }
+
+        return @(Get-DanewDismPackages -ImagePath $mountPath)
+    }
+    finally {
+        & dism.exe /English /Unmount-Image ("/MountDir:$mountPath") /Discard *> $null
+        if (Test-Path -Path $mountPath) {
+            Remove-Item -Path $mountPath -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function Get-DanewPackageAnalysis {
     param(
         [Parameter(Mandatory = $true)]
@@ -476,6 +545,21 @@ function Get-DanewPackageAnalysis {
     }
     catch {
         $packages = @()
+    }
+
+    if (@($packages).Count -eq 0) {
+        if (Test-Path -Path (Join-Path $InputPath 'Windows')) {
+            $packages = @(Get-DanewDismPackages -ImagePath $InputPath)
+            if (@($packages).Count -gt 0) {
+                $source = 'dism_exe_image'
+            }
+        }
+        elseif ($BootWimPath -and (Test-Path -Path $BootWimPath)) {
+            $packages = @(Get-DanewDismWimPackages -BootWimPath $BootWimPath -ImageIndex $ImageIndex)
+            if (@($packages).Count -gt 0) {
+                $source = 'dism_exe_mounted_wim'
+            }
+        }
     }
 
     foreach ($p in $packages) {

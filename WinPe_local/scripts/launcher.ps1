@@ -581,9 +581,9 @@ function Set-DanewAdvancedToolsVisible {
     }
     if ($advancedToggleButton) {
         if ($Visible) {
-            $advancedToggleText = '> Masquer outils'
+            $advancedToggleText = 'MASQUER LES OUTILS AVANCES'
         } else {
-            $advancedToggleText = '< Outils avances'
+            $advancedToggleText = 'AFFICHER LES OUTILS AVANCES'
         }
         $advancedToggleButton.Text = Convert-DanewUiText -Text $advancedToggleText
     }
@@ -592,7 +592,7 @@ function Set-DanewAdvancedToolsVisible {
         $script:AdvancedToolsVisible = $false
         $buttonGroup.Visible = $false
         if ($advancedToggleButton) {
-            $advancedToggleButton.Text = Convert-DanewUiText -Text '< Outils avances'
+            $advancedToggleButton.Text = Convert-DanewUiText -Text 'AFFICHER LES OUTILS AVANCES'
         }
     }
     if ($form) {
@@ -710,9 +710,9 @@ function Set-DanewTechnicalDetailsVisible {
     }
     if ($technicalToggleButton) {
         if ($Visible) {
-            $technicalToggleText = '> Masquer details'
+            $technicalToggleText = 'MASQUER LES DETAILS TECHNIQUES'
         } else {
-            $technicalToggleText = '< Details techniques'
+            $technicalToggleText = 'AFFICHER LES DETAILS TECHNIQUES'
         }
         $technicalToggleButton.Text = Convert-DanewUiText -Text $technicalToggleText
     }
@@ -2138,23 +2138,144 @@ function Get-DanewNativeCompanionReportPath {
         $preferredNames = @('REPORTS_INDEX.csv', 'REPORTS_INDEX.txt', 'reports-index.txt', 'reports-index.csv')
     }
     elseif ($lowerBase -in @('timeline-raw', 'evtx-events', 'evtx-by-file')) {
-        $preferredNames = @($baseName + '.csv', $baseName + '.txt', $baseName + '.json')
+        $preferredNames = @("$baseName.csv", "$baseName.txt", "$baseName.json")
     }
     elseif ($lowerBase -eq 'sav-diagnostic-report') {
         $preferredNames = @('sav-diagnostic-report.txt', 'sav-diagnostic-report.json', 'sav-diagnostic-report.csv')
     }
     else {
-        $preferredNames = @($baseName + '.txt', $baseName + '.csv', $baseName + '.json')
+        $preferredNames = @("$baseName.txt", "$baseName.csv", "$baseName.json")
     }
 
-    foreach ($name in @($preferredNames)) {
-        $candidate = Join-Path $directory $name
+    foreach ($name in $preferredNames) {
+        $candidate = Join-Path $directory ([string]$name)
         if (Test-Path -Path $candidate -PathType Leaf -ErrorAction SilentlyContinue) {
             return $candidate
         }
     }
 
     return ''
+}
+
+function Show-DanewWebBrowserReport {
+    # OFFLINE-SAFE: uses built-in MSHTML (IE11 engine) - no Chromium, no install required, works in WinPE
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [Parameter(Mandatory = $true)]
+        [string]$Title
+    )
+
+    if (-not (Test-Path -Path $Path -PathType Leaf -ErrorAction SilentlyContinue)) { return $false }
+
+    try {
+        [System.Windows.Forms.Application]::EnableVisualStyles()
+
+        $form = New-Object System.Windows.Forms.Form
+        $form.Text = $Title
+        $form.StartPosition = 'CenterParent'
+        $form.ClientSize = New-Object System.Drawing.Size(1040, 680)
+        $form.MinimumSize = New-Object System.Drawing.Size(780, 500)
+        $form.BackColor = [System.Drawing.Color]::FromArgb(30, 41, 59)
+        $form.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+        $form.TopMost = $true
+
+        $toolbar = New-Object System.Windows.Forms.Panel
+        $toolbar.Dock = [System.Windows.Forms.DockStyle]::Top
+        $toolbar.Height = 38
+        $toolbar.BackColor = [System.Drawing.Color]::FromArgb(30, 41, 59)
+        $toolbar.Padding = New-Object System.Windows.Forms.Padding(8, 4, 8, 4)
+
+        $titleLbl = New-Object System.Windows.Forms.Label
+        $titleLbl.Text = $Title
+        $titleLbl.ForeColor = [System.Drawing.Color]::FromArgb(203, 213, 225)
+        $titleLbl.Font = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)
+        $titleLbl.Left = 10
+        $titleLbl.Top = 10
+        $titleLbl.Width = 700
+        $titleLbl.Height = 20
+
+        $backBtn = New-Object System.Windows.Forms.Button
+        $backBtn.Text = '< Retour'
+        $backBtn.Width = 90
+        $backBtn.Height = 26
+        $backBtn.Top = 6
+        $backBtn.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Right
+        $backBtn.Left = $form.ClientSize.Width - 200
+        $backBtn.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+        $backBtn.BackColor = [System.Drawing.Color]::FromArgb(51, 65, 85)
+        $backBtn.ForeColor = [System.Drawing.Color]::FromArgb(148, 163, 184)
+        $backBtn.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(71, 85, 105)
+        $backBtn.Enabled = $false
+        $backBtn.add_Click({
+            if ($wb.CanGoBack) { $wb.GoBack() }
+        })
+
+        $closeBtn = New-Object System.Windows.Forms.Button
+        $closeBtn.Text = 'Fermer'
+        $closeBtn.Width = 90
+        $closeBtn.Height = 26
+        $closeBtn.Top = 6
+        $closeBtn.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Right
+        $closeBtn.Left = $form.ClientSize.Width - 100
+        $closeBtn.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+        $closeBtn.BackColor = [System.Drawing.Color]::FromArgb(51, 65, 85)
+        $closeBtn.ForeColor = [System.Drawing.Color]::White
+        $closeBtn.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(71, 85, 105)
+        $closeBtn.add_Click({ $form.Close() })
+
+        $noticeLbl = New-Object System.Windows.Forms.Label
+        $noticeLbl.Text = 'Affichage via moteur IE11 integre (WinPE). Rendu sans navigateur externe.'
+        $noticeLbl.ForeColor = [System.Drawing.Color]::FromArgb(100, 116, 139)
+        $noticeLbl.Font = New-Object System.Drawing.Font('Segoe UI', 8)
+        $noticeLbl.Dock = [System.Windows.Forms.DockStyle]::Bottom
+        $noticeLbl.Height = 18
+        $noticeLbl.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+        $noticeLbl.Padding = New-Object System.Windows.Forms.Padding(10, 0, 0, 0)
+        $noticeLbl.BackColor = [System.Drawing.Color]::FromArgb(15, 23, 42)
+
+        $wb = New-Object System.Windows.Forms.WebBrowser
+        $wb.Dock = [System.Windows.Forms.DockStyle]::Fill
+        $wb.ScrollBarsEnabled = $true
+        $wb.IsWebBrowserContextMenuEnabled = $false
+        $wb.WebBrowserShortcutsEnabled = $false
+        $wb.ScriptErrorsSuppressed = $true
+        $wb.Navigate('file:///' + $Path.Replace('\', '/'))
+
+        $wb.add_Navigated({
+            $backBtn.Enabled = $wb.CanGoBack
+            $backBtn.ForeColor = if ($wb.CanGoBack) {
+                [System.Drawing.Color]::White
+            } else {
+                [System.Drawing.Color]::FromArgb(71, 85, 105)
+            }
+            # Mise a jour du titre avec le rapport courant
+            $currentFile = [System.IO.Path]::GetFileNameWithoutExtension($wb.Url.LocalPath)
+            if (-not [string]::IsNullOrWhiteSpace($currentFile)) {
+                $titleLbl.Text = $currentFile + ' - ' + $Title
+            }
+        })
+
+        $toolbar.Controls.Add($titleLbl)
+        $toolbar.Controls.Add($backBtn)
+        $toolbar.Controls.Add($closeBtn)
+        $form.Controls.Add($wb)
+        $form.Controls.Add($toolbar)
+        $form.Controls.Add($noticeLbl)
+        $form.KeyPreview = $true
+        $form.add_KeyDown({
+            param($s, $e)
+            if ($e.KeyCode -eq [System.Windows.Forms.Keys]::Escape) { $form.Close() }
+        })
+
+        Write-DanewReportOpeningTrace -Status 'webbrowser-winforms-open' -Title $Title -Path $Path -Message 'Opening HTML in WinForms WebBrowser (MSHTML/IE11).'
+        $form.ShowDialog() | Out-Null
+        return $true
+    }
+    catch {
+        Write-DanewReportOpeningTrace -Status 'webbrowser-winforms-error' -Title $Title -Path $Path -Message $_.Exception.Message
+        return $false
+    }
 }
 
 function Open-DanewNativeReportFromHtml {
@@ -2289,11 +2410,17 @@ function Open-DanewReportFile {
     $reportBaseName = [System.IO.Path]::GetFileNameWithoutExtension($Path)
 
     if ($isHtmlReport) {
-        Write-DanewReportOpeningTrace -Status 'open-report-native-first' -Title $Title -Path $Path -Message 'HTML report redirected to native WinForms viewer first.'
+        # 1. WebBrowser WinForms (MSHTML/IE11) - natif WinPE, rendu HTML complet avec patterns/frise/CSS
+        Write-DanewReportOpeningTrace -Status 'open-report-webbrowser-first' -Title $Title -Path $Path -Message 'Trying WebBrowser WinForms (MSHTML) first - richest HTML rendering, no external dependency.'
+        if (Show-DanewWebBrowserReport -Path $Path -Title $Title) {
+            return $true
+        }
+        # 2. Viewer natif CSV/TXT - fallback si MSHTML indisponible ou erreur
+        Write-DanewReportOpeningTrace -Status 'open-report-webbrowser-failed' -Title $Title -Path $Path -Message 'WebBrowser failed; trying native CSV/TXT companion viewer.'
         if (Open-DanewNativeReportFromHtml -Path $Path -Title $Title) {
             return $true
         }
-        Write-DanewReportOpeningTrace -Status 'open-report-native-first-failed' -Title $Title -Path $Path -Message 'Native viewer failed; falling back to legacy open flow.'
+        Write-DanewReportOpeningTrace -Status 'open-report-native-failed' -Title $Title -Path $Path -Message 'Native companion failed; falling back to legacy Chromium/Notepad flow.'
     }
 
     $browser = ''
@@ -4028,7 +4155,7 @@ function Get-DanewWindowsDisplayFromOfflineReport {
         return 'Windows : Inconnu'
     }
 
-    # registry_metadata est un array — prendre le premier element valide
+    # registry_metadata est un array - prendre le premier element valide
     $regRaw = Get-DanewObjectValue -Object $offline -Name 'registry_metadata' -Default $null
     $registry = if ($regRaw -is [array]) { $regRaw | Where-Object { $_.status -eq 'PASS' } | Select-Object -First 1 } else { $regRaw }
     $productName = [string](Get-DanewObjectValue -Object $registry -Name 'product_name' -Default '')
@@ -4613,7 +4740,7 @@ $exportSavPackageButton = New-DanewActionButton -Text '7. EXPORTER LE DOSSIER SA
 [void]$quickActionsPanel.Controls.Add($exportSavPackageButton)
 
 $advancedToggleButton = New-Object System.Windows.Forms.Button
-$advancedToggleButton.Text = '< Outils avances'
+$advancedToggleButton.Text = 'AFFICHER LES OUTILS AVANCES'
 $advancedToggleButton.Width = 236
 $advancedToggleButton.Height = 40
 $advancedToggleButton.Margin = New-Object System.Windows.Forms.Padding(5, 4, 5, 4)
@@ -4632,7 +4759,7 @@ $advancedToggleButton.Add_Click({
 
 $technicalToggleButton = New-Object System.Windows.Forms.Button
 $technicalToggleButton.Name = 'ShowTechnicalDetailsButton'
-$technicalToggleButton.Text = '< Details techniques'
+$technicalToggleButton.Text = 'AFFICHER LES DETAILS TECHNIQUES'
 $technicalToggleButton.Width = 236
 $technicalToggleButton.Height = 40
 $technicalToggleButton.Margin = New-Object System.Windows.Forms.Padding(5, 4, 5, 4)
@@ -4663,11 +4790,11 @@ $recentActivityBox.Font = New-Object System.Drawing.Font('Consolas', 8.5)
 
 # Pre-fill with initial status
 $initStatus = @"
-[INIT] Gui-launcher démarré
+[INIT] Gui-launcher demarre
 [INIT] Theme: light
 [INIT] Rapports: HTML + TXT/CSV + JSON
-[INIT] Navigateur portable: détection en cours...
-[READY] Interface prête pour l'analyse
+[INIT] Navigateur portable: detection en cours...
+[READY] Interface prete pour l'analyse
 "@
 $recentActivityBox.Text = $initStatus.Trim()
 
