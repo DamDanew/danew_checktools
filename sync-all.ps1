@@ -22,16 +22,16 @@ foreach ($f in $files) {
     if (-not (Test-Path $srcPath)) { Write-Host "MISSING: $f"; continue }
     $srcHash = (Get-FileHash $srcPath -Algorithm SHA256).Hash
     foreach ($d in $dsts) {
-        $leaf = Split-Path $f -Leaf
-        $dstPath = Join-Path $d $leaf
+        # Preserve directory structure: scripts\launcher.ps1 -> D:\scripts\launcher.ps1
+        $dstPath = Join-Path $d $f
         $dstDir  = Split-Path $dstPath -Parent
         if (-not (Test-Path $dstDir -ErrorAction SilentlyContinue)) {
-            Write-Host "SKIP $leaf -> ${d}: dir missing"; $skip++; continue
+            New-Item -Path $dstDir -ItemType Directory -Force | Out-Null
         }
         Copy-Item $srcPath $dstPath -Force
         $match = (Get-FileHash $dstPath -Algorithm SHA256).Hash -eq $srcHash
         $icon = if ($match) { 'OK' } else { 'MISMATCH' }
-        Write-Host "$icon  $leaf -> $d"
+        Write-Host "$icon  $f -> ${d}\"
         $ok++
     }
 }
