@@ -5121,6 +5121,8 @@ $openSavReportButton = New-DanewActionButton -Text '3. OUVRIR LE RAPPORT SAV' -A
 if ($script:IsWinPE) {
     # WinPE : les rapports HTML s'ouvrent sur le PC technicien — cacher definitivement
     # les boutons HTML et les exclure des ActionButtons.
+    $openReportsButton.Visible = $false
+    $openTextReportsButton.Visible = $false
     $openTimelineReportButton.Visible = $false
     $openTimelineFastReportButton.Visible = $false
     $openSavReportButton.Visible = $false
