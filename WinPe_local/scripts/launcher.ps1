@@ -4,7 +4,7 @@ param(
     [string]$ConfigPath,
     [switch]$FallbackToCli,
     [switch]$ForceGuiInitFailure,
-    [ValidateSet('Interactive', 'scan-winpe', 'capability-analysis', 'generate-report', 'open-reports-folder', 'export-diagnostic-package', 'prepare-startnet', 'start-diagnostic', 'analyze-offline-logs', 'analyze-offline-logs-fast', 'analyze-offline-logs-full', 'analyze-crash-causes', 'precheck-winpe', 'export-evtx-targeted', 'export-evtx-zip', 'check-browser', 'create-usb-media', 'real-winpe-validation', 'refresh-status', 'show-status', 'view-last-report', 'open-sav-report', 'open-reports-index', 'open-text-reports-list', 'generate-timeline-html', 'generate-html-reports', 'prepare-reports-for-tech', 'copy-sav-resume', 'exit')]
+    [ValidateSet('Interactive', 'scan-winpe', 'capability-analysis', 'generate-report', 'open-reports-folder', 'export-diagnostic-package', 'prepare-startnet', 'start-diagnostic', 'analyze-offline-logs', 'analyze-offline-logs-fast', 'analyze-offline-logs-full', 'analyze-crash-causes', 'precheck-winpe', 'export-evtx-targeted', 'export-evtx-zip', 'check-browser', 'create-usb-media', 'real-winpe-validation', 'refresh-status', 'show-status', 'view-last-report', 'open-sav-report', 'open-reports-index', 'open-text-reports-list', 'generate-timeline-html', 'generate-html-reports', 'prepare-reports-for-tech', 'copy-sav-resume', 'analyze-windows-version', 'exit')]
     [Alias('Action')]
     [string]$CliFallbackCommand = 'Interactive'
 )
@@ -2935,6 +2935,27 @@ function Update-DanewReportAvailability {
             if ($toolTip) { [void]$toolTip.SetToolTip($exportBtn4, 'Actualise la disponibilite des rapports et l etat du systeme.') }
         }
     }
+
+    # En WinPE : afficher le groupe "Analyses spécialisées" si Windows est détecté
+    if ($script:IsWinPE -and $specializedAnalysisGroup) {
+        $offlineData = Get-DanewReportJson -Name 'offline-windows-analysis.json'
+        $hasOfflineData = $null -ne $offlineData
+
+        if ($hasOfflineData) {
+            $regRaw = Get-DanewObjectValue -Object $offlineData -Name 'registry_metadata' -Default $null
+            $registry = if ($regRaw -is [array]) { $regRaw | Where-Object { $_.status -eq 'PASS' } | Select-Object -First 1 } else { $regRaw }
+            $windowsDetected = $null -ne $registry
+        }
+        else {
+            $windowsDetected = $false
+        }
+
+        $specializedAnalysisGroup.Visible = $windowsDetected
+        if ($analyzeWindowsButton -and $windowsDetected) {
+            $analyzeWindowsButton.Enabled = $true
+            if ($toolTip) { [void]$toolTip.SetToolTip($analyzeWindowsButton, 'Affiche les details du Windows detecte : version, build, release ID, date installation. Lecture seule.') }
+        }
+    }
 }
 
 function Set-DanewValueLabel {
@@ -3664,6 +3685,48 @@ function Invoke-GuiAction {
                 Set-DanewSummaryVisual -Status 'WARNING' -Text ('Lecture evtx-sav-summary.txt impossible : ' + $_.Exception.Message)
                 Add-DiagnosticProgressLine -Line ('[COPY] Echec lecture : ' + $_.Exception.Message)
             }
+            return
+        }
+
+        if ($Action -eq 'analyze-windows-version') {
+            # Affiche les details du Windows detecte dans un dialogue
+            $offlineData = Get-DanewReportJson -Name 'offline-windows-analysis.json'
+            if (-not $offlineData) {
+                Set-DanewSummaryVisual -Status 'WARNING' -Text 'offline-windows-analysis.json introuvable — lancer une analyse d abord.'
+                return
+            }
+
+            $regRaw = Get-DanewObjectValue -Object $offlineData -Name 'registry_metadata' -Default $null
+            $registry = if ($regRaw -is [array]) { $regRaw | Where-Object { $_.status -eq 'PASS' } | Select-Object -First 1 } else { $regRaw }
+
+            if (-not $registry) {
+                Set-DanewSummaryVisual -Status 'WARNING' -Text 'Metadonnees de registre non trouvees — Windows non detecte ou donnees corrompues.'
+                return
+            }
+
+            $productName = [string](Get-DanewObjectValue -Object $registry -Name 'product_name' -Default 'Inconnu')
+            $displayVersion = [string](Get-DanewObjectValue -Object $registry -Name 'display_version' -Default '')
+            $releaseId = [string](Get-DanewObjectValue -Object $registry -Name 'release_id' -Default '')
+            $currentBuild = [string](Get-DanewObjectValue -Object $registry -Name 'current_build' -Default 'Inconnu')
+            $installDate = [string](Get-DanewObjectValue -Object $registry -Name 'install_date' -Default 'Inconnu')
+
+            # Construire le message de dialogue
+            $windowsInfo = "=== DETAILS DU WINDOWS DETECTE ===`n`n"
+            $windowsInfo += "Produit : $productName`n"
+            $windowsInfo += "Build : $currentBuild`n"
+
+            if (-not [string]::IsNullOrWhiteSpace($displayVersion)) {
+                $windowsInfo += "Version : $displayVersion`n"
+            }
+            if (-not [string]::IsNullOrWhiteSpace($releaseId)) {
+                $windowsInfo += "Release ID : $releaseId`n"
+            }
+            if (-not [string]::IsNullOrWhiteSpace($installDate) -and $installDate -ne 'Inconnu') {
+                $windowsInfo += "Date installation : $installDate`n"
+            }
+
+            [System.Windows.Forms.MessageBox]::Show($windowsInfo, 'Analyse de version Windows', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
+            Set-DanewSummaryVisual -Status 'PASS' -Text ('Windows : ' + $productName + ' (Build ' + $currentBuild + ') — details affiches')
             return
         }
 
@@ -4961,10 +5024,26 @@ foreach ($step in @(
 $summaryLabel = $savSummaryLabel
 $overallBadgeLabel = $savOverallBadgeLabel
 
+# Nouvelle section : Analyses spécialisées (visible en WinPE si Windows détecté)
+$specializedAnalysisGroup = New-Object System.Windows.Forms.GroupBox
+$specializedAnalysisGroup.Text = 'Analyses spécialisées'
+$specializedAnalysisGroup.Left = 14
+$specializedAnalysisGroup.Top = 316
+$specializedAnalysisGroup.Width = 872
+$specializedAnalysisGroup.Height = 74
+$specializedAnalysisGroup.Anchor = 'Top,Left,Right'
+$specializedAnalysisGroup.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
+$specializedAnalysisGroup.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
+$specializedAnalysisGroup.Visible = $false  # Visible seulement si Windows détecté en WinPE
+
+$analyzeWindowsButton = New-DanewActionButton -Text 'ANALYSER WINDOWS' -Action 'analyze-windows-version' -ToolTip $toolTip -Hint 'Affiche les details du Windows detecte : version, build, release ID, date installation. Lecture seule.' -Tone 'neutral'
+$analyzeWindowsButton.Width = 200
+[void]$specializedAnalysisGroup.Controls.Add($analyzeWindowsButton)
+
 $simpleActionsGroup = New-Object System.Windows.Forms.GroupBox
 $simpleActionsGroup.Text = 'Rapports / Exports'
 $simpleActionsGroup.Left = 14
-$simpleActionsGroup.Top = 586
+$simpleActionsGroup.Top = 400
 $simpleActionsGroup.Width = 872
 $simpleActionsGroup.Height = 74
 $simpleActionsGroup.Anchor = 'Top,Left,Right'
@@ -5389,6 +5468,7 @@ $progressBox.Dock = 'None'
 [void]$form.Controls.Add($headerPanel)
 [void]$form.Controls.Add($statusGroup)
 [void]$form.Controls.Add($primaryGroup)
+[void]$form.Controls.Add($specializedAnalysisGroup)
 [void]$form.Controls.Add($simpleActionsGroup)
 [void]$form.Controls.Add($quickActionsGroup)
 [void]$form.Controls.Add($togglePanel)
