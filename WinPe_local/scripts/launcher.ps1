@@ -106,7 +106,7 @@ $script:TechnicalDetailsVisible = $false
 $script:SavSummaryDetailsVisible = $false
 $script:SavSummaryDetailControls = @()
 $script:BaseFormClientWidth = 900
-$script:BaseFormClientHeight = 720
+$script:BaseFormClientHeight = 800
 $script:DockedTechnicalFormClientWidth = 1240
 $script:TechnicalDockWidth = 330
 $script:TechnicalTopPanelHeight = 196
@@ -4234,10 +4234,10 @@ if ($config.PSObject.Properties['runtime_mode']) {
 }
 $form.Text = 'Outil de diagnostic SAV Danew'
 $form.StartPosition = 'CenterScreen'
-$form.ClientSize = New-Object System.Drawing.Size(900, 720)
+$form.ClientSize = New-Object System.Drawing.Size(900, 800)
 $form.TopMost = $true
 $form.AutoScroll = $true
-$form.AutoScrollMinSize = New-Object System.Drawing.Size(900, 720)
+$form.AutoScrollMinSize = New-Object System.Drawing.Size(900, 800)
 $form.MinimumSize = New-Object System.Drawing.Size(800, 560)
 $form.BackColor = [System.Drawing.Color]::FromArgb(243, 246, 252)
 $form.Font = New-Object System.Drawing.Font('Segoe UI', 9)
