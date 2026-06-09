@@ -5119,6 +5119,10 @@ $openTimelineReportButton = New-DanewActionButton -Text '1. COMPLET TOUS LES LOG
 $openTimelineFastReportButton = New-DanewActionButton -Text '2. RAPIDE CRIT/ERR/AVERT.' -Action 'open-timeline-fast-report' -ToolTip $toolTip -Hint 'Ouvre la vue rapide des journaux Windows limitee aux evenements critiques, erreurs et avertissements, regroupes par fichier EVTX.' -Tone 'primary'
 $openSavReportButton = New-DanewActionButton -Text '3. OUVRIR LE RAPPORT SAV' -Action 'open-sav-report' -ToolTip $toolTip -Hint 'Ouvre le rapport SAV principal. A utiliser apres analyse des journaux ou analyse des causes de crash. Si absent, ouvre l index des rapports.' -Tone 'primary'
 if ($script:IsWinPE) {
+    # WinPE : cache la zone resume SAV (statut/confiance/cause) — pas utile en WinPE
+    # Recupere de l'espace pour les actions essentielles (analyses, exports)
+    $statusGroup.Visible = $false
+
     # WinPE : les rapports HTML s'ouvrent sur le PC technicien — cacher definitivement
     # les boutons HTML et les exclure des ActionButtons.
     $openReportsButton.Visible = $false
